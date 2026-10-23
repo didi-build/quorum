@@ -13,7 +13,7 @@
     "dev": "npm run build:frontend && wrangler dev",
     "build:frontend": "vite build --config frontend/vite.config.ts",
     "build": "npm run build:frontend",
-    "test:worker": "vitest run --config vitest.worker.config.ts",
+    "test:worker": "npm run build:frontend && vitest run --config vitest.worker.config.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
