@@ -18,19 +18,19 @@ function vitestLine(label, junitPath) {
   const failed = failures + errors;
   const passed = Math.max(0, tests - failed);
   const icon = failed === 0 ? "✅" : "❌";
-  return `${icon} **${label}** — ${passed}/${tests} passed (${failed} failed)`;
+  return `${icon} **${label}**: ${passed}/${tests} passed (${failed} failed)`;
 }
 
 function stepLine(label, outcome, detail) {
   const icon = outcome === "success" ? "✅" : "❌";
-  return `${icon} **${label}** — \`${outcome}\`${detail ? ` (${detail})` : ""}`;
+  return `${icon} **${label}**: \`${outcome}\`${detail ? ` (${detail})` : ""}`;
 }
 
 const lines = [];
 
 if (installOutcome !== "success") {
   lines.push(
-    `❌ **npm ci** — \`${installOutcome}\` (dependency install failed; tests and check did not run)`,
+    `❌ **npm ci**: \`${installOutcome}\` (dependency install failed; tests and check did not run)`,
   );
   lines.push(
     "_Common on major Dependabot bumps: peer dependency conflicts. Review the workflow log for the npm ci step._",

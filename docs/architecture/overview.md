@@ -1,4 +1,4 @@
-# Architecture overview — Quorum
+# Architecture overview: Quorum
 
 Quorum is a multi-seat AI council that reaches consensus recommendations over knowledge indexed from GitHub and Linear. Stack and porting choices are in [ADR 0004](../decisions/0004-quorum-stack-port.md).
 
