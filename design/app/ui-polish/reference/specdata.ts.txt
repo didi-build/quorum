@@ -1,0 +1,52 @@
+/* Mock data for the variant A spec. Every field maps to a v1 type in frontend/src/types/. */
+import type { Citation, KnowledgeSource } from "./data";
+
+export const DIRECT_Q = "Where does launchpad refresh a session?";
+export const DIRECT_ANSWER =
+  "Sessions are refreshed in the session middleware. On every request it reads the session from the store, and when it expires within 15 minutes it writes it back with a fresh TTL. The client never calls a refresh endpoint; the cookie is reissued on the next response.";
+export const DIRECT_CITES: Citation[] = [
+  {
+    document_id: "didi-build/launchpad/src/session/middleware.ts",
+    chunk_index: 55,
+    knowledge_source_id: "src-launchpad",
+    excerpt:
+      "if (session.expiresAt - now < 15 * MINUTE) {\n  await store.put(id, session, SESSION_TTL);\n  res.headers.append(\"Set-Cookie\", sessionCookie(id));\n}",
+  },
+  {
+    document_id: "didi-build/launchpad/src/session/store.ts",
+    chunk_index: 11,
+    knowledge_source_id: "src-launchpad",
+    excerpt: "export interface SessionStore {\n  get(id: string): Promise<Session | null>;\n  put(id: string, s: Session, ttl: number): Promise<void>;\n}",
+  },
+];
+
+export const NOTHING_Q = "What did we decide about rate limits for the public API?";
+/* v1 backend copy, src/domain/chat/handlers/retrieval.py */
+export const NOTHING_ANSWER =
+  "I could not find indexed knowledge that answers that question yet. Try connecting a source or rephrasing the query.";
+
+export const STUB_Q = "Open a Linear issue to track the D1 cutover";
+/* v1 backend copy, src/domain/chat/handlers/linear.py (shown in the spec as the fallback line) */
+export const STUB_CONTENT = "Linear write request identified, not yet implemented.";
+
+/* WriteBackPlan -> planActionLines() in frontend/src/lib/writeBackPlan.ts */
+export const PLAN_LINES = ["Update docs/architecture/sessions.md", "Create Linear roadmap item"];
+export const PLAN_LINES_REFINED = ["Create new doc: session-store-cutover", "Create Linear roadmap item"];
+export const FEEDBACK_DRAFT = "Put this in a new doc for the cutover instead of editing the architecture page.";
+/* WriteBackExecutionResult[] labels and urls come from the API */
+export const RESULTS = [
+  { kind: "github_pr" as const, label: "didi-build/launchpad #142: Add session store cutover doc", url: "#pr" },
+  { kind: "linear_issue" as const, label: "DIDI-731: Move sessions to D1 after the public beta", url: "#issue" },
+];
+
+export const NOT_ALLOWED_LOGIN = "sam-rivera";
+
+export const SOURCES_EMPTY: KnowledgeSource[] = [];
+
+/* Error wording. Raw API errors are never shown; each status maps to one sentence and one next step. */
+export const ERRORS = [
+  { code: "401", name: "Session ended", text: "Your session has ended. Sign in again to keep going.", action: "Sign in again" },
+  { code: "403", name: "Access lost", text: "Quorum can't read didi-build/legacy-api anymore. Give it access in GitHub, then refresh.", action: "Check GitHub access" },
+  { code: "429", name: "Rate limited", text: "GitHub asked Quorum to slow down. Wait a minute, then try again.", action: "Try again" },
+  { code: "5xx", name: "Server error", text: "Something went wrong on our side. Try again in a moment.", action: "Try again" },
+];

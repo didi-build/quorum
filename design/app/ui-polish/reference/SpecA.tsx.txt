@@ -1,0 +1,865 @@
+/* Quorum UI polish (rebuild of v1 domAIn), variant A: every v1 screen and state, driven by a state id. */
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import "./a.css";
+import "./spec.css";
+import "./proto.css";
+import {
+  COUNCIL, QUESTION, SOURCES, USER, REPOS, TEAMS, GITHUB_ACCOUNT, LINEAR_WORKSPACE, SEATS3, SEATS10,
+  verdictHuman, addLabel, usePicker,
+  type Citation, type KnowledgeSource, type SeatData, type Verdict, type ThemeName,
+} from "./data";
+import {
+  DIRECT_Q, DIRECT_ANSWER, DIRECT_CITES, NOTHING_Q, NOTHING_ANSWER, STUB_Q, PLAN_LINES, PLAN_LINES_REFINED,
+  FEEDBACK_DRAFT, RESULTS, NOT_ALLOWED_LOGIN, ERRORS,
+} from "./specdata";
+import {
+  DomMark, IcCheck, IcChevron, IcDown, IcExternal, IcFile, IcGitHub, IcLinear, IcLock, IcMore, IcPlus,
+  IcRefresh, IcSearch, IcSend, IcTrash, IcX, SourceIcon,
+} from "./icons";
+
+/* ---------- state registry ---------- */
+export type GroupId = "foundations" | "entry" | "chat" | "council" | "writeback" | "connections" | "picker";
+export interface StateDef { id: string; label: string }
+export const GROUPS: { id: GroupId; label: string; states: StateDef[] }[] = [
+  { id: "foundations", label: "Foundations", states: [
+    { id: "f-tokens", label: "Tokens" }, { id: "f-mark", label: "App mark" },
+    { id: "f-layout", label: "Layout and nav" }, { id: "f-errors", label: "Error wording" },
+  ] },
+  { id: "entry", label: "Entry", states: [
+    { id: "e-landing", label: "Landing" }, { id: "e-landing-down", label: "Landing, health down" },
+    { id: "e-signin", label: "Sign in" }, { id: "e-signin-busy", label: "Sign in, redirecting" },
+    { id: "e-notallowed", label: "Not on allowlist" }, { id: "e-notallowed-error", label: "Allowlist, load failed" },
+    { id: "e-loading", label: "Loading" },
+  ] },
+  { id: "chat", label: "Chat", states: [
+    { id: "c-nosources", label: "No sources yet" }, { id: "c-history", label: "Loading history" },
+    { id: "c-empty", label: "Ready, empty" }, { id: "c-direct", label: "Direct answer" },
+    { id: "c-nothing", label: "Nothing found" }, { id: "c-stub", label: "Linear stub" },
+    { id: "c-connecting", label: "Connecting" }, { id: "c-closed", label: "Closed or failed" },
+    { id: "c-senderror", label: "Send failed" },
+  ] },
+  { id: "council", label: "Council", states: [
+    { id: "k-understanding", label: "Understanding" }, { id: "k-alerting", label: "Alerting" },
+    { id: "k-waiting", label: "Waiting" }, { id: "k-deliberating", label: "Deliberating" },
+    { id: "k-result", label: "Result, 3 seats" }, { id: "k-result10", label: "Result, 10 seats" },
+  ] },
+  { id: "writeback", label: "Write-back", states: [
+    { id: "w-propose", label: "Propose" }, { id: "w-proposing", label: "Proposing" },
+    { id: "w-plan", label: "Plan shown" }, { id: "w-refine", label: "Refine" },
+    { id: "w-refined", label: "Plan refined" }, { id: "w-empty", label: "Nothing to do" },
+    { id: "w-executing", label: "Executing" }, { id: "w-created", label: "Created" },
+    { id: "w-failed", label: "Failed, plan kept" },
+  ] },
+  { id: "connections", label: "Connections", states: [
+    { id: "n-none", label: "Nothing connected" }, { id: "n-loading", label: "Loading" },
+    { id: "n-list", label: "Connected, all states" }, { id: "n-menu", label: "Row menu, refreshing" },
+    { id: "n-remove", label: "Remove confirm" }, { id: "n-account", label: "Account menu" },
+    { id: "n-error", label: "Load failed" },
+  ] },
+  { id: "picker", label: "Add source", states: [
+    { id: "p-github", label: "GitHub repos" }, { id: "p-linear", label: "Linear teams" },
+    { id: "p-search", label: "Search, no match" }, { id: "p-loading", label: "Loading" },
+    { id: "p-empty", label: "Empty" }, { id: "p-error", label: "Error" },
+    { id: "p-notconnected", label: "Not connected" }, { id: "p-adding", label: "Adding" },
+    { id: "p-added", label: "Added" },
+  ] },
+];
+export const groupOf = (state: string) => GROUPS.find((g) => g.states.some((s) => s.id === state))?.id ?? "chat";
+
+/* ---------- shared bits ---------- */
+const Verdict = ({ v }: { v: Verdict }) => <span className={`verdict v-${v}`}>{verdictHuman[v]}</span>;
+const Spin = () => <span className="spin" aria-hidden="true" />;
+const Pulse = () => <span className="pulse" aria-hidden="true" />;
+
+function AccountMenu({ onClose }: { onClose?: () => void }) {
+  return (
+    <div className="acct-menu" role="menu" aria-label="Account">
+      <div className="acct-menu-h">
+        <span className="avatar avatar-lg" aria-hidden="true">{USER.initials}</span>
+        <span className="acct-menu-id"><b>@{USER.login}</b><span className="small muted">Signed in with GitHub</span></span>
+      </div>
+      <a role="menuitem" href="#connections" className="acct-menu-item" onClick={onClose}>Connections</a>
+      <button role="menuitem" type="button" className="acct-menu-item" onClick={onClose}>Sign out</button>
+    </div>
+  );
+}
+
+function Bar({ active, menu = false }: { active: "chat" | "connections"; menu?: boolean }) {
+  const [open, setOpen] = useState(menu);
+  return (
+    <header className="bar">
+      <span className="brand"><DomMark size={26} /><span className="word">Quorum</span></span>
+      <nav className="seg" aria-label="Sections">
+        <a href="#chat" aria-current={active === "chat" ? "page" : undefined}>Chat</a>
+        <a href="#connections" aria-current={active === "connections" ? "page" : undefined}>Connections</a>
+      </nav>
+      <div className="acct-wrap">
+        <button type="button" className="avatar" aria-haspopup="menu" aria-expanded={open} aria-label={`Account menu for @${USER.login}`} onClick={() => setOpen(!open)}>{USER.initials}</button>
+        {open ? <AccountMenu onClose={() => setOpen(false)} /> : null}
+      </div>
+    </header>
+  );
+}
+
+function Cite({ c, open: o = false }: { c: Citation; open?: boolean }) {
+  const [open, setOpen] = useState(o);
+  const lines = c.excerpt.split("\n");
+  const start = c.chunk_index + 1;
+  const short = c.document_id.replace("didi-build/", "");
+  return (
+    <div className="cite">
+      <button type="button" className="cite-h" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span style={{ display: "inline-flex", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}><IcChevron size={12} /></span>
+        <span className="path">{short}</span>
+        <span>L{start}{lines.length > 1 ? `:${start + lines.length - 1}` : ""}</span>
+      </button>
+      {open ? <pre>{lines.map((l, i) => <div key={i} className={i === 0 ? "hit" : undefined}><span className="ln">{start + i}</span>{l}</div>)}</pre> : null}
+    </div>
+  );
+}
+
+function Seat({ o, compact }: { o: SeatData; compact?: boolean }) {
+  const [open, setOpen] = useState(!compact);
+  const head = (<><span className="seat-mark" style={{ color: o.color }}>{o.mark}</span><span className="seat-name">{o.name}</span><Verdict v={o.verdict} /></>);
+  return (
+    <article className="seat" data-compact={compact ? "true" : "false"} data-open={open ? "true" : "false"}>
+      {compact ? (
+        <button type="button" className="seat-h seat-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>{head}<span className="chev" aria-hidden="true"><IcDown size={14} /></span></button>
+      ) : <div className="seat-h">{head}</div>}
+      {open ? (<><p>{o.reasoning}</p><div className="seat-cites">{o.citations.map((c) => <Cite key={c.document_id} c={c} />)}</div></>) : null}
+    </article>
+  );
+}
+
+const citeLabel = (c: Citation) => {
+  const base = c.document_id.split("/").pop() ?? c.document_id;
+  return c.knowledge_source_id === "src-linear" ? c.document_id.replace("Didi Build / ", "") : `${base} L${c.chunk_index + 1}`;
+};
+
+/* ---------- write-back ---------- */
+export type WB = "idle" | "proposing" | "plan" | "refine" | "refined" | "empty" | "executing" | "created" | "failed";
+
+function WriteBack({ wb }: { wb: WB }) {
+  const [feedback, setFeedback] = useState(wb === "refine" ? FEEDBACK_DRAFT : "");
+  if (wb === "idle" || wb === "proposing") {
+    return (
+      <div className="chair-actions">
+        <button type="button" className="btn btn-primary btn-sm" disabled={wb === "proposing"}>
+          {wb === "proposing" ? <><Spin />Proposing write-back</> : "Propose write-back"}
+        </button>
+      </div>
+    );
+  }
+  if (wb === "created") {
+    return (
+      <section className="wb wb-done" aria-label="Write-back created">
+        <div className="wb-h"><span className="wb-ok"><IcCheck size={12} /></span><b>Written back</b></div>
+        <ul className="wb-results">
+          {RESULTS.map((r) => (
+            <li key={r.url}>
+              {r.kind === "github_pr" ? <IcGitHub size={14} /> : <IcLinear size={13} />}
+              <a href={r.url} className="link">{r.label}<IcExternal size={12} /></a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+  const lines = wb === "refined" ? PLAN_LINES_REFINED : PLAN_LINES;
+  const busy = wb === "executing";
+  return (
+    <section className="wb" aria-label="Write-back plan">
+      <div className="wb-h"><b>Write-back plan</b><span className="small muted">Nothing is created until you confirm.</span></div>
+      {wb === "failed" ? (
+        <div className="callout callout-err" role="alert">
+          <b>Nothing was created.</b> Something went wrong on our side, so it's safe to try again.
+        </div>
+      ) : null}
+      {wb === "empty" ? (
+        <p className="wb-empty small">No follow-up action needed. The recommendation doesn't call for a doc change or a roadmap item.</p>
+      ) : (
+        <ul className="wb-lines">
+          {lines.map((l) => (
+            <li key={l}>{l.startsWith("Create Linear") ? <IcLinear size={13} /> : <IcFile size={14} />}<span>{l}</span></li>
+          ))}
+        </ul>
+      )}
+      <label className="wb-field">
+        <span className="small muted">Suggest a change</span>
+        <textarea rows={2} value={feedback} disabled={busy} placeholder="Optional refinement notes" onChange={(e) => setFeedback(e.target.value)} />
+      </label>
+      <div className="wb-actions">
+        <button type="button" className="btn btn-secondary btn-sm" disabled={busy || wb === "refine" || !feedback.trim()}>
+          {wb === "refine" ? <><Spin />Refining</> : "Refine"}
+        </button>
+        {wb === "empty" ? null : wb === "failed" ? (
+          <button type="button" className="btn btn-primary btn-sm"><IcRefresh size={13} />Retry</button>
+        ) : (
+          <button type="button" className="btn btn-primary btn-sm" disabled={busy || wb === "refine"}>{busy ? <><Spin />Creating</> : "Confirm"}</button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function Chair({ seats, wb = "idle", innerRef }: { seats: SeatData[]; wb?: WB; innerRef?: Ref<HTMLElement> }) {
+  const cites: Citation[] = [];
+  for (const s of seats) for (const c of s.citations) if (!cites.some((x) => x.document_id === c.document_id)) cites.push(c);
+  const [sel, setSel] = useState<string | null>(null);
+  const picked = cites.find((c) => c.document_id === sel);
+  return (
+    <article className="chair" ref={innerRef} aria-label="Chair's recommendation">
+      <div className="chair-h">
+        <span className="chair-mark"><DomMark size={18} /></span>
+        <span className="ovl">Chair's recommendation</span>
+        <Verdict v={COUNCIL.overall_verdict} />
+      </div>
+      <p className="syn">{COUNCIL.synthesis}</p>
+      <div className="chair-cites">
+        <span className="ovl ovl-sm">Cited by the council</span>
+        <div className="chips">
+          {cites.map((c) => (
+            <button type="button" key={c.document_id} className="cchip" aria-pressed={sel === c.document_id} title={c.document_id} onClick={() => setSel(sel === c.document_id ? null : c.document_id)}>
+              {c.knowledge_source_id === "src-linear" ? <IcLinear size={11} /> : <IcGitHub size={12} />}<span>{citeLabel(c)}</span>
+            </button>
+          ))}
+        </div>
+        {picked ? <pre className="chair-pre"><span className="chair-pre-h">{picked.document_id}</span>{"\n"}{picked.excerpt}</pre> : null}
+      </div>
+      <WriteBack key={wb} wb={wb} />
+    </article>
+  );
+}
+
+/* ---------- council in progress ---------- */
+type SeatStatus = null | "pondering" | "researching" | "giving_recommendation" | "recommendation_ready";
+const SEAT_LABEL: Record<string, string> = { pondering: "Pondering", researching: "Researching", giving_recommendation: "Giving recommendation", recommendation_ready: "Recommendation ready" };
+const SUP_LABEL: Record<string, string> = { alerting_council: "Alerting council", waiting_on_council: "Waiting on council", council_deliberating: "Council deliberating" };
+
+function PendingCouncil({ sup, statuses, mobile }: { sup: string; statuses: SeatStatus[]; mobile?: boolean }) {
+  return (
+    <article className="council-pending" aria-live="polite" aria-label="Council in progress">
+      <div className="pending-h"><Pulse /><span>{SUP_LABEL[sup]}</span></div>
+      <div className="seats seats-pending" data-mobile={mobile ? "true" : "false"}>
+        {SEATS3.map((s, i) => {
+          const st = statuses[i];
+          const ready = st === "recommendation_ready";
+          return (
+            <div key={s.id} className="pseat" data-ready={ready}>
+              <div className="seat-h"><span className="seat-mark" style={{ color: s.color }}>{s.mark}</span><span className="seat-name">{s.name}</span></div>
+              <span className={`pstat${ready ? " ok" : st ? " live" : ""}`}>
+                {ready ? <IcCheck size={12} /> : st ? <Pulse /> : <span className="dot dot-idle" />}
+                {st ? SEAT_LABEL[st] : "Waiting"}
+              </span>
+              {mobile ? null : <div className="skel" aria-hidden="true"><i /><i /><i style={{ width: "62%" }} /></div>}
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+/* ---------- chat shell ---------- */
+type DockMode = "ready" | "none" | "busy" | "connecting" | "closed" | "error";
+function Dock({ mode, mobile }: { mode: DockMode; mobile?: boolean }) {
+  const [text, setText] = useState("");
+  const disabled = mode === "busy" || mode === "connecting" || mode === "closed";
+  return (
+    <div className="dock">
+      <div className="dock-in">
+        {mode === "connecting" ? (
+          <div className="strip"><Spin /><span>Connecting live updates</span></div>
+        ) : mode === "closed" ? (
+          <div className="strip strip-err" role="alert">
+            <span>Live updates stopped. Refresh the page to reconnect.</span>
+            <button type="button" className="btn btn-secondary btn-sm"><IcRefresh size={13} />Refresh</button>
+          </div>
+        ) : mode === "error" ? (
+          <div className="strip strip-err" role="alert">
+            <span>Something went wrong on our side. Try again in a moment.</span>
+            <button type="button" className="icon-btn" aria-label="Dismiss"><IcX size={14} /></button>
+          </div>
+        ) : mode === "none" ? (
+          <a className="srcline" href="#connections"><span className="dot dot-idle" />No sources yet. Add one in Connections</a>
+        ) : (
+          <a className="srcline" href="#connections"><span className="dot dot-ready" />Answering from 2 sources</a>
+        )}
+        <form className="composer" data-disabled={disabled} onSubmit={(e) => { e.preventDefault(); setText(""); }}>
+          <textarea rows={1} value={text} disabled={disabled} onChange={(e) => setText(e.target.value)}
+            placeholder={mode === "busy" ? "Quorum is answering" : mobile ? "Ask a question" : "Ask a question or submit a proposal for review"} aria-label="Message" />
+          <button type="submit" className="send" aria-label="Send" disabled={disabled || !text.trim()}><IcSend size={16} /></button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ChatShell({ children, dock, mobile, top = false }: { children: ReactNode; dock: DockMode; mobile?: boolean; top?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (top) return;
+    const go = () => { const el = ref.current; if (el) el.scrollTop = el.scrollHeight; };
+    go(); const t = setTimeout(go, 120); return () => clearTimeout(t);
+  }, [top]);
+  return (
+    <div className="chat-shell">
+      <Bar active="chat" />
+      <div className="scroller" ref={ref}><section className="thread" aria-live="polite">{children}</section></div>
+      <Dock mode={dock} mobile={mobile} />
+    </div>
+  );
+}
+
+const You = ({ text }: { text: string }) => <div className="you">{text}</div>;
+const Who = ({ route }: { route: string }) => <div className="who"><DomMark size={18} /><b>Quorum</b><span className="route">{route}</span></div>;
+
+function Chat({ state, mobile }: { state: string; mobile?: boolean }) {
+  if (state === "c-nosources") {
+    return (
+      <ChatShell dock="none" mobile={mobile} top>
+        <div className="empty-hero">
+          <DomMark size={40} />
+          <h2>Connect a source to start</h2>
+          <p className="muted">Quorum answers from your code and issues, so it needs something to read first. Most repos are ready in a few minutes.</p>
+          <div className="empty-cards">
+            <a className="empty-card" href="#connections"><IcGitHub size={18} /><span><b>GitHub</b><span className="small muted">Repositories you choose</span></span><span className="btn btn-secondary btn-sm">Connect</span></a>
+            <a className="empty-card" href="#connections"><IcLinear size={16} /><span><b>Linear</b><span className="small muted">Your team's issues</span></span><span className="btn btn-secondary btn-sm">Connect</span></a>
+          </div>
+          <a className="link small" href="#connections">Go to Connections<IcChevron size={12} /></a>
+        </div>
+      </ChatShell>
+    );
+  }
+  if (state === "c-history") {
+    return (
+      <ChatShell dock="ready" mobile={mobile} top>
+        <div className="loading-line" role="status"><Spin />Loading chat history</div>
+        <div className="skel-thread" aria-hidden="true"><i className="r" /><i /><i /><i className="s" /></div>
+      </ChatShell>
+    );
+  }
+  if (state === "c-empty") {
+    return (
+      <ChatShell dock="ready" mobile={mobile} top>
+        <div className="empty-hero">
+          <DomMark size={40} />
+          <h2>Ask about your code, issues or a decision</h2>
+          <p className="muted">Quick questions get a direct answer with sources. Proposals and hard calls go to the council: three seats review it, then the chair recommends.</p>
+        </div>
+      </ChatShell>
+    );
+  }
+  const connection = state === "c-connecting" ? "connecting" : state === "c-closed" ? "closed" : state === "c-senderror" ? "error" : "ready";
+  if (state === "c-nothing") {
+    return (
+      <ChatShell dock="ready" mobile={mobile}>
+        <You text={NOTHING_Q} />
+        <Who route="Direct answer" />
+        <div className="answer">
+          <p>{NOTHING_ANSWER}</p>
+          <div className="answer-foot"><a className="btn btn-secondary btn-sm" href="#connections">Open Connections</a></div>
+        </div>
+      </ChatShell>
+    );
+  }
+  if (state === "c-stub") {
+    return (
+      <ChatShell dock="ready" mobile={mobile}>
+        <You text={STUB_Q} />
+        <Who route="Linear request" />
+        <div className="note">
+          <IcLinear size={16} />
+          <div><b>Linear actions from chat aren't available yet</b><p className="small muted">Quorum understood this as a Linear request. For now, ask about your code, issues or a decision.</p></div>
+        </div>
+      </ChatShell>
+    );
+  }
+  /* direct answer, also used as the backdrop for connection and send-error states */
+  return (
+    <ChatShell dock={connection as DockMode} mobile={mobile}>
+      <You text={DIRECT_Q} />
+      <Who route="Direct answer" />
+      <div className="answer">
+        <p>{DIRECT_ANSWER}</p>
+        <div className="answer-cites"><span className="ovl ovl-sm">Sources</span>{DIRECT_CITES.map((c, i) => <Cite key={c.document_id} c={c} open={i === 0} />)}</div>
+      </div>
+      {state === "c-senderror" ? <You text="And where is the TTL configured?" /> : null}
+    </ChatShell>
+  );
+}
+
+function Council({ state, mobile }: { state: string; mobile?: boolean }) {
+  if (state === "k-result" || state === "k-result10" || state.startsWith("w-")) {
+    const seats = state === "k-result10" ? SEATS10 : SEATS3;
+    const wb: WB = state.startsWith("w-") ? (state.slice(2) === "propose" ? "idle" : (state.slice(2) as WB)) : "idle";
+    return (
+      <ChatShell dock="ready" mobile={mobile}>
+        <You text={QUESTION} />
+        <Who route="Council review" />
+        <div className="seats" data-count={seats.length}>{seats.map((o) => <Seat key={o.id} o={o} compact={mobile} />)}</div>
+        <Chair seats={seats} wb={wb} />
+      </ChatShell>
+    );
+  }
+  const map: Record<string, [string, SeatStatus[]]> = {
+    "k-alerting": ["alerting_council", [null, null, null]],
+    "k-waiting": ["waiting_on_council", ["pondering", "researching", "pondering"]],
+    "k-deliberating": ["council_deliberating", ["recommendation_ready", "giving_recommendation", "recommendation_ready"]],
+  };
+  return (
+    <ChatShell dock="busy" mobile={mobile}>
+      <You text={QUESTION} />
+      {state === "k-understanding" ? (
+        <><Who route="" /><div className="understanding" role="status"><Pulse />Understanding the message</div></>
+      ) : (
+        <><Who route="Council review" /><PendingCouncil sup={map[state][0]} statuses={map[state][1]} mobile={mobile} /></>
+      )}
+    </ChatShell>
+  );
+}
+
+/* ---------- connections ---------- */
+const statusText = (s: KnowledgeSource) =>
+  s.status === "ready" ? "Ready" : s.status === "indexing" ? "Indexing. Usually a few minutes." : s.status === "pending" ? "Waiting to start" : "Can't read this source";
+
+function SourceRow({ s, menu = false, confirm = false, refreshing = false, inline = false }: { s: KnowledgeSource; menu?: boolean; confirm?: boolean; refreshing?: boolean; inline?: boolean }) {
+  const [m, setM] = useState(menu);
+  const [c, setC] = useState(confirm);
+  return (
+    <div className="row" data-confirm={c}>
+      <SourceIcon type={s.source_type} className="row-ic" />
+      <div className="row-b">
+        <span className="row-name">{s.name}</span>
+        {refreshing ? <span className="row-st"><Spin />Refreshing</span> : <span className={`row-st ${s.status}`}><span className={`dot dot-${s.status}`} />{statusText(s)}</span>}
+        {s.status === "error" && s.status_message ? (
+          <div className="row-err">
+            <span>{s.status_message}</span>
+            <span className="row-err-actions">
+              <a className="btn btn-secondary btn-sm" href="#gh">Check GitHub access <IcExternal size={12} /></a>
+              <button type="button" className="btn btn-quiet btn-sm"><IcRefresh size={13} />Refresh</button>
+            </span>
+          </div>
+        ) : null}
+        {inline && m ? (
+          <div className="row-actions" role="menu" aria-label={`Actions for ${s.name}`}>
+            <button type="button" role="menuitem" onClick={() => setM(false)}><IcRefresh size={14} /><span><b>Refresh</b><span className="small muted">Read the latest changes</span></span></button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { setM(false); setC(true); }}><IcTrash size={14} /><span><b>Remove</b><span className="small muted">Stop using it in answers</span></span></button>
+          </div>
+        ) : null}
+        {c ? (
+          <div className="confirm" role="alertdialog" aria-label={`Remove ${s.name}`}>
+            <span><b>Remove {s.name}?</b> Quorum stops answering from it. You can add it again any time.</span>
+            <span className="confirm-actions">
+              <button type="button" className="btn btn-quiet btn-sm" onClick={() => setC(false)}>Keep</button>
+              <button type="button" className="btn btn-danger btn-sm">Remove</button>
+            </span>
+          </div>
+        ) : null}
+      </div>
+      <div className="menu-wrap">
+        <button type="button" className="icon-btn" aria-label={`Actions for ${s.name}`} aria-expanded={m} onClick={() => setM(!m)}><IcMore size={16} /></button>
+        {m && !inline ? (
+          <div className="menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => setM(false)}><IcRefresh size={14} /><span><b>Refresh</b><span className="small muted">Read the latest changes</span></span></button>
+            <button type="button" role="menuitem" className="danger" onClick={() => { setM(false); setC(true); }}><IcTrash size={14} /><span><b>Remove</b><span className="small muted">Stop using it in answers</span></span></button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Connections({ state, mobile = false }: { state: string; mobile?: boolean }) {
+  const none = state === "n-none";
+  const sources = none ? [] : SOURCES;
+  const ready = sources.filter((s) => s.status === "ready").length;
+  return (
+    <div className="page-shell">
+      <Bar active="connections" menu={state === "n-account"} />
+      <section className="page">
+        {state === "n-list" ? (
+          <div className="banner" role="status"><IcCheck size={14} />GitHub connected. Add the repos Quorum should read.
+            <button type="button" className="icon-btn x" aria-label="Dismiss"><IcX size={14} /></button>
+          </div>
+        ) : null}
+        <div>
+          <div className="sec-h"><span className="ovl">Accounts</span></div>
+          <div className="accts">
+            {(["github", "linear"] as const).map((p) => (
+              <div className="acct" key={p}>
+                <div className="acct-h">{p === "github" ? <IcGitHub size={18} /> : <IcLinear size={16} />}<b>{p === "github" ? "GitHub" : "Linear"}</b>
+                  {none ? <span className="small muted" style={{ marginLeft: "auto" }}>Not connected</span> : <span className="dot dot-ready" style={{ marginLeft: "auto" }} aria-label="Connected" />}
+                </div>
+                <span className="small muted">
+                  {none ? (p === "github" ? "Install the Quorum app on the repos you want it to read." : "Let Quorum read your team's issues.") : p === "github" ? `Connected as @${GITHUB_ACCOUNT}` : `Connected to ${LINEAR_WORKSPACE}`}
+                </span>
+                <div>
+                  {none ? <a className="btn btn-primary btn-sm" href={`#oauth-${p}`}>Connect {p === "github" ? "GitHub" : "Linear"}</a>
+                    : <button type="button" className="btn btn-secondary btn-sm">{p === "github" ? "Add repos" : "Add teams"}</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="sec-h">
+            <span className="ovl">Knowledge sources</span>
+            {none || state === "n-loading" || state === "n-error" ? null : (
+              <span className="sec-h-r"><span className="small muted">{ready} of {sources.length} ready</span><button type="button" className="btn btn-primary btn-sm"><IcPlus size={13} />Add sources</button></span>
+            )}
+          </div>
+          {state === "n-loading" ? (
+            <div className="list" role="status" aria-label="Loading sources">
+              {[0, 1, 2].map((i) => <div className="row" key={i}><span className="sk sk-ic" /><div className="row-b"><span className="sk" style={{ width: 180 + i * 30 }} /><span className="sk sk-sm" style={{ width: 90 }} /></div></div>)}
+            </div>
+          ) : state === "n-error" ? (
+            <div className="list-msg">
+              <div className="callout callout-err" role="alert">Something went wrong on our side. Try again in a moment.</div>
+              <button type="button" className="btn btn-secondary btn-sm"><IcRefresh size={13} />Try again</button>
+            </div>
+          ) : none ? (
+            <div className="list-msg list-empty">
+              <b>No knowledge sources yet</b>
+              <span className="small muted">Connect GitHub or Linear above, then add the repos and teams Quorum should read.</span>
+            </div>
+          ) : (
+            <div className="list">
+              {sources.map((s) => (
+                <SourceRow key={s.id} s={s} inline={mobile} menu={state === "n-menu" && s.id === "s3"} refreshing={state === "n-menu" && s.id === "s1"} confirm={state === "n-remove" && s.id === "s4"} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ---------- add source picker ---------- */
+function Picker({ state }: { state: string }) {
+  const m = usePicker(state === "p-search" ? [] : undefined);
+  const [tab, setTab] = useState<"github_repo" | "linear">(state === "p-linear" ? "linear" : "github_repo");
+  const [query, setQuery] = useState(state === "p-search" ? "billing" : "");
+  const list = (tab === "github_repo" ? REPOS : TEAMS).filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const kind = tab === "github_repo" ? "repos" : "teams";
+  const body = (() => {
+    if (state === "p-loading") return <div className="plist" role="status" aria-label={`Loading ${kind}`}>{[0, 1, 2, 3, 4].map((i) => <div className="prow prow-sk" key={i}><span className="sk sk-cb" /><span className="sk" style={{ width: 150 + (i % 3) * 40 }} /></div>)}</div>;
+    if (state === "p-error") return <div className="plist plist-msg"><div className="callout callout-err" role="alert">Something went wrong on our side. Try again in a moment.</div><button type="button" className="btn btn-secondary btn-sm"><IcRefresh size={13} />Try again</button></div>;
+    if (state === "p-notconnected") return (
+      <div className="plist plist-msg">
+        <IcGitHub size={28} />
+        <b>Connect GitHub first</b>
+        <span className="small muted">Install the Quorum app on your GitHub account, then pick the repos it should read here.</span>
+        <a className="btn btn-primary btn-sm" href="#oauth-github">Connect GitHub</a>
+      </div>
+    );
+    if (state === "p-empty") return (
+      <div className="plist plist-msg">
+        <b>No repos to show</b>
+        <span className="small muted">The Quorum app can't see any repos on @{GITHUB_ACCOUNT} yet. Give it access to the ones you want, then come back.</span>
+      </div>
+    );
+    if (list.length === 0) return <div className="plist plist-msg"><b>Nothing matches "{query}"</b><span className="small muted">Check the spelling, or give Quorum access to more repos in GitHub.</span></div>;
+    return (
+      <div className="plist">
+        {list.map((c) => {
+          const on = m.selected.includes(c.id);
+          return (
+            <button type="button" key={c.id} className="prow" data-on={on} disabled={c.added} onClick={() => m.toggle(c)} aria-pressed={c.added ? undefined : on}>
+              <span className="cbx" data-on={on} data-dis={c.added}>{on || c.added ? <IcCheck size={12} /> : null}</span>
+              <span className="prow-t">
+                <span className="pname">{c.name}</span>
+                <span className="psub">{c.kind === "github_repo" ? <>{c.detail === "Private" ? <IcLock size={11} /> : null}{c.detail}</> : c.detail}</span>
+              </span>
+              {c.added ? <span className="chip"><IcCheck size={10} />Added</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    );
+  })();
+  const n = state === "p-empty" || state === "p-error" || state === "p-loading" || state === "p-notconnected" ? 0 : m.count;
+  const adding = state === "p-adding";
+  return (
+    <div className="picker-shell">
+      <div aria-hidden="true" className="picker-under"><Connections state="n-list-nobanner" /></div>
+      {state === "p-added" ? (
+        <div className="toast" role="status"><IcCheck size={14} />Added 2 sources. Indexing has started.</div>
+      ) : (
+        <>
+          <div className="scrim" />
+          <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="pk-h">
+            <div className="dlg-h">
+              <div><h2 id="pk-h">Add knowledge sources</h2><p className="small muted" style={{ marginTop: 2 }}>Choose what Quorum should read. You can remove a source any time.</p></div>
+              <button type="button" className="icon-btn" aria-label="Close"><IcX size={16} /></button>
+            </div>
+            <div className="tabs" role="tablist">
+              <button type="button" role="tab" className="tab" aria-selected={tab === "github_repo"} onClick={() => setTab("github_repo")}><IcGitHub size={15} />GitHub repos{n && m.countIn("github_repo") ? <span className="count">{m.countIn("github_repo")}</span> : null}</button>
+              <button type="button" role="tab" className="tab" aria-selected={tab === "linear"} onClick={() => setTab("linear")}><IcLinear size={13} />Linear teams{n && m.countIn("linear") ? <span className="count">{m.countIn("linear")}</span> : null}</button>
+            </div>
+            {state === "p-notconnected" ? null : (
+              <>
+                <div className="search"><IcSearch size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tab === "github_repo" ? "Search repos" : "Search teams"} aria-label="Search" disabled={state === "p-loading" || state === "p-error"} /></div>
+                <p className="pl-cap">{tab === "github_repo" ? `Repos the Quorum app can access on @${GITHUB_ACCOUNT}` : `Teams in ${LINEAR_WORKSPACE}`}</p>
+              </>
+            )}
+            {body}
+            {tab === "github_repo" && state !== "p-notconnected" ? (
+              <div className="access">Don't see a repo? <a className="link" href="#gh">Give Quorum access in GitHub <IcExternal size={12} /></a></div>
+            ) : null}
+            <div className="dlg-f">
+              <button type="button" className="btn btn-quiet">Cancel</button>
+              <button type="button" className="btn btn-primary" disabled={!n || adding}>{adding ? <><Spin />Adding</> : addLabel(n)}</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------- entry ---------- */
+function Landing({ down }: { down?: boolean }) {
+  return (
+    <div className="landing">
+      <header className="l-bar"><span className="brand"><DomMark size={26} /><span className="word">Quorum</span></span><a className="btn btn-secondary btn-sm" href="#app">Open app</a></header>
+      <section className="l-hero">
+        <p className="ovl">Decision council for your codebase</p>
+        <h1>Three seats debate.<br />One recommendation ships.</h1>
+        <p className="l-lede">Quorum reads your GitHub repos and Linear team. Ask a quick question and get an answer with sources. Ask a hard one and three seats weigh in, then a chair gives you one recommendation you can write back as a pull request and an issue.</p>
+        <div className="l-cta"><a className="btn btn-primary" href="#app">Open Quorum</a><a className="btn btn-quiet" href="#how">See how it works</a></div>
+      </section>
+      <section className="l-demo" aria-label="Example council result">
+        <p className="l-q">Should launchpad move session storage from KV to D1 before the public beta?</p>
+        <div className="l-seats">{SEATS3.map((s) => <div key={s.id} className="l-seat"><span className="seat-mark" style={{ color: s.color }}>{s.mark}</span><b>{s.name}</b><Verdict v={s.verdict} /></div>)}</div>
+        <div className="l-chair"><span className="ovl">Chair</span><span>Move sessions to D1, but not in the same release as the beta.</span></div>
+      </section>
+      <section className="l-how" id="how">
+        {[["01", "Connect your sources", "Pick the repos and Linear teams Quorum can read."], ["02", "Ask in one chat", "Quick questions get a direct answer. Big decisions go to the council."], ["03", "Write it back", "Review the plan, refine it, and Quorum opens the pull request and the issue."]].map(([n, t, d]) => (
+          <div key={n} className="l-step"><span className="ovl">{n}</span><b>{t}</b><span className="small muted">{d}</span></div>
+        ))}
+      </section>
+      <footer className="l-foot">
+        <span className="health" role="status">{down ? <><span className="dot dot-error" />Quorum is having trouble right now</> : <><span className="dot dot-ready" />All systems operational</>}</span>
+        <span className="small muted">quorum.didi.build</span>
+      </footer>
+    </div>
+  );
+}
+
+function AuthFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="auth">
+      <div className="auth-card">{children}</div>
+      <p className="auth-foot small muted">Back to <a className="link" href="#landing">quorum.didi.build</a></p>
+    </div>
+  );
+}
+
+function Entry({ state }: { state: string }) {
+  if (state === "e-landing" || state === "e-landing-down") return <Landing down={state === "e-landing-down"} />;
+  if (state === "e-loading") return <div className="auth"><div className="auth-loading" role="status"><DomMark size={40} /><span className="muted"><Spin />Loading</span></div></div>;
+  if (state === "e-notallowed-error") return (
+    <AuthFrame>
+      <DomMark size={44} />
+      <h1>We couldn't check your access</h1>
+      <div className="callout callout-err" role="alert">Something went wrong on our side. Try again in a moment.</div>
+      <div className="auth-actions">
+        <a className="btn btn-primary btn-block" href="#signin">Try signing in again</a>
+      </div>
+    </AuthFrame>
+  );
+  if (state === "e-notallowed") return (
+    <AuthFrame>
+      <div className="auth-id"><span className="avatar">SR</span><span className="small">Signed in as <b>@{NOT_ALLOWED_LOGIN}</b></span></div>
+      <h1>You're not on the list yet</h1>
+      <p className="muted">Quorum is invite-only while I build it. If you'd like to try it, send me your GitHub username and I'll add you.</p>
+      <div className="auth-actions">
+        <a className="btn btn-primary btn-block" href="#mailto">Request access</a>
+        <a className="btn btn-secondary btn-block" href="#gh-logout">Use a different account <IcExternal size={12} /></a>
+        <span className="small muted">Sign out of GitHub first in the new tab, then try again.</span>
+      </div>
+    </AuthFrame>
+  );
+  const busy = state === "e-signin-busy";
+  return (
+    <AuthFrame>
+      <DomMark size={44} />
+      <h1>Sign in to Quorum</h1>
+      <p className="muted">Quorum is private for now. Use the GitHub account I've invited.</p>
+      <button type="button" className="btn btn-gh btn-block" disabled={busy}>{busy ? <><Spin />Taking you to GitHub</> : <><IcGitHub size={16} />Sign in with GitHub</>}</button>
+    </AuthFrame>
+  );
+}
+
+/* ---------- foundations ---------- */
+const TOKENS: [string, string, string, string][] = [
+  ["--bg", "#141210", "#FAF8F5", "Page background"],
+  ["--sf", "#1C1A17", "#FFFFFF", "Cards, composer, dialogs"],
+  ["--sf2", "#26231F", "#F2EEE8", "Raised controls, user bubble, nav track"],
+  ["--bd", "#34302A", "#E5DFD6", "Control borders"],
+  ["--bd2", "#2A2723", "#EEE9E1", "Card borders, row dividers"],
+  ["--fg", "#F3EFE9", "#1D1A16", "Primary text"],
+  ["--mu", "#A8A095", "#6A6258", "Secondary text, captions"],
+  ["--ac", "#F0A24B", "#EC9A45", "Primary buttons, focus ring, selection"],
+  ["--act", "#F5B56E", "#A4560C", "Accent text and links"],
+  ["--acs", "accent 12%", "accent 13%", "Chair block fill (only amber surface)"],
+  ["--ok", "#72C493", "#2F8A55", "Ready, Approve, success"],
+  ["--er", "#F08E7E", "#C2412F", "Error, Request changes, Remove"],
+  ["--ux / --dx / --biz", "#E3A0A8 #9FB1EC #C8C97A", "#9A4F58 #40569E #6F6A24", "Seat marks"],
+];
+
+function Foundations({ state, theme }: { state: string; theme: ThemeName }) {
+  return (
+    <div className="page-shell">
+      <Bar active="chat" />
+      <section className="page doc">
+        {state === "f-tokens" ? (
+          <>
+            <h1 className="doc-h">Tokens</h1>
+            <p className="muted">Warm neutrals, one amber accent. Dark is the default; light follows the system setting. Showing: {theme}.</p>
+            <div className="tok-table">
+              <div className="tok-row tok-head"><span>Token</span><span>Dark</span><span>Light</span><span>Use</span></div>
+              {TOKENS.map(([t, d, l, u]) => (
+                <div className="tok-row" key={t}>
+                  <code>{t}</code>
+                  <span className="tok-sw"><i style={{ background: d.startsWith("#") ? d.split(" ")[0] : "rgba(240,162,75,.14)" }} />{d}</span>
+                  <span className="tok-sw"><i style={{ background: l.startsWith("#") ? l.split(" ")[0] : "rgba(236,154,69,.16)" }} />{l}</span>
+                  <span className="small muted">{u}</span>
+                </div>
+              ))}
+            </div>
+            <h2 className="doc-h2">Type</h2>
+            <div className="type-scale">
+              <div><span className="ovl">Display 40/44 Geist 600</span><span style={{ font: "600 40px/44px Geist, sans-serif", letterSpacing: "-.02em" }}>One recommendation ships.</span></div>
+              <div><span className="ovl">Title 20/28 Geist 600</span><span style={{ font: "600 20px/28px Geist, sans-serif" }}>Connect a source to start</span></div>
+              <div><span className="ovl">Body 15/23 Geist 400</span><span>Move sessions to D1, but not in the same release as the beta.</span></div>
+              <div><span className="ovl">Small 13/19 Geist 400</span><span className="small">Indexing. Usually a few minutes.</span></div>
+              <div><span className="ovl">Mono 12/18 Geist Mono</span><span className="mono" style={{ fontSize: 12 }}>launchpad/src/session/store.ts L12</span></div>
+              <div><span className="ovl">Overline 11/16 Geist Mono caps</span><span className="ovl" style={{ color: "var(--fg)" }}>Chair's recommendation</span></div>
+            </div>
+            <h2 className="doc-h2">Shape and spacing</h2>
+            <p className="small muted">Radius 8 (small buttons), 10 (buttons, inputs), 14 (cards), 16 (chair, composer), 18 (dialog). Spacing on a 4px grid; cards pad 14 to 20; page gutter 24 desktop, 14 mobile. Thread max width 980.</p>
+          </>
+        ) : state === "f-mark" ? (
+          <>
+            <h1 className="doc-h">App mark</h1>
+            <p className="muted">Three seats over one bar: the council and the single recommendation it arrives at. Amber tile, dark glyph. Built from circles and one rounded bar so it holds at 16px.</p>
+            <div className="marks">{[16, 24, 32, 48, 96].map((s) => <div key={s}><DomMark size={s} /><span className="small muted">{s}px</span></div>)}</div>
+            <div className="marks">
+              <div className="mark-tile light"><DomMark size={48} /><span className="small">On light</span></div>
+              <div className="mark-tile dark"><DomMark size={48} /><span className="small">On dark</span></div>
+              <div className="mark-tile"><span className="brand"><DomMark size={26} /><span className="word">Quorum</span></span><span className="small muted">Lockup in the top bar</span></div>
+            </div>
+            <div className="wm-spec"><span className="word wm-big">Quorum</span><span className="small muted">Wordmark: Geist 600, title case, tracking -0.025em, set at 1.07x the body size next to the tile (16px in the top bar). One word, no inner capitals or accent colour; in the app bar it hides below 640px and the tile stands alone; the landing page always shows it.</span></div>
+            <p className="small muted">Replaces frontend/src/components/DomMark.tsx (same glyph, amber tile tokenised to --ac and --acfg). The glyph never depended on the old name, so it carries over unchanged: three seats over one bar reads as a quorum reaching one decision.</p>
+          </>
+        ) : state === "f-layout" ? (
+          <>
+            <h1 className="doc-h">Layout and navigation</h1>
+            <p className="muted">One top bar everywhere: mark on the left, a Chat and Connections switch in the middle, the account on the right. The switch is the only place the section name appears. The composer owns the bottom of the screen.</p>
+            <div className="lay-demo"><div className="lay-bar"><span className="brand"><DomMark size={22} /><span className="word">Quorum</span></span><span className="seg"><a aria-current="page">Chat</a><a>Connections</a></span><span className="avatar">DS</span></div>
+              <div className="lay-body"><span className="lay-col">Thread, max 980, gutter 24</span></div>
+              <div className="lay-dock">Source line or connection strip, then composer</div></div>
+            <div className="lay-mobile"><div className="lay-bar"><DomMark size={22} /><span className="seg"><a aria-current="page">Chat</a><a>Connections</a></span><span className="avatar">DS</span></div>
+              <div className="lay-body"><span className="lay-col">380px: gutter 14, seats collapse to one line</span></div><div className="lay-dock">Composer</div></div>
+            <ul className="doc-list small">
+              <li>Bar: 60px desktop, 56px mobile, sticky, blurred background, 1px --bd2 bottom border.</li>
+              <li>Switch: --sf2 track, active segment --sf with a soft shadow. The wordmark hides below 640px.</li>
+              <li>Account menu: avatar opens a menu with @handle, Connections and Sign out.</li>
+              <li>Chat scrolls inside the frame; the composer stays pinned. On load the thread scrolls to the newest message.</li>
+            </ul>
+          </>
+        ) : (
+          <>
+            <h1 className="doc-h">Error wording</h1>
+            <p className="muted">Raw API errors never reach the screen. Each status maps to one sentence that says what happened, plus one next step. The message appears where the action failed: in the card, row or composer strip.</p>
+            <div className="err-grid">
+              {ERRORS.map((e) => (
+                <div key={e.code} className="err-card">
+                  <div className="err-h"><code>{e.code}</code><b>{e.name}</b></div>
+                  <div className="callout callout-err">{e.text}</div>
+                  <button type="button" className="btn btn-secondary btn-sm">{e.action}</button>
+                </div>
+              ))}
+            </div>
+            <ul className="doc-list small">
+              <li>401 sends you to Sign in after the message; the current page state is not kept.</li>
+              <li>403 names the repo or team that was lost when the API says which one; otherwise "Quorum lost access to this source."</li>
+              <li>429 never retries on its own; v1 has no retry queue.</li>
+              <li>Anything else (4xx with no mapping, network, invalid frame) uses the 5xx sentence.</li>
+            </ul>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ---------- renderer and explorer ---------- */
+export function Screen({ state, theme, mobile, full }: { state: string; theme: ThemeName; mobile?: boolean; full?: boolean }) {
+  const g = groupOf(state);
+  return (
+    <div className="va" data-theme={theme} data-mobile={mobile ? "true" : "false"} data-full={full ? "true" : "false"}>
+      {g === "foundations" ? <Foundations state={state} theme={theme} />
+        : g === "entry" ? <Entry state={state} />
+        : g === "chat" ? <Chat state={state} mobile={mobile} />
+        : g === "council" || g === "writeback" ? <Council state={state} mobile={mobile} />
+        : g === "connections" ? <Connections state={state} mobile={mobile} />
+        : <Picker state={state} />}
+    </div>
+  );
+}
+
+export interface SpecProps { group?: GroupId; state?: string; theme?: ThemeName; device?: "desktop" | "mobile"; controlsOpen?: boolean; full?: boolean; lockGroup?: boolean }
+
+export function SpecExplorer({ group: g0, state: s0, theme: t0 = "dark", device: d0 = "desktop", controlsOpen = true, full = false, lockGroup = false }: SpecProps) {
+  const initialGroup = g0 ?? (s0 ? groupOf(s0) : "council");
+  const [group, setGroup] = useState<GroupId>(initialGroup);
+  const [state, setState] = useState<string>(s0 ?? GROUPS.find((x) => x.id === initialGroup)!.states[0].id);
+  const [theme, setTheme] = useState<ThemeName>(t0);
+  const [device, setDevice] = useState(d0);
+  const [open, setOpen] = useState(controlsOpen);
+  const ctl = useRef<HTMLDivElement>(null);
+  const [ctlH, setCtlH] = useState(0);
+  useLayoutEffect(() => {
+    const el = ctl.current; if (!el) { setCtlH(0); return; }
+    const ro = new ResizeObserver(() => setCtlH(el.offsetHeight)); ro.observe(el); setCtlH(el.offsetHeight);
+    return () => ro.disconnect();
+  }, [open]);
+  const mobile = device === "mobile";
+  const grp = GROUPS.find((x) => x.id === group)!;
+  return (
+    <div className={`pt-root${mobile ? " pt-mobile" : ""}`} data-theme={theme} style={{ ["--pt-h" as string]: `calc(100vh - ${open ? ctlH : 0}px)` }}>
+      {open ? (
+        <div className="pt-ctl pt-ctl2" ref={ctl} role="region" aria-label="Review controls">
+          <div className="pt-row">
+            {lockGroup ? <span className="pt-hint">{grp.label}</span> : (
+              <div className="pt-grp" role="group" aria-label="Screen">
+                {GROUPS.map((x) => <button key={x.id} type="button" aria-pressed={group === x.id} onClick={() => { setGroup(x.id); setState(x.states[0].id); }}>{x.label}</button>)}
+              </div>
+            )}
+            <div className="pt-grp" role="group" aria-label="Theme">
+              <button type="button" aria-pressed={theme === "dark"} onClick={() => setTheme("dark")}>Dark</button>
+              <button type="button" aria-pressed={theme === "light"} onClick={() => setTheme("light")}>Light</button>
+            </div>
+            <div className="pt-grp" role="group" aria-label="Device">
+              <button type="button" aria-pressed={!mobile} onClick={() => setDevice("desktop")}>Desktop</button>
+              <button type="button" aria-pressed={mobile} onClick={() => setDevice("mobile")}>380px</button>
+            </div>
+            <button type="button" className="pt-x" aria-label="Hide controls" onClick={() => setOpen(false)}>Hide</button>
+          </div>
+          <div className="pt-row">
+            <div className="pt-grp pt-states" role="group" aria-label="State">
+              {grp.states.map((x) => <button key={x.id} type="button" aria-pressed={state === x.id} onClick={() => setState(x.id)}>{x.label}</button>)}
+            </div>
+          </div>
+        </div>
+      ) : full ? null : <button type="button" className="pt-open" onClick={() => setOpen(true)}>Review controls</button>}
+      <div className="pt-stage">
+        <Screen key={`${state}-${device}-${theme}`} state={state} theme={theme} mobile={mobile} full={full} />
+      </div>
+    </div>
+  );
+}

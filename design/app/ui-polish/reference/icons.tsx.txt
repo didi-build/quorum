@@ -1,0 +1,57 @@
+type P = { size?: number; className?: string };
+const S = (d: string, { size = 16, className }: P, sw = 1.75) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+    <path d={d} />
+  </svg>
+);
+export const IcSearch = (p: P) => S("M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zm9 3-4.35-4.35", p);
+export const IcCheck = (p: P) => S("M20 6 9 17l-5-5", p, 2.5);
+export const IcX = (p: P) => S("M18 6 6 18M6 6l12 12", p);
+export const IcPlus = (p: P) => S("M12 5v14M5 12h14", p, 2);
+export const IcSend = (p: P) => S("M12 19V5M5 12l7-7 7 7", p, 2);
+export const IcExternal = (p: P) => S("M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5", p);
+export const IcRefresh = (p: P) => S("M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5", p);
+export const IcTrash = (p: P) => S("M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3", p);
+export const IcMore = (p: P) => S("M5 12h.01M12 12h.01M19 12h.01", p, 3);
+export const IcChat = (p: P) => S("M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z", p);
+export const IcPlug = (p: P) => S("M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0V7zM12 16v5", p);
+export const IcFile = (p: P) => S("M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4zM14 3v4h4", p);
+export const IcChevron = (p: P) => S("M9 18l6-6-6-6", p, 2);
+export const IcDown = (p: P) => S("M6 9l6 6 6-6", p, 2);
+export const IcSun = (p: P) => S("M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4", p);
+export const IcMoon = (p: P) => S("M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z", p);
+export const IcLock = (p: P) => S("M6 11h12v10H6zM8 11V7a4 4 0 0 1 8 0v4", p);
+export function IcGitHub({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  );
+}
+export function IcLinear({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M1.2 61.5c-.2-.9.8-1.4 1.5-.8l36.6 36.6c.6.6.1 1.7-.8 1.5C20.4 94.6 5.4 79.6 1.2 61.5zM0 46.9c0 .3.1.5.3.7l52.1 52.1c.2.2.5.3.7.3 2.4-.1 4.7-.5 6.9-1 .8-.2 1-1.1.5-1.7L2.7 39.5c-.6-.6-1.5-.3-1.7.5-.5 2.2-.9 4.5-1 6.9zm4.2-17.2c-.2.4-.1.9.2 1.2l64.7 64.7c.3.3.8.4 1.2.2 1.8-.8 3.5-1.7 5.1-2.7.6-.4.6-1.2.1-1.6L8.5 24.6c-.5-.5-1.3-.4-1.6.1-1 1.6-1.9 3.3-2.7 5zm8.4-11.6c-.4-.4-.4-1 0-1.4C21.8 6.5 35.1 0 50 0c27.6 0 50 22.4 50 50 0 14.9-6.5 28.2-16.7 37.4-.4.4-1 .3-1.4 0L12.6 18.1z" />
+    </svg>
+  );
+}
+export function SourceIcon({ type, size = 16, className }: { type: "github_repo" | "linear"; size?: number; className?: string }) {
+  return type === "linear" ? <IcLinear size={size} className={className} /> : <IcGitHub size={size} className={className} />;
+}
+/* Quorum mark, same glyph as v1 (domAIn) DomMark (frontend/src/components/DomMark.tsx): amber tile, three dots over a bar */
+export function DomMark({ size = 24, bg = "#f0a24b", fg = "#1b1206", radius }: { size?: number; bg?: string; fg?: string; radius?: number }) {
+  const dot = Math.max(3, Math.round(size * 0.17));
+  const gap = Math.max(2, Math.round(size * 0.1));
+  const barW = Math.max(9, Math.round(size * 0.54));
+  const barH = Math.max(2, Math.round(size * 0.1));
+  return (
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: radius ?? Math.round(size * 0.25), background: bg, display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: Math.max(2, Math.round(size * 0.1)), flex: "none" }}>
+      <span style={{ display: "flex", alignItems: "flex-start", gap }}>
+        <span style={{ width: dot, height: dot, borderRadius: 99, background: fg, marginTop: dot * 0.35 }} />
+        <span style={{ width: dot, height: dot, borderRadius: 99, background: fg }} />
+        <span style={{ width: dot, height: dot, borderRadius: 99, background: fg, marginTop: dot * 0.35 }} />
+      </span>
+      <span style={{ width: barW, height: barH, borderRadius: barH / 2, background: fg }} />
+    </span>
+  );
+}

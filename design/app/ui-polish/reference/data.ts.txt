@@ -1,0 +1,228 @@
+/* Mock data for DIDI-768. Shapes follow v1 types (frontend/src/types/chat.ts, sources.ts). */
+
+export type Verdict = "approve" | "request_changes" | "comment";
+export type SourceStatus = "pending" | "indexing" | "ready" | "error";
+export type SourceType = "github_repo" | "linear";
+export type ThemeName = "dark" | "light";
+export type ScreenId = "chat" | "connections" | "picker";
+export type VariantId = "baseline" | "a" | "b" | "c";
+export type Device = "desktop" | "mobile";
+
+export interface Citation {
+  document_id: string;
+  chunk_index: number;
+  knowledge_source_id: string;
+  excerpt: string;
+}
+export interface PersonaOpinion {
+  persona: "ux" | "dev_experience" | "business";
+  verdict: Verdict;
+  reasoning: string;
+  citations: Citation[];
+}
+export interface CouncilDecision {
+  persona_opinions: PersonaOpinion[];
+  overall_verdict: Verdict;
+  synthesis: string;
+}
+export interface KnowledgeSource {
+  id: string;
+  source_type: SourceType;
+  external_ref: string;
+  name: string;
+  status: SourceStatus;
+  status_message: string | null;
+}
+
+export const USER = { login: "diadem", initials: "DS" };
+
+export const PERSONA: Record<PersonaOpinion["persona"], { mark: string; name: string; key: "ux" | "dx" | "biz" }> = {
+  ux: { mark: "ux", name: "UX", key: "ux" },
+  dev_experience: { mark: "dx", name: "Dev experience", key: "dx" },
+  business: { mark: "bp", name: "Business", key: "biz" },
+};
+
+export const verdictRaw = (v: Verdict) => v.replace("_", " "); // v1 verdictLabel
+export const verdictHuman: Record<Verdict, string> = {
+  approve: "Approve",
+  request_changes: "Request changes",
+  comment: "Comment",
+};
+
+export const QUESTION =
+  "Should launchpad move session storage from KV to D1 before the public beta?";
+
+export const COUNCIL: CouncilDecision = {
+  overall_verdict: "request_changes",
+  synthesis:
+    "Move sessions to D1, but not in the same release as the beta. Ship the D1 store behind the existing SessionStore interface first, keep KV as the read fallback for one release, and only then cut over. The council agrees on the direction; the risk is doing the migration and the launch on the same day.",
+  persona_opinions: [
+    {
+      persona: "ux",
+      verdict: "approve",
+      reasoning:
+        "Signed-in users never see where a session lives. The only visible risk is a forced sign-out during the switch, and the fallback read path already covers that.",
+      citations: [
+        {
+          document_id: "didi-build/launchpad/src/session/middleware.ts",
+          chunk_index: 41,
+          knowledge_source_id: "src-launchpad",
+          excerpt:
+            "const session = (await d1Store.get(id)) ?? (await kvStore.get(id));\nif (!session) return redirectToSignIn(req);",
+        },
+      ],
+    },
+    {
+      persona: "dev_experience",
+      verdict: "request_changes",
+      reasoning:
+        "The store is already behind one interface, so the swap is small. The migration script has no dry run and no rollback, which is the part that needs work before anyone runs it in production.",
+      citations: [
+        {
+          document_id: "didi-build/launchpad/src/session/store.ts",
+          chunk_index: 11,
+          knowledge_source_id: "src-launchpad",
+          excerpt:
+            "export interface SessionStore {\n  get(id: string): Promise<Session | null>;\n  put(id: string, s: Session, ttl: number): Promise<void>;\n}",
+        },
+      ],
+    },
+    {
+      persona: "business",
+      verdict: "comment",
+      reasoning:
+        "Beta sign-ups are the launch goal. Any sign-in failure in the first week costs more than the KV bill, so the order of work matters more than the choice of store.",
+      citations: [
+        {
+          document_id: "Didi Build / DIDI-702 Public beta launch checklist",
+          chunk_index: 0,
+          knowledge_source_id: "src-linear",
+          excerpt: "Exit criteria: zero forced sign-outs during launch week.",
+        },
+      ],
+    },
+  ],
+};
+
+export const SOURCES: KnowledgeSource[] = [
+  { id: "s1", source_type: "github_repo", name: "didi-build/launchpad", external_ref: "didi-build/launchpad", status: "ready", status_message: null },
+  { id: "s2", source_type: "linear", name: "Didi Build", external_ref: "linear:team/DIDI", status: "ready", status_message: null },
+  { id: "s3", source_type: "github_repo", name: "didi-build/nodrift", external_ref: "didi-build/nodrift", status: "indexing", status_message: null },
+  { id: "s4", source_type: "github_repo", name: "didi-build/we-met", external_ref: "didi-build/we-met", status: "pending", status_message: null },
+  {
+    id: "s5",
+    source_type: "github_repo",
+    name: "didi-build/legacy-api",
+    external_ref: "didi-build/legacy-api",
+    status: "error",
+    status_message: "GitHub returned 404 for this repo. The Quorum app may no longer have access to it.",
+  },
+];
+
+export const readyCount = SOURCES.filter((s) => s.status === "ready").length;
+
+export interface Candidate {
+  id: string;
+  kind: SourceType;
+  name: string;
+  detail: string;
+  added: boolean;
+}
+
+export const REPOS: Candidate[] = [
+  { id: "r1", kind: "github_repo", name: "didi-build/launchpad", detail: "Private", added: true },
+  { id: "r2", kind: "github_repo", name: "didi-build/nodrift", detail: "Public", added: true },
+  { id: "r3", kind: "github_repo", name: "didi-build/we-met", detail: "Private", added: true },
+  { id: "r4", kind: "github_repo", name: "didi-build/quorum", detail: "Public", added: false },
+  { id: "r5", kind: "github_repo", name: "didi-build/site", detail: "Private", added: false },
+  { id: "r6", kind: "github_repo", name: "didi-build/design-system", detail: "Private", added: false },
+  { id: "r7", kind: "github_repo", name: "didi-build/infra", detail: "Private", added: false },
+  { id: "r8", kind: "github_repo", name: "DiademShoukralla/domAIn", detail: "Public", added: false },
+];
+
+export const TEAMS: Candidate[] = [
+  { id: "t1", kind: "linear", name: "Didi Build", detail: "DIDI", added: true },
+  { id: "t2", kind: "linear", name: "Launchpad", detail: "LAUNCH", added: false },
+  { id: "t3", kind: "linear", name: "Research", detail: "RES", added: false },
+];
+
+export const GITHUB_ACCOUNT = "didi-build";
+export const LINEAR_WORKSPACE = "Didi Build";
+
+/* Picker state shared by every variant: search, select, already-added rows disabled. */
+import { useMemo, useState } from "react";
+export function usePicker(preselected: string[] = ["r4", "t2"]) {
+  const [tab, setTab] = useState<SourceType>("github_repo");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<string[]>(preselected);
+  const [added, setAdded] = useState<number | null>(null);
+  const list = tab === "github_repo" ? REPOS : TEAMS;
+  const filtered = useMemo(
+    () => list.filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase())),
+    [list, query],
+  );
+  const toggle = (c: Candidate) => {
+    if (c.added) return;
+    setSelected((s) => (s.includes(c.id) ? s.filter((x) => x !== c.id) : [...s, c.id]));
+  };
+  const count = selected.length;
+  const countIn = (k: SourceType) => selected.filter((id) => (k === "github_repo" ? REPOS : TEAMS).some((c) => c.id === id)).length;
+  const confirm = () => {
+    if (!count) return;
+    setAdded(count);
+    setSelected([]);
+    window.setTimeout(() => setAdded(null), 2600);
+  };
+  return { tab, setTab, query, setQuery, selected, toggle, filtered, count, countIn, confirm, added, list };
+}
+export type Picker = ReturnType<typeof usePicker>;
+
+export const addLabel = (n: number) => (n === 0 ? "Add sources" : n === 1 ? "Add 1 source" : `Add ${n} sources`);
+
+/* Seat view model used by variant A. Only v1 PersonaOpinion fields (persona, verdict, reasoning, citations);
+   mark, name and color are the display lookup v1 already does per persona. */
+export interface SeatData {
+  id: string;
+  mark: string;
+  name: string;
+  color: string;
+  verdict: Verdict;
+  reasoning: string;
+  citations: Citation[];
+}
+const SEAT_COLOR: Record<string, string> = { ux: "var(--ux)", dx: "var(--dx)", biz: "var(--biz)" };
+export const SEATS3: SeatData[] = COUNCIL.persona_opinions.map((o) => ({
+  id: o.persona,
+  mark: PERSONA[o.persona].mark,
+  name: PERSONA[o.persona].name,
+  color: SEAT_COLOR[PERSONA[o.persona].key],
+  verdict: o.verdict,
+  reasoning: o.reasoning,
+  citations: o.citations,
+}));
+const lp = (path: string, chunk: number, excerpt: string): Citation => ({ document_id: `didi-build/launchpad/${path}`, chunk_index: chunk, knowledge_source_id: "src-launchpad", excerpt });
+/* Scalability check only: v1 ships three seats. Seven extra seats, same fields. */
+export const SEATS10: SeatData[] = [
+  ...SEATS3,
+  { id: "security", mark: "se", name: "Security", color: "var(--s4)", verdict: "request_changes",
+    reasoning: "Session tokens are stored as plain text in KV today. Moving to D1 is the moment to store a hash instead, or the new table repeats the same exposure.",
+    citations: [lp("src/session/store.ts", 27, "await kv.put(`sess:${id}`, JSON.stringify(s), { expirationTtl: ttl });")] },
+  { id: "reliability", mark: "re", name: "Reliability", color: "var(--s5)", verdict: "request_changes",
+    reasoning: "The cutover has no way back. Keep KV writes on for one release so a rollback is a config flip, not a data restore.",
+    citations: [lp("scripts/migrate-sessions.ts", 3, "// TODO: dry run flag\nfor (const key of keys) await d1.insert(key);")] },
+  { id: "performance", mark: "pf", name: "Performance", color: "var(--s6)", verdict: "approve",
+    reasoning: "Session reads are one indexed lookup by id. D1 latency from the same region is close to KV for this access pattern.",
+    citations: [lp("migrations/0007_sessions.sql", 0, "CREATE TABLE sessions (id TEXT PRIMARY KEY, data TEXT, expires_at INTEGER);")] },
+  { id: "accessibility", mark: "ac", name: "Accessibility", color: "var(--s7)", verdict: "comment",
+    reasoning: "If anyone is signed out during the switch, the sign-in page needs to say why. Today it only shows the form with no message.",
+    citations: [lp("src/routes/sign-in.tsx", 18, "<h1>Sign in</h1>\n<SignInForm />")] },
+  { id: "data", mark: "da", name: "Data", color: "var(--s8)", verdict: "approve",
+    reasoning: "A sessions table makes active user counts a simple query instead of a KV list, which helps the beta dashboard.",
+    citations: [{ document_id: "Didi Build / DIDI-688 Beta metrics dashboard", chunk_index: 0, knowledge_source_id: "src-linear", excerpt: "Daily active users from session data, not page views." }] },
+  { id: "support", mark: "su", name: "Support", color: "var(--s9)", verdict: "comment",
+    reasoning: "Plan the switch outside launch week. A forced sign-out in the first days of the beta would be the top support topic.",
+    citations: [{ document_id: "Didi Build / DIDI-702 Public beta launch checklist", chunk_index: 2, knowledge_source_id: "src-linear", excerpt: "Freeze risky infra changes from launch day to day 7." }] },
+  { id: "cost", mark: "co", name: "Cost", color: "var(--s10)", verdict: "approve",
+    reasoning: "At beta volume both stores stay in the free tier. Cost is not a reason to move or to wait.",
+    citations: [lp("wrangler.toml", 9, "[[d1_databases]]\nbinding = \"DB\"")] },
+];
