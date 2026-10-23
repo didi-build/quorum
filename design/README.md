@@ -4,8 +4,8 @@ Design specs for Quorum (the rebuild of v1 domAIn), laid out by area. Each spec 
 
 ## App
 
-| Folder | What it covers | Status |
-|---|---|---|
+| Folder                                 | What it covers                                                                                                                                                                                                                          | Status              |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | [app/ui-polish](app/ui-polish/spec.md) | Polished UI for every v1 screen and state: foundations (tokens, mark, layout, error wording), entry (landing, sign in, allowlist, loading), chat, council, write-back card, connections and the add source picker. Same features as v1. | Approved 2026-10-23 |
 
 ### app/ui-polish contents

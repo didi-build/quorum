@@ -27,37 +27,37 @@ Rule for the whole spec: only data v1 provides. Anything in 1a to 1t that needs 
 
 Warm neutrals with one amber accent. Dark is the default; light follows the operating system setting (`prefers-color-scheme`). There is no in-app theme switch in v1.
 
-| Token | Dark | Light | Use |
-|---|---|---|---|
-| `--bg` | `#141210` | `#FAF8F5` | Page background, code blocks inside cards |
-| `--sf` | `#1C1A17` | `#FFFFFF` | Cards, seat cards, composer, dialogs, menus |
-| `--sf2` | `#26231F` | `#F2EEE8` | User bubble, nav track, avatar, comment verdict |
-| `--bd` | `#34302A` | `#E5DFD6` | Control borders (inputs, secondary buttons, menus) |
-| `--bd2` | `#2A2723` | `#EEE9E1` | Card borders, row dividers, bar border |
-| `--fg` | `#F3EFE9` | `#1D1A16` | Primary text |
-| `--mu` | `#A8A095` | `#6A6258` | Secondary text, captions, status lines |
-| `--mu2` | `#7D766C` | `#8A8277` | Line numbers, idle dots |
-| `--ac` | `#F0A24B` | `#EC9A45` | Primary buttons, send, focus ring, selected checkbox, live pulse |
-| `--acfg` | `#1B1206` | `#1B1206` | Text on `--ac` |
-| `--act` | `#F5B56E` | `#A4560C` | Accent text and links, chair overline |
-| `--acs` | accent at 12% | accent at 13% | Chair block fill, selected picker row, focus halo |
-| `--acb` | accent at 34% | accent at 45% | Chair block border and divider |
-| `--ok` / `--oks` | `#72C493` | `#2F8A55` | Ready, Approve, success; `--oks` is its 10 to 13% fill |
-| `--er` / `--ers` | `#F08E7E` | `#C2412F` | Errors, Request changes, Remove; `--ers` is its 8 to 12% fill |
-| `--ux` `--dx` `--biz` | `#E3A0A8` `#9FB1EC` `#C8C97A` | `#9A4F58` `#40569E` `#6F6A24` | Seat marks for UX, Dev experience, Business |
+| Token                 | Dark                          | Light                         | Use                                                              |
+| --------------------- | ----------------------------- | ----------------------------- | ---------------------------------------------------------------- |
+| `--bg`                | `#141210`                     | `#FAF8F5`                     | Page background, code blocks inside cards                        |
+| `--sf`                | `#1C1A17`                     | `#FFFFFF`                     | Cards, seat cards, composer, dialogs, menus                      |
+| `--sf2`               | `#26231F`                     | `#F2EEE8`                     | User bubble, nav track, avatar, comment verdict                  |
+| `--bd`                | `#34302A`                     | `#E5DFD6`                     | Control borders (inputs, secondary buttons, menus)               |
+| `--bd2`               | `#2A2723`                     | `#EEE9E1`                     | Card borders, row dividers, bar border                           |
+| `--fg`                | `#F3EFE9`                     | `#1D1A16`                     | Primary text                                                     |
+| `--mu`                | `#A8A095`                     | `#6A6258`                     | Secondary text, captions, status lines                           |
+| `--mu2`               | `#7D766C`                     | `#8A8277`                     | Line numbers, idle dots                                          |
+| `--ac`                | `#F0A24B`                     | `#EC9A45`                     | Primary buttons, send, focus ring, selected checkbox, live pulse |
+| `--acfg`              | `#1B1206`                     | `#1B1206`                     | Text on `--ac`                                                   |
+| `--act`               | `#F5B56E`                     | `#A4560C`                     | Accent text and links, chair overline                            |
+| `--acs`               | accent at 12%                 | accent at 13%                 | Chair block fill, selected picker row, focus halo                |
+| `--acb`               | accent at 34%                 | accent at 45%                 | Chair block border and divider                                   |
+| `--ok` / `--oks`      | `#72C493`                     | `#2F8A55`                     | Ready, Approve, success; `--oks` is its 10 to 13% fill           |
+| `--er` / `--ers`      | `#F08E7E`                     | `#C2412F`                     | Errors, Request changes, Remove; `--ers` is its 8 to 12% fill    |
+| `--ux` `--dx` `--biz` | `#E3A0A8` `#9FB1EC` `#C8C97A` | `#9A4F58` `#40569E` `#6F6A24` | Seat marks for UX, Dev experience, Business                      |
 
 The chair block is the only amber surface on any screen. Amber elsewhere is limited to buttons, focus, selection and links.
 
 Type: Geist for text, Geist Mono for paths, overlines and code.
 
-| Style | Spec | Used for |
-|---|---|---|
-| Display | 40/44 (52/56 on landing desktop), 600, -0.02em | Landing headline |
-| Title | 20 to 24 / 28 to 30, 600 | Auth cards, empty states, dialog title (19/26) |
-| Body | 15/23, 400 | Default text; chair synthesis 16/25 |
-| Small | 13/19 | Captions, status lines, hints |
-| Mono | 11.5 to 14 / 16 to 20 | Source names, citation paths, code |
-| Overline | 11/16 Geist Mono, uppercase, 0.08em | Section labels, "Chair's recommendation" |
+| Style    | Spec                                           | Used for                                       |
+| -------- | ---------------------------------------------- | ---------------------------------------------- |
+| Display  | 40/44 (52/56 on landing desktop), 600, -0.02em | Landing headline                               |
+| Title    | 20 to 24 / 28 to 30, 600                       | Auth cards, empty states, dialog title (19/26) |
+| Body     | 15/23, 400                                     | Default text; chair synthesis 16/25            |
+| Small    | 13/19                                          | Captions, status lines, hints                  |
+| Mono     | 11.5 to 14 / 16 to 20                          | Source names, citation paths, code             |
+| Overline | 11/16 Geist Mono, uppercase, 0.08em            | Section labels, "Chair's recommendation"       |
 
 Shape: radius 8 (small buttons), 10 (buttons, inputs, code blocks), 14 (cards), 16 (chair, composer), 18 (dialogs, auth card). Spacing on a 4px grid. Page gutter 24px desktop, 14px mobile. Thread max width 980px. Buttons are 36px (30px small); touch targets on mobile are at least 40px.
 
@@ -89,12 +89,12 @@ Mockups: `foundations-layout-and-nav-desktop-dark.png`, `foundations-layout-and-
 
 Raw API errors never reach the screen (v1 shows `detail` text and "Request failed with status N"). Each status maps to one sentence and one next step, shown where the action failed: inside the card, on the row, or in the composer strip. Style: `callout-err` (fill `--ers`, 3px `--er` left rule, text `--fg`).
 
-| Status | Copy | Next step |
-|---|---|---|
-| 401 session ended | Your session has ended. Sign in again to keep going. | Sign in again (goes to Sign in) |
-| 403 access lost | Quorum can't read didi-build/legacy-api anymore. Give it access in GitHub, then refresh. When the API does not name the source: "Quorum lost access to this source." | Check GitHub access |
-| 429 rate limited | GitHub asked Quorum to slow down. Wait a minute, then try again. ("Linear" when the provider is Linear.) | Try again (no automatic retry) |
-| 5xx and anything unmapped | Something went wrong on our side. Try again in a moment. | Try again |
+| Status                    | Copy                                                                                                                                                                 | Next step                       |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| 401 session ended         | Your session has ended. Sign in again to keep going.                                                                                                                 | Sign in again (goes to Sign in) |
+| 403 access lost           | Quorum can't read didi-build/legacy-api anymore. Give it access in GitHub, then refresh. When the API does not name the source: "Quorum lost access to this source." | Check GitHub access             |
+| 429 rate limited          | GitHub asked Quorum to slow down. Wait a minute, then try again. ("Linear" when the provider is Linear.)                                                             | Try again (no automatic retry)  |
+| 5xx and anything unmapped | Something went wrong on our side. Try again in a moment.                                                                                                             | Try again                       |
 
 Replaces: `frontend/src/lib/authErrors.ts` (`humanizeApiError`) and every place that renders `error` text in `ChatApp.tsx`, `ConnectionsView.tsx`, `WriteBackCard.tsx`, `NotAllowedScreen.tsx`, `hooks/useChatWebSocket.ts`.
 
@@ -234,17 +234,17 @@ Replaces: `CouncilThreadBlock` in `ChatThread.tsx`; `PersonaHeader`, the persona
 
 Lives inside the chair block, under the citations. The card itself is a neutral surface (`--sf`, `--bd2` border, radius 12, padding 14) so the chair stays the only amber surface.
 
-| State | What shows |
-|---|---|
-| Propose | Primary small button "Propose write-back". |
-| Proposing | Same button disabled, spinner, "Proposing write-back". |
-| Plan shown | Header "Write-back plan" with "Nothing is created until you confirm." One row per plan line from `planActionLines()` ("Update docs/architecture/sessions.md" with a file icon, "Create Linear roadmap item" with the Linear mark). Field "Suggest a change" (placeholder "Optional refinement notes"). Actions: "Refine" (secondary, disabled until there is text) and "Confirm" (primary). |
-| Refine | Feedback typed; "Refine" shows a spinner and "Refining"; Confirm disabled. |
-| Plan refined | Same as Plan shown with the new lines (for example "Create new doc: session-store-cutover"). No "updated from your note", no draft number, no highlights. |
-| Nothing to do | Empty plan: "No follow-up action needed. The recommendation doesn't call for a doc change or a roadmap item." Only Refine is offered (v1 hides Confirm). |
-| Executing | Plan stays visible, feedback disabled, Confirm disabled with a spinner and "Creating". |
-| Created | Header with a green check and "Written back". One row per execution result: GitHub or Linear mark and the API label as a link with an external icon (for example "didi-build/launchpad #142: Add session store cutover doc", "DIDI-731: Move sessions to D1 after the public beta"). |
-| Failed, plan kept | Error callout at the top of the card: "Nothing was created. Something went wrong on our side, so it's safe to try again." (or the mapped sentence for 401, 403, 429). Plan and feedback stay. Primary button becomes "Retry". No partial-success list. |
+| State             | What shows                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Propose           | Primary small button "Propose write-back".                                                                                                                                                                                                                                                                                                                                                  |
+| Proposing         | Same button disabled, spinner, "Proposing write-back".                                                                                                                                                                                                                                                                                                                                      |
+| Plan shown        | Header "Write-back plan" with "Nothing is created until you confirm." One row per plan line from `planActionLines()` ("Update docs/architecture/sessions.md" with a file icon, "Create Linear roadmap item" with the Linear mark). Field "Suggest a change" (placeholder "Optional refinement notes"). Actions: "Refine" (secondary, disabled until there is text) and "Confirm" (primary). |
+| Refine            | Feedback typed; "Refine" shows a spinner and "Refining"; Confirm disabled.                                                                                                                                                                                                                                                                                                                  |
+| Plan refined      | Same as Plan shown with the new lines (for example "Create new doc: session-store-cutover"). No "updated from your note", no draft number, no highlights.                                                                                                                                                                                                                                   |
+| Nothing to do     | Empty plan: "No follow-up action needed. The recommendation doesn't call for a doc change or a roadmap item." Only Refine is offered (v1 hides Confirm).                                                                                                                                                                                                                                    |
+| Executing         | Plan stays visible, feedback disabled, Confirm disabled with a spinner and "Creating".                                                                                                                                                                                                                                                                                                      |
+| Created           | Header with a green check and "Written back". One row per execution result: GitHub or Linear mark and the API label as a link with an external icon (for example "didi-build/launchpad #142: Add session store cutover doc", "DIDI-731: Move sessions to D1 after the public beta").                                                                                                        |
+| Failed, plan kept | Error callout at the top of the card: "Nothing was created. Something went wrong on our side, so it's safe to try again." (or the mapped sentence for 401, 403, 429). Plan and feedback stay. Primary button becomes "Retry". No partial-success list.                                                                                                                                      |
 
 Mockups: `write-back-propose-*`, `write-back-proposing-*`, `write-back-plan-shown-desktop-dark.png`, `write-back-plan-shown-desktop-light.png`, `write-back-plan-shown-mobile-*`, `write-back-refine-*`, `write-back-plan-refined-*`, `write-back-nothing-to-do-*`, `write-back-executing-*`, `write-back-created-desktop-dark.png`, `write-back-created-desktop-light.png`, `write-back-created-mobile-*`, `write-back-failed-plan-kept-*`.
 
@@ -283,17 +283,17 @@ Layout: modal dialog, 600px wide, 72px from the top, radius 18, over a `--scrim`
 
 States:
 
-| State | What shows |
-|---|---|
-| GitHub repos | List as above with two rows selected. |
-| Linear teams | Teams tab, "Didi Build" added, "Launchpad" selected. |
+| State            | What shows                                                                                                                                                                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub repos     | List as above with two rows selected.                                                                                                                                                                                                                                              |
+| Linear teams     | Teams tab, "Didi Build" added, "Launchpad" selected.                                                                                                                                                                                                                               |
 | Search, no match | "Nothing matches "billing"" / "Check the spelling, or give Quorum access to more repos in GitHub." Shown with nothing selected, so the confirm button is the disabled "Add sources". If rows were selected before searching, the selection is kept and the button keeps its count. |
-| Loading | Search disabled, five skeleton rows. |
-| Empty | "No repos to show" / "The Quorum app can't see any repos on @didi-build yet. Give it access to the ones you want, then come back." Access link stays. |
-| Error | 5xx sentence and "Try again"; search disabled. |
-| Not connected | GitHub mark, "Connect GitHub first" / "Install the Quorum app on your GitHub account, then pick the repos it should read here." and primary "Connect GitHub". No search. |
-| Adding | Confirm button disabled with a spinner and "Adding". |
-| Added | Dialog closes; toast "Added 2 sources. Indexing has started."; the new rows appear in the list as pending. |
+| Loading          | Search disabled, five skeleton rows.                                                                                                                                                                                                                                               |
+| Empty            | "No repos to show" / "The Quorum app can't see any repos on @didi-build yet. Give it access to the ones you want, then come back." Access link stays.                                                                                                                              |
+| Error            | 5xx sentence and "Try again"; search disabled.                                                                                                                                                                                                                                     |
+| Not connected    | GitHub mark, "Connect GitHub first" / "Install the Quorum app on your GitHub account, then pick the repos it should read here." and primary "Connect GitHub". No search.                                                                                                           |
+| Adding           | Confirm button disabled with a spinner and "Adding".                                                                                                                                                                                                                               |
+| Added            | Dialog closes; toast "Added 2 sources. Indexing has started."; the new rows appear in the list as pending.                                                                                                                                                                         |
 
 Mockups: `add-source-github-repos-desktop-dark.png`, `add-source-github-repos-desktop-light.png`, `add-source-github-repos-mobile-dark.png`, `add-source-github-repos-mobile-light.png`, `add-source-linear-teams-*`, `add-source-search-no-match-*`, `add-source-loading-*`, `add-source-empty-*`, `add-source-error-*`, `add-source-not-connected-*`, `add-source-adding-*`, `add-source-added-*`.
 
@@ -317,23 +317,23 @@ Mockups: `add-source-github-repos-desktop-dark.png`, `add-source-github-repos-de
 
 ## Dropped from the redesign (1a to 1t) and why
 
-| Item | Why |
-|---|---|
-| Per-seat live activity line ("Comparing refresh.ts with the provider's SDK") and one-line seat summary | Needs data v1 does not send (DIDI-446). |
-| Stop button on a running council | No cancel API in v1 (DIDI-448). |
-| Council timer ("0:18", "Council review 42s") | v1 sends no timing data. |
-| Draft numbers ("DRAFT 2"), "Updated from your note", changed-line highlights | Not in `WriteBackProposalOut` (DIDI-448). |
-| Partial-success list in a failed write-back, "Retry only redoes the rest" | v1 returns no partial results. |
-| Item counts ("412 issues", "updated 2h ago") | Not in `KnowledgeSource` (DIDI-448). |
-| Confirm button that states what will be created ("Create 1 PR and 2 issues") | Plan lines do not carry counts; the button stays "Confirm". |
-| "Discard plan" | No discard endpoint in v1. |
-| "Show plan" toggle on a created card | Kept the created card to the result links only. |
-| Inline numbered footnotes in direct answers | v1 answer text has no citation markers; citations are listed under the answer. |
-| Builder, Skeptic, Customer seats | v1 seats are UX, Dev experience and Business. |
-| No composer until a source is ready | v1 answers greetings with no sources. |
-| Reconnecting and offline states with automatic retry | v1 has no auto-reconnect (closed or failed shows Refresh). |
-| Appearance switch and "Live updates" row in the account menu | v1 has no theme setting; connection state lives above the composer. |
-| Bottom sheet for source actions on mobile | Actions open inline under the row instead, which keeps them next to the source and never covers other rows. |
+| Item                                                                                                   | Why                                                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Per-seat live activity line ("Comparing refresh.ts with the provider's SDK") and one-line seat summary | Needs data v1 does not send (DIDI-446).                                                                     |
+| Stop button on a running council                                                                       | No cancel API in v1 (DIDI-448).                                                                             |
+| Council timer ("0:18", "Council review 42s")                                                           | v1 sends no timing data.                                                                                    |
+| Draft numbers ("DRAFT 2"), "Updated from your note", changed-line highlights                           | Not in `WriteBackProposalOut` (DIDI-448).                                                                   |
+| Partial-success list in a failed write-back, "Retry only redoes the rest"                              | v1 returns no partial results.                                                                              |
+| Item counts ("412 issues", "updated 2h ago")                                                           | Not in `KnowledgeSource` (DIDI-448).                                                                        |
+| Confirm button that states what will be created ("Create 1 PR and 2 issues")                           | Plan lines do not carry counts; the button stays "Confirm".                                                 |
+| "Discard plan"                                                                                         | No discard endpoint in v1.                                                                                  |
+| "Show plan" toggle on a created card                                                                   | Kept the created card to the result links only.                                                             |
+| Inline numbered footnotes in direct answers                                                            | v1 answer text has no citation markers; citations are listed under the answer.                              |
+| Builder, Skeptic, Customer seats                                                                       | v1 seats are UX, Dev experience and Business.                                                               |
+| No composer until a source is ready                                                                    | v1 answers greetings with no sources.                                                                       |
+| Reconnecting and offline states with automatic retry                                                   | v1 has no auto-reconnect (closed or failed shows Refresh).                                                  |
+| Appearance switch and "Live updates" row in the account menu                                           | v1 has no theme setting; connection state lives above the composer.                                         |
+| Bottom sheet for source actions on mobile                                                              | Actions open inline under the row instead, which keeps them next to the source and never covers other rows. |
 
 ## Changes
 
