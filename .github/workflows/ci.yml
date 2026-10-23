@@ -116,7 +116,7 @@ jobs:
         run: npm ci
         continue-on-error: true
       - name: nodrift check
-        id: nodrift
+        id: nodrift_check
         if: steps.install.outcome == 'success'
         run: npx nodrift check
         continue-on-error: true
@@ -126,7 +126,7 @@ jobs:
         run: npm run test:worker
         continue-on-error: true
       - name: npm run check (launchpad gate)
-        id: check
+        id: launchpad_check
         if: steps.install.outcome == 'success'
         run: npm run check
         continue-on-error: true
@@ -143,13 +143,13 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         run: node scripts/ci-test-summary.mjs >> "$GITHUB_OUTPUT"
         env:
-          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          CHECK_OUTCOME: ${{ steps.launchpad_check.outcome }}
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       - name: PR test summary (Dependabot)
         if: always() && github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
         env:
-          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          CHECK_OUTCOME: ${{ steps.launchpad_check.outcome }}
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           OUTPUT_MODE: body
@@ -172,8 +172,8 @@ jobs:
           body: ${{ steps.summary.outputs.body }}
       - name: Fail job if install, nodrift, worker tests, or check failed
         if: >-
-          steps.install.outcome != 'success' ||
-          steps.nodrift.outcome != 'success' ||
-          steps.worker_tests.outcome != 'success' ||
-          steps.check.outcome != 'success'
+          steps.install.outcome == 'failure' ||
+          steps.nodrift_check.outcome == 'failure' ||
+          steps.worker_tests.outcome == 'failure' ||
+          steps.launchpad_check.outcome == 'failure'
         run: exit 1
