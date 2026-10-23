@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quorum",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-11",
+  "compatibility_flags": ["nodejs_compat"],
+  // Placeholder resource ids only; real ids come from Manual Cloudflare setup tickets.
+  "vars": {
+    "APP_ENV": "development",
+  },
+  "assets": {
+    "directory": "./frontend/dist",
+    "binding": "ASSETS",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "quorum-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+    },
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "INDEXING_QUEUE",
+        "queue": "quorum-indexing",
+      },
+    ],
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "quorum-embeddings",
+    },
+  ],
+}

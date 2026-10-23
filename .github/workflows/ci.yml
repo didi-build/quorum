@@ -115,8 +115,18 @@ jobs:
         id: install
         run: npm ci
         continue-on-error: true
-      - name: npm run check
-        id: check
+      - name: nodrift check
+        id: nodrift_check
+        if: steps.install.outcome == 'success'
+        run: npx nodrift check
+        continue-on-error: true
+      - name: Worker tests (vitest-pool-workers)
+        id: worker_tests
+        if: steps.install.outcome == 'success'
+        run: npm run test:worker
+        continue-on-error: true
+      - name: npm run check (launchpad gate)
+        id: launchpad_check
         if: steps.install.outcome == 'success'
         run: npm run check
         continue-on-error: true
@@ -125,7 +135,7 @@ jobs:
         if: always() && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && steps.install.outcome == 'success'
         with:
           name: Vitest
-          path: test-results/junit.xml
+          path: test-results/*.xml
           reporter: java-junit
           fail-on-error: false
       - name: Build PR test summary
@@ -133,14 +143,18 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         run: node scripts/ci-test-summary.mjs >> "$GITHUB_OUTPUT"
         env:
-          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          CHECK_OUTCOME: ${{ steps.launchpad_check.outcome }}
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          NODRIFT_OUTCOME: ${{ steps.nodrift_check.outcome }}
+          WORKER_TESTS_OUTCOME: ${{ steps.worker_tests.outcome }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       - name: PR test summary (Dependabot)
         if: always() && github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
         env:
-          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          CHECK_OUTCOME: ${{ steps.launchpad_check.outcome }}
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          NODRIFT_OUTCOME: ${{ steps.nodrift_check.outcome }}
+          WORKER_TESTS_OUTCOME: ${{ steps.worker_tests.outcome }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           OUTPUT_MODE: body
         run: node scripts/ci-test-summary.mjs >> "$GITHUB_STEP_SUMMARY"
@@ -160,6 +174,10 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           edit-mode: replace
           body: ${{ steps.summary.outputs.body }}
-      - name: Fail job if install or check failed
-        if: steps.install.outcome != 'success' || steps.check.outcome != 'success'
+      - name: Fail job if install, nodrift, worker tests, or launchpad check failed
+        if: >-
+          steps.install.outcome != 'success' ||
+          steps.nodrift_check.outcome != 'success' ||
+          steps.worker_tests.outcome != 'success' ||
+          steps.launchpad_check.outcome != 'success'
         run: exit 1

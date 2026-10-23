@@ -15,9 +15,13 @@ Created from [Launchpad](https://github.com/didi-build/launchpad) by Didi Build 
 
 | Path                                                                             | Why it exists                                                                                             |
 | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `LICENSE`                                                                        | Project license (from `LICENSE.project` at init)                                                          |
+| `LICENSE`                                                                        | MIT project license (see ADR 0004)                                                                        |
 | `LICENSES/launchpad-MIT.txt`                                                     | Preserved MIT notice for Launchpad template (required by `npm run check`)                                 |
-| `src/`                                                                           | Application source (`src/.gitkeep` until you add code)                                                    |
+| `src/`                                                                           | Cloudflare Worker API (`GET /health` skeleton)                                                            |
+| `frontend/`                                                                      | Vite React 19 PWA (static assets via Wrangler)                                                            |
+| `wrangler.jsonc`                                                                 | Worker bindings (D1, Queues, Vectorize placeholders) and asset config                                     |
+| `migrations/`                                                                    | D1 SQL migrations                                                                                         |
+| `design/`                                                                        | Product and UI specs                                                                                      |
 | `test/`                                                                          | Vitest tests (script and integration tests under `test/`)                                                 |
 | `docs/`                                                                          | Architecture, decisions, runbooks — see [docs/README.md](./docs/README.md)                                |
 | `AGENTS.md`                                                                      | Single source of truth for agent rules                                                                    |

@@ -1,3 +1,27 @@
 schema_version: 1
 d1_tables: {}
-other_items: []
+other_items:
+  - id: d1.quorum_db
+    binding: DB
+    whose: user
+    data: Account and session records, OAuth connection metadata, indexed source and chunk text, chat messages, and write-back proposals for allowlisted users
+    purpose: persistence for Quorum API, auth, indexing, chat, and write-back state
+    processors: [Cloudflare]
+    retention: until deleted per account-deletion runbook
+    verified: false
+  - id: queue.indexing
+    binding: INDEXING_QUEUE
+    whose: operational
+    data: Knowledge-source indexing job payloads (repo or team ids, connection refs)
+    purpose: async indexing with retries
+    processors: [Cloudflare]
+    retention: until queue consumer deletes message
+    verified: false
+  - id: vectorize.embeddings
+    binding: VECTORIZE
+    whose: user
+    data: 1024-dimensional embeddings and chunk metadata derived from connected GitHub and Linear content (may include author names, handles, and issue text)
+    purpose: hybrid retrieval vector leg (see stack ADR; not validated by nodrift Check 2)
+    processors: [Cloudflare, Voyage AI]
+    retention: until source or chunk is deleted
+    verified: false
