@@ -43,7 +43,7 @@ These apply to all application code once features land; they are not waived by t
 
 ## Secrets
 
-- Never commit secrets. Use `.env` locally; document variable **names** only in `.env.example`.
+- Never commit secrets. For the Worker app, copy `.dev.vars.example` to `.dev.vars` locally (never commit `.dev.vars`). Use `.env` only for launchpad-only vars; document **names** in `.env.example` and `.dev.vars.example`.
 - Never reference, print, or move `BOOTSTRAP_TOKEN` outside `.github/workflows/bootstrap.yml` (enforced by `npm run secret-usage`).
 
 ## Scope and tickets
@@ -60,21 +60,21 @@ These apply to all application code once features land; they are not waived by t
 
 ## Commands
 
-| Script                       | Purpose                                                                                                                                                                |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                | Build the PWA and start the Worker locally (`wrangler dev`); `GET /health` returns `{"status":"ok"}`                                                                   |
-| `npm run build`              | Production build of the Vite frontend into `frontend/dist`                                                                                                             |
-| `npm run build:frontend`     | Same as `build` (frontend only)                                                                                                                                        |
-| `npm run check`              | Launchpad gate: conflict markers, format, lint, typecheck, unit tests, secret scan, placeholders, attribution (CI also runs `nodrift check` and `npm run test:worker`) |
-| `npm run test:worker`        | Vitest with `@cloudflare/vitest-pool-workers` (Worker integration tests under `test/worker/`)                                                                          |
-| `npm run nodrift`            | `@didi-build/nodrift check` when `.nodrift/manifest.json` or `docs/privacy/data-map.yml` exists; skipped otherwise                                                     |
-| `npm run lint`               | ESLint                                                                                                                                                                 |
-| `npm run format`             | Prettier write                                                                                                                                                         |
-| `npm run format:check`       | Prettier check                                                                                                                                                         |
-| `npm run typecheck`          | `tsc --noEmit`                                                                                                                                                         |
-| `npm run test`               | Vitest (CI uses JUnit output)                                                                                                                                          |
-| `npm run secrets`            | Secretlint                                                                                                                                                             |
-| `npm run secret-usage`       | Fail if `BOOTSTRAP_TOKEN` appears outside `bootstrap.yml` workflows                                                                                                    |
-| `npm run init-project`       | Replace `{{…}}` placeholders; optionally run `nodrift init` when the project collects personal data                                                                    |
-| `npm run repo-settings`      | Dry-run, `--apply`, or `--verify` recommended GitHub repo settings                                                                                                     |
-| `npm run verify-action-pins` | Verify each pinned action SHA matches its version comment (`# vX.Y.Z`)                                                                                                 |
+| Script                       | Purpose                                                                                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                | Build the PWA and start the Worker locally (`wrangler dev`); `GET /health` returns `{"status":"ok"}`                                                                                                             |
+| `npm run build`              | Production build of the Vite frontend into `frontend/dist`                                                                                                                                                       |
+| `npm run build:frontend`     | Same as `build` (frontend only)                                                                                                                                                                                  |
+| `npm run check`              | Launchpad gate: conflict markers, format, lint, typecheck, unit tests, secret scan, placeholders, attribution, and `npm run nodrift` (CI also runs explicit `npx nodrift check` and `npm run test:worker` steps) |
+| `npm run test:worker`        | Vitest with `@cloudflare/vitest-pool-workers` (Worker integration tests under `test/worker/`)                                                                                                                    |
+| `npm run nodrift`            | `@didi-build/nodrift check` when `.nodrift/manifest.json` or `docs/privacy/data-map.yml` exists; skipped otherwise                                                                                               |
+| `npm run lint`               | ESLint                                                                                                                                                                                                           |
+| `npm run format`             | Prettier write                                                                                                                                                                                                   |
+| `npm run format:check`       | Prettier check                                                                                                                                                                                                   |
+| `npm run typecheck`          | `tsc --noEmit`                                                                                                                                                                                                   |
+| `npm run test`               | Vitest (CI uses JUnit output)                                                                                                                                                                                    |
+| `npm run secrets`            | Secretlint                                                                                                                                                                                                       |
+| `npm run secret-usage`       | Fail if `BOOTSTRAP_TOKEN` appears outside `bootstrap.yml` workflows                                                                                                                                              |
+| `npm run init-project`       | Replace `{{…}}` placeholders; optionally run `nodrift init` when the project collects personal data                                                                                                              |
+| `npm run repo-settings`      | Dry-run, `--apply`, or `--verify` recommended GitHub repo settings                                                                                                                                               |
+| `npm run verify-action-pins` | Verify each pinned action SHA matches its version comment (`# vX.Y.Z`)                                                                                                                                           |

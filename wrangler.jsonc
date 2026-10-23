@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "quorum",
   "main": "src/index.ts",
-  "compatibility_date": "2025-04-01",
+  "compatibility_date": "2026-10-23",
   "compatibility_flags": ["nodejs_compat"],
   // Placeholder resource ids only; real ids come from Manual Cloudflare setup tickets.
   "vars": {
@@ -24,13 +24,6 @@
       {
         "binding": "INDEXING_QUEUE",
         "queue": "quorum-indexing",
-      },
-    ],
-    "consumers": [
-      {
-        "queue": "quorum-indexing",
-        "max_batch_size": 10,
-        "max_batch_timeout": 30,
       },
     ],
   },

@@ -30,8 +30,9 @@ describe("ci-test-summary (unit)", () => {
       CHECK_OUTCOME: "success",
       PR_HEAD_SHA: "deadbeef00000000",
     });
-    expect(body).toContain("**check**");
+    expect(body).toContain("**npm run check**");
     expect(body).toContain("`success`");
-    expect(body).toContain("attribution");
+    expect(body).toContain("nodrift");
+    expect(body).toContain("Worker");
   });
 });

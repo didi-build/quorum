@@ -3,9 +3,9 @@ d1_tables: {}
 other_items:
   - id: d1.quorum_db
     binding: DB
-    whose: operational
-    data: Application relational data (users, sessions, sources, chunks, chat, proposals)
-    purpose: persistence for Quorum API and indexing pipeline
+    whose: user
+    data: Account and session records, OAuth connection metadata, indexed source and chunk text, chat messages, and write-back proposals for allowlisted users
+    purpose: persistence for Quorum API, auth, indexing, chat, and write-back state
     processors: [Cloudflare]
     retention: until deleted per account-deletion runbook
     verified: false
@@ -19,8 +19,8 @@ other_items:
     verified: false
   - id: vectorize.embeddings
     binding: VECTORIZE
-    whose: operational
-    data: 1024-dimensional chunk embeddings and metadata (knowledge_source_id)
+    whose: user
+    data: 1024-dimensional embeddings and chunk metadata derived from connected GitHub and Linear content (may include author names, handles, and issue text)
     purpose: hybrid retrieval vector leg (see stack ADR; not validated by nodrift Check 2)
     processors: [Cloudflare, Voyage AI]
     retention: until source or chunk is deleted

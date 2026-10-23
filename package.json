@@ -9,7 +9,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution",
+    "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution && npm run nodrift",
     "dev": "npm run build:frontend && wrangler dev",
     "build:frontend": "vite build --config frontend/vite.config.ts",
     "build": "npm run build:frontend",
@@ -42,15 +42,15 @@
     ]
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.10.0",
-    "@cloudflare/workers-types": "^5.20261023.1",
+    "@cloudflare/vitest-pool-workers": "0.10.0",
+    "@cloudflare/workers-types": "5.20261023.1",
     "@didi-build/nodrift": "0.1.0",
     "@eslint/js": "9.39.5",
     "@secretlint/secretlint-rule-preset-recommend": "10.2.2",
     "@types/node": "22.20.5",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
-    "@vitejs/plugin-react": "^5.0.4",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.0.4",
     "eslint": "9.37.0",
     "globals": "16.5.0",
     "husky": "9.1.7",
@@ -59,13 +59,13 @@
     "secretlint": "10.2.2",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.2",
-    "vite": "^7.1.9",
-    "vite-plugin-pwa": "^1.0.3",
+    "vite": "7.1.9",
+    "vite-plugin-pwa": "1.0.3",
     "vitest": "3.2.7",
-    "wrangler": "^4.152.0"
+    "wrangler": "4.152.0"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   }
 }
