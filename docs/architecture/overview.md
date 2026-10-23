@@ -1,10 +1,10 @@
-# Architecture overview — {{PROJECT_NAME}}
+# Architecture overview — Quorum
 
 Replace this file with your system’s architecture. Keep it short; link to deeper docs as the project grows.
 
 ## Purpose
 
-{{PROJECT_PURPOSE}}
+Group decisions by AI seats that reach a consensus recommendation.
 
 ## Boundaries
 
