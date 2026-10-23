@@ -115,7 +115,17 @@ jobs:
         id: install
         run: npm ci
         continue-on-error: true
-      - name: npm run check
+      - name: nodrift check
+        id: nodrift
+        if: steps.install.outcome == 'success'
+        run: npx nodrift check
+        continue-on-error: true
+      - name: Worker tests (vitest-pool-workers)
+        id: worker_tests
+        if: steps.install.outcome == 'success'
+        run: npm run test:worker
+        continue-on-error: true
+      - name: npm run check (launchpad gate)
         id: check
         if: steps.install.outcome == 'success'
         run: npm run check
@@ -160,6 +170,10 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           edit-mode: replace
           body: ${{ steps.summary.outputs.body }}
-      - name: Fail job if install or check failed
-        if: steps.install.outcome != 'success' || steps.check.outcome != 'success'
+      - name: Fail job if install, nodrift, worker tests, or check failed
+        if: >-
+          steps.install.outcome != 'success' ||
+          steps.nodrift.outcome != 'success' ||
+          steps.worker_tests.outcome != 'success' ||
+          steps.check.outcome != 'success'
         run: exit 1

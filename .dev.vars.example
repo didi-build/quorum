@@ -1,0 +1,66 @@
+# Copy to `.dev.vars` for local Wrangler dev. Placeholder values only; never commit real secrets.
+# Quorum reads typed config from Worker env at runtime (build tickets); this file documents names from v1 component 1.
+
+# Application
+APP_ENV=development
+APP_BASE_URL=http://localhost:8787
+DEFAULT_USER_ID=00000000-0000-4000-8000-000000000001
+
+# v1 Postgres deploy only (Quorum uses the D1 binding in wrangler.jsonc instead)
+DATABASE_URL=postgresql+asyncpg://domain:domain@localhost:5432/domain
+POSTGRES_PASSWORD=change-me
+
+# Token encryption (AES-GCM for OAuth tokens at rest)
+TOKEN_ENCRYPTION_KEY=placeholder-generate-for-real-env
+
+# API key for service auth (plain text; stored hashed in D1 on bootstrap)
+BOOTSTRAP_API_KEY=dev-api-key-change-me
+
+# Browser login (GitHub App user OAuth)
+GITHUB_APP_OAUTH_CLIENT_ID=placeholder-github-oauth-client-id
+GITHUB_APP_OAUTH_CLIENT_SECRET=placeholder-github-oauth-client-secret
+GITHUB_AUTH_REDIRECT_URI=http://localhost:8787/auth/github/callback
+AUTH_ALLOWED_GITHUB_IDS=
+SESSION_SECRET=dev-session-secret-change-me
+SESSION_COOKIE_NAME=quorum_session
+SESSION_TTL_DAYS=30
+AUTH_DISPLAY_COOKIE_NAME=quorum_auth_display
+WS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:8787
+
+# GitHub App (installation flow; production Setup URL uses quorum.didi.build)
+GITHUB_APP_ID=0
+GITHUB_APP_SLUG=placeholder-app-slug
+GITHUB_APP_PRIVATE_KEY_BASE64=placeholder-base64-pkcs8-key
+
+# Linear OAuth App
+LINEAR_CLIENT_ID=placeholder-linear-client-id
+LINEAR_CLIENT_SECRET=placeholder-linear-client-secret
+LINEAR_REDIRECT_URI=http://localhost:8787/oauth/linear/callback
+LINEAR_SCOPES=read write
+
+# Voyage embeddings
+VOYAGE_API_KEY=placeholder-voyage-api-key
+VOYAGE_BASE_URL=
+VOYAGE_MODEL=voyage-context-4
+EMBEDDING_DIMENSIONS=1024
+
+# Chunking
+CHUNK_TARGET_TOKENS=512
+CHUNK_OVERLAP_TOKENS=50
+
+# LLM (Anthropic TypeScript SDK; model ids are plain strings in Quorum)
+ANTHROPIC_API_KEY=placeholder-anthropic-api-key
+SUPERVISOR_MODEL=claude-haiku-4-5
+RETRIEVAL_ANSWER_MODEL=claude-sonnet-5
+PERSONA_MODEL=claude-sonnet-5
+COUNCIL_CHAIR_MODEL=claude-sonnet-5
+
+# Retrieval
+RRF_K=60
+RETRIEVAL_TOP_K=10
+COVERAGE_MIN_SCORE=0.3
+
+# v1 droplet deploy only (not used on Cloudflare Workers)
+DROPLET_HOST=placeholder.example.com
+DROPLET_USER=deploy
+DROPLET_SSH_KEY=placeholder-ssh-private-key

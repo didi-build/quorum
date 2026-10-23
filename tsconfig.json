@@ -12,9 +12,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["node"],
+    "types": ["node", "@cloudflare/workers-types"],
     "allowJs": true
   },
+  "exclude": ["test/worker/**"],
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
@@ -23,6 +24,7 @@
     "scripts/lib/gh-api-errors.mjs",
     "scripts/lib/bootstrap.mjs",
     "vitest.config.ts",
+    "vitest.worker.config.ts",
     "eslint.config.js"
   ]
 }

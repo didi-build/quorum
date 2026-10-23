@@ -1,3 +1,23 @@
 schema_version: 1
-subprocessors: []
+subprocessors:
+  - name: Anthropic
+    purpose: LLM inference for routing, retrieval answers, council personas, chair, and write-back planning
+    data: Chat and council prompts derived from indexed knowledge
+    location: United States
+  - name: Voyage AI
+    purpose: Contextual embeddings for indexing and query-time vectors
+    data: Text chunks from connected GitHub and Linear sources
+    location: United States
+  - name: GitHub
+    purpose: User sign-in, app installation, repository indexing, and write-back pull requests
+    data: OAuth profile, repository contents, pull request metadata
+    location: United States
+  - name: Linear
+    purpose: Team connection, issue indexing, and write-back issues
+    data: OAuth tokens, team and issue content
+    location: United States
+  - name: Cloudflare
+    purpose: Hosting, D1, Queues, Vectorize, and static asset delivery
+    data: Application data processed per bindings in docs/privacy/data-map.yml
+    location: Global edge network
 # This file is a starting skeleton, not legal advice. Review it with qualified counsel before relying on it.
