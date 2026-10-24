@@ -122,14 +122,14 @@ describe("Worker static assets (integration, vitest-pool-workers)", () => {
     expect(await response.json()).toEqual({ detail: "Database is not reachable" });
   });
 
-  it("returns ConfigError detail when a required secret is missing", async () => {
+  it("returns 503 with ConfigError detail when a required secret is missing", async () => {
     const incompleteEnv = workerEnvWithSecrets(env);
     delete incompleteEnv.ANTHROPIC_API_KEY;
     const request = new Request("http://example.com/ready");
     const ctx = createExecutionContext();
     const response = await worker.fetch(request, incompleteEnv, ctx);
     await waitOnExecutionContext(ctx);
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(503);
     const body = await response.json();
     expect(body).toEqual({
       detail: "Missing required environment variable: ANTHROPIC_API_KEY",

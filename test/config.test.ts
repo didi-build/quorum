@@ -81,6 +81,15 @@ describe("loadConfig defaults (v1 / .dev.vars.example)", () => {
     );
   });
 
+  it("rejects invalid APP_BASE_URL when deriving ws origins", () => {
+    expect(() =>
+      loadConfig(withTestConfigEnv({ APP_BASE_URL: "not-a-valid-url" })),
+    ).toThrow(ConfigError);
+    expect(() =>
+      loadConfig(withTestConfigEnv({ APP_BASE_URL: "not-a-valid-url" })),
+    ).toThrow(/Invalid environment variable: APP_BASE_URL/);
+  });
+
   it("rejects invalid numeric settings", () => {
     expect(() => loadConfig(withTestConfigEnv({ RRF_K: "12abc" }))).toThrow(
       /Invalid environment variable: RRF_K/,

@@ -44,5 +44,9 @@ export function parseWsAllowedOriginSet(
     }
     return origins;
   }
-  return new Set([new URL(appBaseUrl).origin]);
+  try {
+    return new Set([new URL(appBaseUrl).origin]);
+  } catch {
+    throw ConfigError.invalid("APP_BASE_URL");
+  }
 }
