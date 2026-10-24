@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quorum-preview",
+  "main": "preview/worker.ts",
+  "compatibility_date": "2025-10-11",
+  "assets": {
+    "directory": "./frontend/dist",
+    "binding": "ASSETS",
+  },
+}

@@ -1,0 +1,63 @@
+name: Preview deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  mock-preview:
+    name: mock-preview
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build mock-preview frontend
+        run: npm run build:frontend:mock-preview
+      - name: Upload preview version
+        id: deploy
+        env:
+          QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW: ${{ secrets.QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW }}
+          QUORUM_CLOUDFLARE_ACCOUNT_ID: ${{ vars.QUORUM_CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          url=$(node scripts/upload-preview-version.mjs)
+          if [ -n "$url" ]; then
+            echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Find preview comment
+        id: find-comment
+        if: steps.deploy.outputs.preview_url != ''
+        uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: github-actions[bot]
+          body-includes: "<!-- quorum-mock-preview -->"
+      - name: Update preview comment
+        if: steps.deploy.outputs.preview_url != ''
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body: |
+            <!-- quorum-mock-preview -->
+            ## Mock preview deploy
+
+            **Preview URL:** ${{ steps.deploy.outputs.preview_url }}
+
+            Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.

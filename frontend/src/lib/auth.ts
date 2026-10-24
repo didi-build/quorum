@@ -8,6 +8,10 @@ export interface AccessDeniedInfo {
 }
 
 export async function fetchAuthUser(): Promise<AuthUser | null> {
+  if (import.meta.env.DEV || import.meta.env.MODE === "mock-preview") {
+    const { loadMockPreviewAuthUser } = await import("./preview/loadPreviewMocks");
+    return loadMockPreviewAuthUser();
+  }
   const response = await fetch("/auth/me", {
     credentials: "include",
     headers: { Accept: "application/json" },
