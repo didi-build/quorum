@@ -1,4 +1,3 @@
-import { isChatMockMode } from "../mockMode";
 import { createLiveChatTransport } from "./live";
 import type { ChatTransport } from "./types";
 
@@ -11,7 +10,7 @@ export async function resolveChatTransport(): Promise<ChatTransport> {
   }
   if (!transportPromise) {
     transportPromise = (async () => {
-      if (isChatMockMode()) {
+      if (import.meta.env.DEV && import.meta.env.VITE_CHAT_MOCK !== "false") {
         const { createMockChatTransport } = await import("./mock");
         transport = createMockChatTransport();
       } else {
