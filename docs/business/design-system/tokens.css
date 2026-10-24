@@ -1,9 +1,9 @@
 /*
  * Quorum design tokens (variant A, approved UI polish spec).
- * Load before components/bundle.css. Geist fonts from Google Fonts.
+ * Load before components/bundle.css. Geist fonts are self-hosted (see fonts.css).
  */
 
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap");
+@import "./fonts.css";
 
 :root {
   color-scheme: dark;

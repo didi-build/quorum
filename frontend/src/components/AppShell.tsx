@@ -10,15 +10,6 @@ import { SignInScreen } from "../screens/SignInScreen";
 
 type AuthState = "loading" | "signed-out" | "signed-in";
 
-function RoutePlaceholder({ name }: { name: string }) {
-  return (
-    <div className="quorum-page-placeholder" data-screen-placeholder={name}>
-      {name} screen ships in a follow-up ticket. Shared shell, tokens and components are
-      ready.
-    </div>
-  );
-}
-
 export function AppShell() {
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -102,11 +93,7 @@ export function AppShell() {
     <main className="quorum-app">
       <div className="quorum-page-shell">
         <AppTopBar user={user} onSignedOut={handleSignedOut} />
-        {view === "connections" ? (
-          <RoutePlaceholder name="Connections" />
-        ) : (
-          <RoutePlaceholder name="Chat" />
-        )}
+        <div className="quorum-page-main" />
       </div>
     </main>
   );

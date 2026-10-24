@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { DomMark } from "../components/DomMark";
 import {
   fetchAccessDeniedInfo,
-  githubLoginUrl,
   githubLogoutUrl,
   initialsFromLogin,
   requestAccessMailto,
@@ -36,7 +35,7 @@ export function NotAllowedScreen() {
         <div className="quorum-callout-err" role="alert">
           {humanizeApiError(500, "")}
         </div>
-        <a className="dom-btn dom-btn--primary" href={githubLoginUrl()}>
+        <a className="dom-btn dom-btn--primary" href={appPath("chat")}>
           Try signing in again
         </a>
       </div>

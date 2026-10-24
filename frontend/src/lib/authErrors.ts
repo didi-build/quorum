@@ -5,35 +5,14 @@ export interface HumanizeApiErrorOptions {
   sourceRef?: string | null;
 }
 
-function parseDetail(rawDetail: string): string {
-  const trimmed = rawDetail.trim();
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    const parsed = JSON.parse(trimmed) as { detail?: unknown; message?: unknown };
-    if (typeof parsed.detail === "string") {
-      return parsed.detail;
-    }
-    if (typeof parsed.message === "string") {
-      return parsed.message;
-    }
-  } catch {
-    // not JSON
-  }
-  return trimmed;
-}
-
 /**
  * Maps HTTP API failures to spec copy. Never returns raw JSON or status-only text.
  */
 export function humanizeApiError(
   status: number,
-  rawDetail: string,
+  _rawDetail: string,
   options: HumanizeApiErrorOptions = {},
 ): string {
-  parseDetail(rawDetail);
-
   if (status === 401) {
     return "Your session has ended. Sign in again to keep going.";
   }

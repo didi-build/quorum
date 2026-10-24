@@ -13,7 +13,7 @@ export function AppTopBar({ user, onSignedOut }: AppTopBarProps) {
 
   return (
     <header className="quorum-bar">
-      <a className="quorum-brand" href={appPath("chat")}>
+      <a className="quorum-brand" href={appPath("chat")} aria-label="Quorum">
         <DomMark size={26} />
         <span className="quorum-brand__word">Quorum</span>
       </a>
