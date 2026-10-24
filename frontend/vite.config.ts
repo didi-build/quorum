@@ -1,12 +1,14 @@
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { assertNoMockArtifactsInProductionDist } from "../scripts/lib/frontend-dist-mock-scan.mjs";
+import { assertMockPreviewOutDirNotProductionDist } from "../scripts/lib/frontend-outdir-guard.mjs";
 
 const frontendRoot = import.meta.dirname;
 
-function resolveOutDir(mode: string): string {
+function resolveDefaultOutDir(mode: string): string {
   const override =
     mode === "mock-preview"
       ? process.env.QUORUM_FRONTEND_PREVIEW_OUT_DIR
@@ -15,6 +17,15 @@ function resolveOutDir(mode: string): string {
     return path.isAbsolute(override) ? override : path.join(frontendRoot, override);
   }
   return path.join(frontendRoot, mode === "mock-preview" ? "dist-preview" : "dist");
+}
+
+function normalizeOutDir(configured: string | undefined, mode: string): string {
+  if (configured) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.join(frontendRoot, configured);
+  }
+  return resolveDefaultOutDir(mode);
 }
 
 function assertAllowedProductionBuild(mode: string): void {
@@ -30,17 +41,54 @@ function assertAllowedProductionBuild(mode: string): void {
   }
 }
 
+function quorumBuildOutDirGuardPlugin(mode: string, command: string): Plugin {
+  return {
+    name: "quorum-build-outdir-guard",
+    config(config, { command: cmd }) {
+      if (cmd !== "build") {
+        return {};
+      }
+      const outDir = normalizeOutDir(config.build?.outDir, mode);
+      return { build: { outDir } };
+    },
+    configResolved(config) {
+      if (command === "build" && mode === "mock-preview") {
+        const resolvedOutDir = path.resolve(config.build.outDir);
+        assertMockPreviewOutDirNotProductionDist(resolvedOutDir, frontendRoot);
+      }
+    },
+  };
+}
+
+function quorumProductionMockGuardPlugin(mode: string, command: string): Plugin {
+  let resolvedBuildOutDir: string | null = null;
+
+  return {
+    name: "quorum-production-mock-guard",
+    enforce: "post",
+    configResolved(config) {
+      resolvedBuildOutDir = path.resolve(config.build.outDir);
+    },
+    closeBundle() {
+      if (command !== "build" || mode !== "production" || !resolvedBuildOutDir) {
+        return;
+      }
+      assertNoMockArtifactsInProductionDist(resolvedBuildOutDir);
+    },
+  };
+}
+
 export default defineConfig(({ mode, command }) => {
   if (command === "build") {
     assertAllowedProductionBuild(mode);
   }
 
   const enablePwa = mode !== "mock-preview";
-  const outDir = resolveOutDir(mode);
 
   return {
     root: frontendRoot,
     plugins: [
+      quorumBuildOutDirGuardPlugin(mode, command),
       react(),
       ...(enablePwa
         ? [
@@ -78,20 +126,10 @@ export default defineConfig(({ mode, command }) => {
             }),
           ]
         : []),
-      {
-        name: "quorum-production-mock-guard",
-        enforce: "post",
-        closeBundle() {
-          if (command !== "build" || mode !== "production") {
-            return;
-          }
-          assertNoMockArtifactsInProductionDist(outDir);
-        },
-      },
+      quorumProductionMockGuardPlugin(mode, command),
     ],
     base: "/app/",
     build: {
-      outDir,
       emptyOutDir: true,
     },
     publicDir: "public",
