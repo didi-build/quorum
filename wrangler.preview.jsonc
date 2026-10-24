@@ -3,8 +3,10 @@
   "name": "quorum-preview",
   "main": "preview/worker.ts",
   "compatibility_date": "2025-10-11",
+  "workers_dev": true,
+  "preview_urls": true,
   "assets": {
-    "directory": "./frontend/dist",
+    "directory": "./frontend/dist-preview",
     "binding": "ASSETS",
   },
 }

@@ -38,6 +38,7 @@ Group decisions by AI seats that reach a consensus recommendation, with hybrid r
 | local       | Developer machines | Copy `.dev.vars.example` to `.dev.vars` (never commit). Optional `.env` from `.env.example` for launchpad-only vars. Run `npm run dev` (builds frontend, then `wrangler dev`). |
 | staging     | Pre-production     | Not provisioned in repo setup; Wrangler env blocks and secrets when a host exists.                                                                                             |
 | production  | Live               | Target host `quorum.didi.build` (ADR 0004); DNS and deploy are separate tickets.                                                                                               |
+| preview     | PR mock UI         | `quorum-preview` on workers.dev (`mock-preview` build to `frontend/dist-preview`, alias `pr-<n>`; public, no auth; see ADR 0010).                                              |
 
 Wrangler **secrets** and **vars** mirror names in `.dev.vars.example` for non-local deploys.
 

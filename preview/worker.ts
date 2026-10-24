@@ -1,39 +1,21 @@
+import { appSpaShellRequest, shouldServeAppShell } from "./spa-routing.js";
+
 export interface PreviewEnv {
   ASSETS: Fetcher;
 }
 
-function isAppSpaPath(pathname: string): boolean {
-  return pathname === "/app" || pathname.startsWith("/app/");
-}
+const NOINDEX_HEADERS = { "X-Robots-Tag": "noindex, nofollow" };
 
-function wantsHtmlDocument(request: Request): boolean {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return false;
+function withNoIndex(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(NOINDEX_HEADERS)) {
+    headers.set(key, value);
   }
-  const accept = request.headers.get("Accept") ?? "";
-  return accept.includes("text/html");
-}
-
-function appSpaShellRequest(url: URL, request: Request): Request {
-  const shellUrl = new URL("/app/index.html", url.origin);
-  return new Request(shellUrl.toString(), {
-    method: request.method,
-    headers: request.headers,
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
-}
-
-function shouldServeAppShell(
-  url: URL,
-  request: Request,
-  assetResponse: Response,
-): boolean {
-  if (!isAppSpaPath(url.pathname)) {
-    return false;
-  }
-  if (!wantsHtmlDocument(request)) {
-    return false;
-  }
-  return assetResponse.status === 404 || assetResponse.status === 403;
 }
 
 export default {
@@ -41,15 +23,17 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/" || url.pathname === "") {
-      return Response.redirect(new URL("/app/", url.origin), 302);
+      return withNoIndex(
+        Response.redirect(new URL("/app/", url.origin).toString(), 302),
+      );
     }
 
     const assetResponse = await env.ASSETS.fetch(request);
 
     if (shouldServeAppShell(url, request, assetResponse)) {
-      return env.ASSETS.fetch(appSpaShellRequest(url, request));
+      return withNoIndex(await env.ASSETS.fetch(appSpaShellRequest(url, request)));
     }
 
-    return assetResponse;
+    return withNoIndex(assetResponse);
   },
 };

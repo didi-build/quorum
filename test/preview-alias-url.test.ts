@@ -14,7 +14,7 @@ const SAMPLE_SUCCESS = `
 Total Upload: 12.34 KiB / gzip: 4.56 KiB
 Uploaded quorum-preview (Version ID: 00000000-0000-0000-0000-000000000099)
 Version Preview URL: https://a1b2c3d4-quorum-preview.example-subdomain.workers.dev
-Preview URL (alias pr-42): https://pr-42-quorum-preview.example-subdomain.workers.dev
+Version Preview Alias URL: https://pr-42-quorum-preview.example-subdomain.workers.dev
 `;
 
 const SAMPLE_VERSION_URL_ONLY = `

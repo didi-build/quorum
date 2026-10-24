@@ -1,12 +1,45 @@
 import react from "@vitejs/plugin-react";
+import path from "node:path";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { assertNoMockArtifactsInProductionDist } from "../scripts/lib/frontend-dist-mock-scan.mjs";
 
-export default defineConfig(({ mode }) => {
+const frontendRoot = import.meta.dirname;
+
+function resolveOutDir(mode: string): string {
+  const override =
+    mode === "mock-preview"
+      ? process.env.QUORUM_FRONTEND_PREVIEW_OUT_DIR
+      : process.env.QUORUM_FRONTEND_OUT_DIR;
+  if (override) {
+    return path.isAbsolute(override) ? override : path.join(frontendRoot, override);
+  }
+  return path.join(frontendRoot, mode === "mock-preview" ? "dist-preview" : "dist");
+}
+
+function assertAllowedProductionBuild(mode: string): void {
+  if (mode !== "production" && mode !== "mock-preview") {
+    throw new Error(
+      `Refusing Vite build: mode must be "production" or "mock-preview" (got "${mode}").`,
+    );
+  }
+  if (process.env.NODE_ENV !== "production") {
+    throw new Error(
+      `Refusing Vite build: NODE_ENV must be "production" (got "${process.env.NODE_ENV ?? ""}").`,
+    );
+  }
+}
+
+export default defineConfig(({ mode, command }) => {
+  if (command === "build") {
+    assertAllowedProductionBuild(mode);
+  }
+
   const enablePwa = mode !== "mock-preview";
+  const outDir = resolveOutDir(mode);
 
   return {
-    root: import.meta.dirname,
+    root: frontendRoot,
     plugins: [
       react(),
       ...(enablePwa
@@ -45,10 +78,20 @@ export default defineConfig(({ mode }) => {
             }),
           ]
         : []),
+      {
+        name: "quorum-production-mock-guard",
+        enforce: "post",
+        closeBundle() {
+          if (command !== "build" || mode !== "production") {
+            return;
+          }
+          assertNoMockArtifactsInProductionDist(outDir);
+        },
+      },
     ],
     base: "/app/",
     build: {
-      outDir: "dist",
+      outDir,
       emptyOutDir: true,
     },
     publicDir: "public",
