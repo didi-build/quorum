@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { AuthFrame } from "../components/AuthFrame";
 import { DomMark } from "../components/DomMark";
 import { GitHubIcon } from "../components/GitHubIcon";
-import { githubLoginUrl, landingPageUrl } from "../lib/auth";
+import { githubLoginUrl } from "../lib/auth";
 
 export function SignInScreen() {
   const [redirecting, setRedirecting] = useState(false);
@@ -12,7 +13,7 @@ export function SignInScreen() {
   };
 
   return (
-    <div className="quorum-auth-card">
+    <AuthFrame>
       <DomMark size={44} />
       <h1>Sign in to Quorum</h1>
       <p>Quorum is private for now. Use the GitHub account I&apos;ve invited.</p>
@@ -34,9 +35,6 @@ export function SignInScreen() {
           </>
         )}
       </button>
-      <p className="caption">
-        <a href={landingPageUrl()}>Back to quorum.didi.build</a>
-      </p>
-    </div>
+    </AuthFrame>
   );
 }

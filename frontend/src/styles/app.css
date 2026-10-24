@@ -47,6 +47,46 @@ textarea {
   padding: 24px 16px;
 }
 
+.quorum-auth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.quorum-auth-foot {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--mu);
+  text-align: center;
+}
+
+.quorum-auth-foot a {
+  color: var(--act);
+  text-decoration: none;
+}
+
+.quorum-auth-foot a:hover {
+  text-decoration: underline;
+}
+
+.quorum-auth-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--mu);
+}
+
+.dom-btn--with-icon {
+  gap: 6px;
+}
+
+.quorum-auth-id-label strong {
+  font-weight: 600;
+}
+
 .quorum-auth-loading {
   display: flex;
   flex-direction: column;
@@ -96,22 +136,6 @@ textarea {
   flex-direction: column;
   gap: 8px;
   margin-top: 6px;
-}
-
-.quorum-auth-card .caption {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 19px;
-  text-align: center;
-}
-
-.quorum-auth-card .caption a {
-  color: var(--mu);
-  text-decoration: none;
-}
-
-.quorum-auth-card .caption a:hover {
-  color: var(--act);
 }
 
 .dom-btn--block {

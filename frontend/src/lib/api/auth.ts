@@ -1,3 +1,5 @@
+import { authFetch, readAuthJson } from "./auth-http";
+
 export interface AuthUser {
   login: string;
   github_id: number;
@@ -18,14 +20,12 @@ export const authFixtures = {
   accessDenied: { login: "sam-rivera" } satisfies AccessDeniedInfo,
 };
 
-function authMockMode(): boolean {
-  return import.meta.env.VITE_AUTH_MOCK === "true";
-}
+const jsonHeaders = { Accept: "application/json" };
 
 async function fetchAuthUserLive(): Promise<AuthUser | null> {
-  const response = await fetch("/auth/me", {
+  const response = await authFetch("/auth/me", {
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: jsonHeaders,
   });
   if (response.status === 401) {
     return null;
@@ -33,13 +33,13 @@ async function fetchAuthUserLive(): Promise<AuthUser | null> {
   if (!response.ok) {
     throw new Error("Something went wrong on our side. Try again in a moment.");
   }
-  return (await response.json()) as AuthUser;
+  return readAuthJson<AuthUser>(response);
 }
 
 async function fetchAccessDeniedInfoLive(): Promise<AccessDeniedInfo | null> {
-  const response = await fetch("/auth/access-denied", {
+  const response = await authFetch("/auth/access-denied", {
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: jsonHeaders,
   });
   if (response.status === 404) {
     return null;
@@ -47,11 +47,11 @@ async function fetchAccessDeniedInfoLive(): Promise<AccessDeniedInfo | null> {
   if (!response.ok) {
     throw new Error("Something went wrong on our side. Try again in a moment.");
   }
-  return (await response.json()) as AccessDeniedInfo;
+  return readAuthJson<AccessDeniedInfo>(response);
 }
 
 async function logoutLive(): Promise<void> {
-  const response = await fetch("/auth/logout", {
+  const response = await authFetch("/auth/logout", {
     method: "POST",
     credentials: "include",
   });
@@ -60,51 +60,47 @@ async function logoutLive(): Promise<void> {
   }
 }
 
-function mockAuthUserFromEnv(): AuthUser | null {
-  const raw = import.meta.env.VITE_AUTH_MOCK_USER;
-  if (!raw) {
-    return null;
-  }
-  const login = raw.replace(/^@/, "");
-  return { login, github_id: 0 };
-}
-
-const mockAuthApi: AuthApi = {
-  async fetchAuthUser() {
-    return mockAuthUserFromEnv();
-  },
-  async fetchAccessDeniedInfo() {
-    const login = import.meta.env.VITE_AUTH_MOCK_ACCESS_DENIED;
-    if (!login) {
-      return null;
-    }
-    return { login: login.replace(/^@/, "") };
-  },
-  async logout() {
-    return;
-  },
-};
-
 const liveAuthApi: AuthApi = {
   fetchAuthUser: fetchAuthUserLive,
   fetchAccessDeniedInfo: fetchAccessDeniedInfoLive,
   logout: logoutLive,
 };
 
+let resolvedAuthApi: AuthApi | null = null;
+
+async function resolveAuthApi(): Promise<AuthApi> {
+  if (resolvedAuthApi) {
+    return resolvedAuthApi;
+  }
+  if (import.meta.env.DEV && import.meta.env.VITE_AUTH_MOCK === "true") {
+    const { createMockAuthApi } = await import("./auth.mock");
+    resolvedAuthApi = createMockAuthApi();
+    return resolvedAuthApi;
+  }
+  resolvedAuthApi = liveAuthApi;
+  return resolvedAuthApi;
+}
+
 export function createAuthApi(overrides: Partial<AuthApi> = {}): AuthApi {
   return { ...liveAuthApi, ...overrides };
 }
 
-export const authApi: AuthApi = authMockMode() ? mockAuthApi : liveAuthApi;
-
 export async function fetchAuthUser(): Promise<AuthUser | null> {
-  return authApi.fetchAuthUser();
+  const api = await resolveAuthApi();
+  return api.fetchAuthUser();
 }
 
 export async function fetchAccessDeniedInfo(): Promise<AccessDeniedInfo | null> {
-  return authApi.fetchAccessDeniedInfo();
+  const api = await resolveAuthApi();
+  return api.fetchAccessDeniedInfo();
 }
 
 export async function logout(): Promise<void> {
-  return authApi.logout();
+  const api = await resolveAuthApi();
+  return api.logout();
+}
+
+/** @internal Reset cached API (tests only). */
+export function resetAuthApiCache(): void {
+  resolvedAuthApi = null;
 }

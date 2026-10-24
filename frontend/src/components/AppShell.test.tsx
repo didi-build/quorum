@@ -42,4 +42,19 @@ describe("AppShell", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it.each([
+    ["404", new Error("Not found")],
+    ["5xx", new Error("Something went wrong on our side. Try again in a moment.")],
+    ["network", new TypeError("Failed to fetch")],
+  ])("shows sign-in when fetchAuthUser fails (%s)", async (_label, error) => {
+    vi.spyOn(authApi, "fetchAuthUser").mockRejectedValue(error);
+    render(<AppShell />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "Sign in to Quorum" }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Loading")).not.toBeInTheDocument();
+  });
 });

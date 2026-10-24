@@ -26,7 +26,8 @@ describe("NotAllowedScreen", () => {
     });
     render(<NotAllowedScreen />);
     await waitFor(() => {
-      expect(screen.getByText(/Signed in as @sam-rivera/)).toBeInTheDocument();
+      expect(screen.getByText("Signed in as", { exact: false })).toBeInTheDocument();
+      expect(screen.getByText("@sam-rivera")).toBeInTheDocument();
     });
     expect(
       screen.getByRole("heading", { name: "You're not on the list yet" }),
@@ -35,6 +36,16 @@ describe("NotAllowedScreen", () => {
       "href",
       expect.stringContaining("sam-rivera"),
     );
+  });
+
+  it("redirects to /app/ when access-denied is empty", async () => {
+    const replace = vi.fn();
+    vi.stubGlobal("location", { ...window.location, replace });
+    vi.mocked(authApi.fetchAccessDeniedInfo).mockResolvedValue(null);
+    render(<NotAllowedScreen />);
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/app/");
+    });
   });
 
   it("shows load failed state", async () => {

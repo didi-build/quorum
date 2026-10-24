@@ -17,10 +17,11 @@ describe("SignInScreen", () => {
     expect(
       screen.getByRole("button", { name: /Sign in with GitHub/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /quorum.didi.build/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "quorum.didi.build" })).toHaveAttribute(
       "href",
       "/",
     );
+    expect(screen.getByText(/Back to/)).toBeInTheDocument();
   });
 
   it("disables the button and shows redirecting copy after click", async () => {

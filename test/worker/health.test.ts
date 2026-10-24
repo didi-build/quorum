@@ -15,6 +15,20 @@ function assetRequest(path: string, init: RequestInit = {}): Request {
 }
 
 describe("Worker static assets (integration, vitest-pool-workers)", () => {
+  it("serves landing CSS at /style.css", async () => {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      assetRequest("/style.css", { headers: { Accept: "text/css" } }),
+      env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(200);
+    const css = await response.text();
+    expect(css).toContain(":root");
+    expect(css).not.toContain('id="root"');
+  });
+
   it("serves landing HTML at /", async () => {
     const ctx = createExecutionContext();
     const response = await worker.fetch(htmlRequest("/"), env, ctx);

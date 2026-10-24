@@ -378,6 +378,13 @@ body {
   color: var(--mu);
 }
 
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--acs);
+}
+
 @media (max-width: 639px) {
   .landing {
     padding: 0 14px;

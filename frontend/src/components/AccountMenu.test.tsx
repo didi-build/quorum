@@ -31,6 +31,19 @@ describe("AccountMenu", () => {
     expect(onSignedOut).not.toHaveBeenCalled();
   });
 
+  it("calls onSignedOut when logout rejects", async () => {
+    vi.mocked(authApi.logout).mockRejectedValue(new Error("offline"));
+    const onSignedOut = vi.fn();
+    render(<AccountMenu user={user} onSignedOut={onSignedOut} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Account menu for @diadem" }),
+    );
+    await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+
+    expect(onSignedOut).toHaveBeenCalled();
+  });
+
   it("calls logout and onSignedOut from Sign out", async () => {
     const onSignedOut = vi.fn();
     render(<AccountMenu user={user} onSignedOut={onSignedOut} />);
