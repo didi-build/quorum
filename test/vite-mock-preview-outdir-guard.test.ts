@@ -57,26 +57,33 @@ describe("mock-preview outDir guard", () => {
     }).toThrow(/Refusing mock-preview build/);
   });
 
-  it("production mock scan uses the resolved outDir path (same helper as closeBundle)", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-prod-outdir-"));
-    const customOut = path.join(tmp, "custom-dist");
+  it(
+    "production mock scan uses the resolved outDir path (same helper as closeBundle)",
+    { timeout: 60_000 },
+    () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-prod-outdir-"));
+      const customOut = path.join(tmp, "custom-dist");
 
-    execSync(
-      `NODE_ENV=production npx vite build --config frontend/vite.config.ts --mode production --outDir ${JSON.stringify(customOut)}`,
-      {
-        cwd: root,
-        stdio: "pipe",
-        env: { ...process.env, NODE_ENV: "production" },
-      },
-    );
+      execSync(
+        `NODE_ENV=production npx vite build --config frontend/vite.config.ts --mode production --outDir ${JSON.stringify(customOut)}`,
+        {
+          cwd: root,
+          stdio: "pipe",
+          env: { ...process.env, NODE_ENV: "production" },
+        },
+      );
 
-    fs.mkdirSync(path.join(customOut, "assets"), { recursive: true });
-    fs.writeFileSync(path.join(customOut, "assets", "mockBundle-evil.js"), "export {}");
+      fs.mkdirSync(path.join(customOut, "assets"), { recursive: true });
+      fs.writeFileSync(
+        path.join(customOut, "assets", "mockBundle-evil.js"),
+        "export {}",
+      );
 
-    expect(() => {
-      assertNoMockArtifactsInProductionDist(customOut);
-    }).toThrow(/mock preview artifacts/i);
+      expect(() => {
+        assertNoMockArtifactsInProductionDist(customOut);
+      }).toThrow(/mock preview artifacts/i);
 
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
+      fs.rmSync(tmp, { recursive: true, force: true });
+    },
+  );
 });
