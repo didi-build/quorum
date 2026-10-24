@@ -4,7 +4,7 @@ import { useChatWebSocket } from "./useChatWebSocket";
 import { setChatTransport } from "../lib/chat/transport";
 import { createMockChatTransport } from "../lib/chat/transport/mock";
 import { FIXTURE_SESSION_ID } from "../lib/chat/transport/fixtures";
-import { humanizeApiError } from "../lib/authErrors";
+import { CHAT_GENERIC_ERROR_MESSAGE } from "../lib/chat/errors";
 
 afterEach(() => {
   setChatTransport(null);
@@ -103,6 +103,36 @@ describe("useChatWebSocket", () => {
     expect(response.content).toBe("ok");
   });
 
+  it("rejects with spec copy when socket.send throws", async () => {
+    const transport = createMockChatTransport();
+    setChatTransport(transport);
+
+    const { result } = renderHook(() =>
+      useChatWebSocket({
+        enabled: true,
+        sessionId: FIXTURE_SESSION_ID,
+        onStatus: () => {},
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.connected).toBe(true);
+    });
+
+    const socket = transport.activeSocket();
+    expect(socket).toBeDefined();
+    vi.spyOn(socket!, "send").mockImplementation(() => {
+      throw new Error("send failed");
+    });
+
+    await expect(
+      result.current.sendMessage({
+        session_id: FIXTURE_SESSION_ID,
+        content: "boom",
+      }),
+    ).rejects.toThrow(CHAT_GENERIC_ERROR_MESSAGE);
+  });
+
   it("rejects pending turns on turn timeout with spec copy for the send-failed strip", async () => {
     const transport = createMockChatTransport();
     transport.stallSend = true;
@@ -126,7 +156,7 @@ describe("useChatWebSocket", () => {
       content: "hang",
     });
 
-    await expect(pending).rejects.toThrow(humanizeApiError(500, ""));
+    await expect(pending).rejects.toThrow(CHAT_GENERIC_ERROR_MESSAGE);
   }, 10_000);
 
   it("starts in the connecting state before the socket opens", async () => {

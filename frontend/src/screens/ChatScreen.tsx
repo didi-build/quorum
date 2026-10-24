@@ -47,12 +47,14 @@ export function ChatScreen() {
     });
   }, []);
 
-  const refreshSourceCount = useCallback(async () => {
+  const refreshSourceCount = useCallback(async (silent = false) => {
     try {
       const count = await fetchReadySourceCount();
       setReadySourceCount(count);
     } catch (error) {
-      setSendError(toChatUserMessage(error));
+      if (!silent) {
+        setSendError(toChatUserMessage(error));
+      }
     }
   }, []);
 
@@ -112,7 +114,7 @@ export function ChatScreen() {
     } finally {
       setAwaitingResponse(false);
       setComposerFocusSignal((value) => value + 1);
-      void refreshSourceCount();
+      void refreshSourceCount(true);
     }
   };
 

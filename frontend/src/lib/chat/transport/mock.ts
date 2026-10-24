@@ -21,10 +21,15 @@ class MockChatSocket implements ChatSocket {
   };
 
   constructor(private readonly transport: MockChatTransport) {
-    queueMicrotask(() => {
+    const open = () => {
       this.readyState = SOCKET_OPEN;
       this.emit("open", new Event("open"));
-    });
+    };
+    if (transport.delayOpenMs > 0) {
+      setTimeout(open, transport.delayOpenMs);
+    } else {
+      queueMicrotask(open);
+    }
   }
 
   addEventListener(
@@ -85,6 +90,7 @@ export class MockChatTransport implements ChatTransport {
   failOpen = false;
   failSend = false;
   stallSend = false;
+  delayOpenMs = 0;
   private sockets = new Set<MockChatSocket>();
 
   activeSocket(): MockChatSocket | undefined {
