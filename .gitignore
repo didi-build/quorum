@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 frontend/dist/
+frontend/dist-preview/
 .wrangler/
 build/
 .next/
