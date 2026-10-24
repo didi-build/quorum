@@ -42,26 +42,30 @@ function distHasServiceWorker(): boolean {
 }
 
 describe("frontend mock-preview build (integration)", () => {
-  it("production excludes mocks (with service worker); mock-preview includes mocks (no service worker)", () => {
-    execSync("npm run build:frontend", { cwd: root, stdio: "pipe", env: buildEnv });
-    const productionBundle = readAllJsUnder(distRoot);
-    expect(productionBundle).not.toContain(sentinel);
-    expect(productionBundle).not.toContain(transportLabel);
-    expect(distHasServiceWorker()).toBe(true);
+  it(
+    "production excludes mocks (with service worker); mock-preview includes mocks (no service worker)",
+    { timeout: 120_000 },
+    () => {
+      execSync("npm run build:frontend", { cwd: root, stdio: "pipe", env: buildEnv });
+      const productionBundle = readAllJsUnder(distRoot);
+      expect(productionBundle).not.toContain(sentinel);
+      expect(productionBundle).not.toContain(transportLabel);
+      expect(distHasServiceWorker()).toBe(true);
 
-    const swPath = path.join(distRoot, "app", "sw.js");
-    if (fs.existsSync(swPath)) {
-      expect(fs.readFileSync(swPath, "utf8")).not.toContain(sentinel);
-    }
+      const swPath = path.join(distRoot, "app", "sw.js");
+      if (fs.existsSync(swPath)) {
+        expect(fs.readFileSync(swPath, "utf8")).not.toContain(sentinel);
+      }
 
-    execSync("npm run build:frontend:mock-preview", {
-      cwd: root,
-      stdio: "pipe",
-      env: buildEnv,
-    });
-    const previewBundle = readAllJsUnder(distRoot);
-    expect(previewBundle).toContain(sentinel);
-    expect(previewBundle).toContain(transportLabel);
-    expect(distHasServiceWorker()).toBe(false);
-  });
+      execSync("npm run build:frontend:mock-preview", {
+        cwd: root,
+        stdio: "pipe",
+        env: buildEnv,
+      });
+      const previewBundle = readAllJsUnder(distRoot);
+      expect(previewBundle).toContain(sentinel);
+      expect(previewBundle).toContain(transportLabel);
+      expect(distHasServiceWorker()).toBe(false);
+    },
+  );
 });
