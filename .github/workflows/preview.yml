@@ -60,4 +60,4 @@ jobs:
 
             **Preview URL:** ${{ steps.deploy.outputs.preview_url }}
 
-            Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.
+            Opens the app at `/app/` (root redirects to `/app/` on the preview Worker). Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.

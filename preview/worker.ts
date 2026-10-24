@@ -39,6 +39,11 @@ function shouldServeAppShell(
 export default {
   async fetch(request: Request, env: PreviewEnv): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/" || url.pathname === "") {
+      return Response.redirect(new URL("/app/", url.origin), 302);
+    }
+
     const assetResponse = await env.ASSETS.fetch(request);
 
     if (shouldServeAppShell(url, request, assetResponse)) {
