@@ -3,6 +3,8 @@
 
 interface ImportMetaEnv {
   readonly BASE_URL: string;
+  readonly DEV: boolean;
+  readonly VITE_SOURCES_MOCK?: string;
 }
 
 interface ImportMeta {
