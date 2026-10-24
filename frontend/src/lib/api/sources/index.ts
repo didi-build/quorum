@@ -1,24 +1,41 @@
 import { createHttpSourcesApi } from "./http";
-import { createMockSourcesApi } from "./mock";
+import { resolveSourcesMockMode } from "./mode";
 import type { SourcesApi } from "./types";
 
 let apiInstance: SourcesApi | null = null;
 
-function shouldUseMock(): boolean {
-  if (import.meta.env.VITE_SOURCES_MOCK === "true") {
-    return true;
+export function getSourcesMockMode(): "mock" | "http" {
+  return resolveSourcesMockMode({
+    DEV: import.meta.env.DEV,
+    PROD: import.meta.env.PROD,
+    VITE_SOURCES_MOCK: import.meta.env.VITE_SOURCES_MOCK,
+  });
+}
+
+export async function resolveSourcesApi(): Promise<SourcesApi> {
+  if (apiInstance) {
+    return apiInstance;
   }
-  if (import.meta.env.VITE_SOURCES_MOCK === "false") {
-    return false;
+  if (getSourcesMockMode() === "mock") {
+    const { createMockSourcesApi } = await import("./mock");
+    apiInstance = createMockSourcesApi();
+  } else {
+    apiInstance = createHttpSourcesApi();
   }
-  return import.meta.env.DEV;
+  return apiInstance;
 }
 
 export function getSourcesApi(): SourcesApi {
-  if (!apiInstance) {
-    apiInstance = shouldUseMock() ? createMockSourcesApi() : createHttpSourcesApi();
+  if (apiInstance) {
+    return apiInstance;
   }
-  return apiInstance;
+  if (getSourcesMockMode() === "http") {
+    apiInstance = createHttpSourcesApi();
+    return apiInstance;
+  }
+  throw new Error(
+    "Sources API is not ready. Await resolveSourcesApi() in development.",
+  );
 }
 
 export function setSourcesApi(api: SourcesApi | null): void {
@@ -31,9 +48,4 @@ export function oauthAuthorizeUrl(provider: "github" | "linear"): string {
 
 export { SourcesApiError } from "./errors";
 export type { SourcesApi } from "./types";
-export {
-  createMockSourcesApi,
-  mockConnectionsNone,
-  mockSourcesEmpty,
-  type MockSourcesOptions,
-} from "./mock";
+export { resolveSourcesMockMode } from "./mode";

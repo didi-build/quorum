@@ -16,6 +16,7 @@ const GITHUB_INSTALLATIONS_URL = "https://github.com/settings/installations";
 export interface SourceListItemProps {
   source: KnowledgeSource;
   refreshing?: boolean;
+  refreshError?: string | null;
   onRefresh: () => void;
   onRemove: () => Promise<void>;
 }
@@ -23,6 +24,7 @@ export interface SourceListItemProps {
 export function SourceListItem({
   source,
   refreshing = false,
+  refreshError = null,
   onRefresh,
   onRemove,
 }: SourceListItemProps) {
@@ -31,6 +33,8 @@ export function SourceListItem({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const inlineMenu = useMediaQuery("(max-width: 639px)");
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const firstMenuItemRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!menuOpen || inlineMenu) {
@@ -45,17 +49,31 @@ export function SourceListItem({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen, inlineMenu]);
 
-  const closeMenu = () => setMenuOpen(false);
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    firstMenuItemRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    menuButtonRef.current?.focus();
+  };
 
   const handleRemoveClick = () => {
     closeMenu();
     setConfirmRemove(true);
   };
-
-  const githubAccessUrl =
-    source.source_type === "github_repo"
-      ? `https://github.com/${source.external_ref}`
-      : GITHUB_INSTALLATIONS_URL;
 
   return (
     <div
@@ -66,15 +84,20 @@ export function SourceListItem({
       <div className="quorum-source-row__body">
         <span className="quorum-source-row__name">{source.name}</span>
         <StatusChip status={source.status} refreshing={refreshing} />
+        {refreshError ? (
+          <div className="quorum-callout-err" role="alert">
+            {refreshError}
+          </div>
+        ) : null}
         {source.status === "error" && source.status_message ? (
           <div className="quorum-source-row__err">
             <span>{source.status_message}</span>
             <div className="quorum-source-row__err-actions">
               <a
                 className="dom-btn dom-btn--secondary dom-btn--sm"
-                href={githubAccessUrl}
+                href={GITHUB_INSTALLATIONS_URL}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
               >
                 Check GitHub access
                 <IconExternal />
@@ -100,6 +123,7 @@ export function SourceListItem({
             <button
               type="button"
               role="menuitem"
+              ref={firstMenuItemRef}
               onClick={() => {
                 closeMenu();
                 onRefresh();
@@ -172,9 +196,11 @@ export function SourceListItem({
       <div className="quorum-source-row__menu" ref={menuRef}>
         <button
           type="button"
+          ref={menuButtonRef}
           className="quorum-icon-btn"
           aria-label={`Actions for ${source.name}`}
           aria-expanded={menuOpen}
+          aria-haspopup="menu"
           onClick={() => setMenuOpen((open) => !open)}
         >
           <IconMore />
@@ -184,6 +210,7 @@ export function SourceListItem({
             <button
               type="button"
               role="menuitem"
+              ref={firstMenuItemRef}
               onClick={() => {
                 closeMenu();
                 onRefresh();
@@ -216,4 +243,12 @@ export function SourceListItem({
 
 export function removeSourceErrorMessage(status: number, sourceRef: string): string {
   return humanizeApiError(status, "", { sourceRef });
+}
+
+export function refreshSourceErrorMessage(
+  status: number,
+  sourceRef: string,
+  provider?: string,
+): string {
+  return humanizeApiError(status, "", { sourceRef, provider });
 }

@@ -52,6 +52,22 @@ describe("SourceListItem", () => {
     }
   });
 
+  it("shows refresh error on the row", () => {
+    render(
+      <SourceListItem
+        source={baseSource}
+        refreshError="GitHub asked Quorum to slow down. Wait a minute, then try again."
+        onRefresh={() => undefined}
+        onRemove={async () => undefined}
+      />,
+    );
+    expect(
+      screen.getByText(
+        "GitHub asked Quorum to slow down. Wait a minute, then try again.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("asks for confirmation before remove", async () => {
     const onRemove = vi.fn(async () => undefined);
     render(

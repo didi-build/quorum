@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { createMockSourcesApi, mockConnectionsNone } from "../lib/api/sources";
+import { createMockSourcesApi, mockConnectionsNone } from "../lib/api/sources/mock";
+import { SourcesApiError } from "../lib/api/sources/errors";
 import { AddSourcePicker } from "./AddSourcePicker";
 
 const connected = [
@@ -32,11 +33,11 @@ describe("AddSourcePicker", () => {
         onAdded={() => undefined}
       />,
     );
-    expect(screen.getByRole("status", { name: "Loading sources" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Loading repos" })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("didi-build/legacy-api")).toBeTruthy());
   });
 
-  it("shows not connected state", async () => {
+  it("shows not connected state for GitHub", async () => {
     const api = createMockSourcesApi({ connections: mockConnectionsNone() });
     render(
       <AddSourcePicker
@@ -88,6 +89,56 @@ describe("AddSourcePicker", () => {
           "GitHub asked Quorum to slow down. Wait a minute, then try again.",
         ),
       ).toBeTruthy(),
+    );
+  });
+
+  it("shows callout on add network failure and keeps selection", async () => {
+    const api = createMockSourcesApi();
+    api.createSources = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    render(
+      <AddSourcePicker
+        open
+        connections={connected}
+        api={api}
+        onClose={() => undefined}
+        onAdded={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("didi-build/legacy-api")).toBeTruthy());
+    fireEvent.click(screen.getByText("didi-build/legacy-api"));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 source" }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Something went wrong on our side. Try again in a moment."),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Add 1 source" })).toBeTruthy();
+  });
+
+  it("shows Sign in again for 401 on add", async () => {
+    const api = createMockSourcesApi();
+    api.createSources = async () => {
+      throw new SourcesApiError(401, "expired");
+    };
+    render(
+      <AddSourcePicker
+        open
+        connections={connected}
+        api={api}
+        onClose={() => undefined}
+        onAdded={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("didi-build/legacy-api")).toBeTruthy());
+    fireEvent.click(screen.getByText("didi-build/legacy-api"));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 source" }));
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute(
+        "href",
+        "/auth/github/login",
+      ),
     );
   });
 

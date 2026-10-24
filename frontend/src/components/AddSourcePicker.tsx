@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { humanizeApiError } from "../lib/authErrors";
-import { addSourcesButtonLabel, addedSourcesToast } from "../lib/addSourceLabels";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { githubLoginUrl } from "../lib/auth";
+import { humanizeApiError, humanizeApiErrorNextStep } from "../lib/authErrors";
+import { addSourcesButtonLabel } from "../lib/addSourceLabels";
 import { SourcesApiError } from "../lib/api/sources";
 import type { SourcesApi } from "../lib/api/sources";
 import { oauthAuthorizeUrl } from "../lib/api/sources";
+import { useFocusTrap } from "../lib/useFocusTrap";
 import type {
   Connection,
   AvailableSourceItem,
@@ -30,6 +39,7 @@ export interface AddSourcePickerProps {
   connections: Connection[];
   api: SourcesApi;
   initialTab?: PickerTab;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onClose: () => void;
   onAdded: (createdCount: number) => void;
 }
@@ -41,6 +51,7 @@ export function AddSourcePicker({
   connections,
   api,
   initialTab = "github_repo",
+  returnFocusRef,
   onClose,
   onAdded,
 }: AddSourcePickerProps) {
@@ -54,11 +65,26 @@ export function AddSourcePicker({
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const [addError, setAddError] = useState<{ message: string; status: number } | null>(
+    null,
+  );
   const [adding, setAdding] = useState(false);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const githubTabRef = useRef<HTMLButtonElement>(null);
+  const linearTabRef = useRef<HTMLButtonElement>(null);
+
+  useFocusTrap(open, dialogRef);
 
   const githubConnection = connections.find((c) => c.provider === "github");
   const linearConnection = connections.find((c) => c.provider === "linear");
   const activeConnection = tab === "github_repo" ? githubConnection : linearConnection;
+
+  const closeAndReturnFocus = useCallback(() => {
+    onClose();
+    returnFocusRef?.current?.focus();
+  }, [onClose, returnFocusRef]);
 
   const loadAvailable = useCallback(async () => {
     if (!activeConnection) {
@@ -108,6 +134,7 @@ export function AddSourcePicker({
     }
     setTab(initialTab);
     setSelectedByTab({ github_repo: [], linear: [] });
+    setAddError(null);
   }, [open, initialTab]);
 
   useEffect(() => {
@@ -117,6 +144,35 @@ export function AddSourcePicker({
     setQuery("");
     void loadAvailable();
   }, [open, tab, loadAvailable]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    closeButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeAndReturnFocus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, closeAndReturnFocus]);
+
+  const onTabKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    if (event.key === "ArrowRight") {
+      setTab("linear");
+      linearTabRef.current?.focus();
+    } else {
+      setTab("github_repo");
+      githubTabRef.current?.focus();
+    }
+  };
 
   const selected = selectedByTab[tab];
 
@@ -136,6 +192,7 @@ export function AddSourcePicker({
     if (item.already_added) {
       return;
     }
+    setAddError(null);
     setSelectedByTab((prev) => {
       const current = prev[tab];
       const nextKeys = current.includes(item.key)
@@ -150,6 +207,7 @@ export function AddSourcePicker({
       return;
     }
     setAdding(true);
+    setAddError(null);
     try {
       const payload: CreateSourceInput[] = selected
         .map((key) => items.find((i) => i.key === key))
@@ -163,25 +221,16 @@ export function AddSourcePicker({
         }));
       await api.createSources(payload);
       onAdded(selectedCount);
-      onClose();
-      const toast = document.getElementById("quorum-sources-toast");
-      if (toast) {
-        toast.textContent = addedSourcesToast(selectedCount);
-        toast.hidden = false;
-        window.setTimeout(() => {
-          toast.hidden = true;
-        }, 5000);
-      }
+      closeAndReturnFocus();
     } catch (error) {
-      if (error instanceof SourcesApiError) {
-        setErrorStatus(error.status);
-        setErrorMessage(
-          humanizeApiError(error.status, error.detail, {
-            provider: activeConnection.provider,
-          }),
-        );
-        setLoadState("error");
-      }
+      const status = error instanceof SourcesApiError ? error.status : 500;
+      const message =
+        error instanceof SourcesApiError
+          ? humanizeApiError(error.status, error.detail, {
+              provider: activeConnection.provider,
+            })
+          : "Something went wrong on our side. Try again in a moment.";
+      setAddError({ message, status });
     } finally {
       setAdding(false);
     }
@@ -191,31 +240,53 @@ export function AddSourcePicker({
     return null;
   }
 
-  const caption =
-    tab === "github_repo"
-      ? githubConnection?.account_label
-        ? `Repos the Quorum app can access on @${githubConnection.account_label}`
-        : "Repos the Quorum app can access on your GitHub account"
-      : linearConnection?.account_label
-        ? `Teams in ${linearConnection.account_label}`
-        : "Teams in your Linear workspace";
+  const githubCaption =
+    tab === "github_repo" && githubConnection?.account_label
+      ? `Repos the Quorum app can access on @${githubConnection.account_label}`
+      : null;
+  const linearCaption =
+    tab === "linear" && linearConnection?.account_label
+      ? `Teams in ${linearConnection.account_label}`
+      : null;
+  const caption = githubCaption ?? linearCaption;
 
   const showSearch = loadState !== "not-connected";
   const listEmpty = items.length === 0 && loadState === "idle";
   const searchNoMatch =
     loadState === "idle" && items.length > 0 && filtered.length === 0;
+  const loadingLabel = tab === "github_repo" ? "Loading repos" : "Loading teams";
+  const panelId = tab === "github_repo" ? "picker-panel-github" : "picker-panel-linear";
 
-  const connectProvider = tab === "github_repo" ? "github" : "linear";
+  const renderErrorAction = (status: number, onRetry: () => void) => {
+    if (status === 401) {
+      return (
+        <a className="dom-btn dom-btn--primary dom-btn--sm" href={githubLoginUrl()}>
+          Sign in again
+        </a>
+      );
+    }
+    const label = humanizeApiErrorNextStep(status) ?? "Try again";
+    return (
+      <button
+        type="button"
+        className="dom-btn dom-btn--secondary dom-btn--sm"
+        onClick={onRetry}
+      >
+        <IconRefresh size={13} />
+        {label}
+      </button>
+    );
+  };
 
   return (
     <div className="quorum-picker-shell">
-      <button
-        type="button"
+      <div
         className="quorum-picker-scrim"
-        aria-label="Close dialog"
-        onClick={onClose}
+        aria-hidden="true"
+        onClick={closeAndReturnFocus}
       />
       <div
+        ref={dialogRef}
         className="quorum-picker-dialog"
         role="dialog"
         aria-modal="true"
@@ -230,19 +301,23 @@ export function AddSourcePicker({
           </div>
           <button
             type="button"
+            ref={closeButtonRef}
             className="quorum-icon-btn"
             aria-label="Close"
-            onClick={onClose}
+            onClick={closeAndReturnFocus}
           >
             <IconX size={16} />
           </button>
         </div>
-        <div className="quorum-picker-tabs" role="tablist">
+        <div className="quorum-picker-tabs" role="tablist" onKeyDown={onTabKeyDown}>
           <button
             type="button"
+            ref={githubTabRef}
+            id="picker-tab-github"
             role="tab"
             className="quorum-picker-tab"
             aria-selected={tab === "github_repo"}
+            aria-controls="picker-panel-github"
             onClick={() => setTab("github_repo")}
           >
             <IconGitHub size={15} />
@@ -253,9 +328,12 @@ export function AddSourcePicker({
           </button>
           <button
             type="button"
+            ref={linearTabRef}
+            id="picker-tab-linear"
             role="tab"
             className="quorum-picker-tab"
             aria-selected={tab === "linear"}
+            aria-controls="picker-panel-linear"
             onClick={() => setTab("linear")}
           >
             <IconLinear size={13} />
@@ -277,16 +355,19 @@ export function AddSourcePicker({
                 disabled={loadState === "loading" || loadState === "error"}
               />
             </div>
-            <p className="quorum-picker-cap caption">{caption}</p>
+            {caption ? <p className="quorum-picker-cap caption">{caption}</p> : null}
           </>
         ) : null}
-        <div className="quorum-picker-body">
+        <div
+          className="quorum-picker-body"
+          role="tabpanel"
+          id={panelId}
+          aria-labelledby={
+            tab === "github_repo" ? "picker-tab-github" : "picker-tab-linear"
+          }
+        >
           {loadState === "loading" ? (
-            <div
-              className="quorum-picker-list"
-              role="status"
-              aria-label="Loading sources"
-            >
+            <div className="quorum-picker-list" role="status" aria-label={loadingLabel}>
               {[0, 1, 2, 3, 4].map((i) => (
                 <div className="quorum-picker-row quorum-picker-row--sk" key={i}>
                   <span className="quorum-skel quorum-skel--cb" />
@@ -296,66 +377,60 @@ export function AddSourcePicker({
             </div>
           ) : loadState === "not-connected" ? (
             <div className="quorum-picker-msg">
-              {connectProvider === "github" ? (
-                <IconGitHub size={28} />
+              {tab === "github_repo" ? (
+                <>
+                  <IconGitHub size={28} />
+                  <b>Connect GitHub first</b>
+                  <span className="caption">
+                    Install the Quorum app on your GitHub account, then pick the repos
+                    it should read here.
+                  </span>
+                  <a
+                    className="dom-btn dom-btn--primary dom-btn--sm"
+                    href={oauthAuthorizeUrl("github")}
+                  >
+                    Connect GitHub
+                  </a>
+                </>
               ) : (
-                <IconLinear size={28} />
+                <a
+                  className="dom-btn dom-btn--primary dom-btn--sm"
+                  href={oauthAuthorizeUrl("linear")}
+                >
+                  Connect Linear
+                </a>
               )}
-              <b>Connect {connectProvider === "github" ? "GitHub" : "Linear"} first</b>
-              <span className="caption">
-                {connectProvider === "github"
-                  ? "Install the Quorum app on your GitHub account, then pick the repos it should read here."
-                  : "Connect Linear so Quorum can read your team's issues, then pick the teams it should read here."}
-              </span>
-              <a
-                className="dom-btn dom-btn--primary dom-btn--sm"
-                href={oauthAuthorizeUrl(connectProvider)}
-              >
-                Connect {connectProvider === "github" ? "GitHub" : "Linear"}
-              </a>
             </div>
           ) : loadState === "error" ? (
             <div className="quorum-picker-msg">
               <div className="quorum-callout-err" role="alert">
                 {errorMessage}
               </div>
-              {errorStatus === 429 ? (
-                <button
-                  type="button"
-                  className="dom-btn dom-btn--secondary dom-btn--sm"
-                  onClick={() => void loadAvailable()}
-                >
-                  <IconRefresh size={13} />
-                  Try again
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="dom-btn dom-btn--secondary dom-btn--sm"
-                  onClick={() => void loadAvailable()}
-                >
-                  <IconRefresh size={13} />
-                  Try again
-                </button>
-              )}
+              {errorStatus !== null
+                ? renderErrorAction(errorStatus, () => void loadAvailable())
+                : null}
             </div>
           ) : listEmpty ? (
             <div className="quorum-picker-msg">
-              <b>{tab === "github_repo" ? "No repos to show" : "No teams to show"}</b>
-              <span className="caption">
-                {tab === "github_repo"
-                  ? `The Quorum app can't see any repos on @${githubConnection?.account_label ?? "your account"} yet. Give it access to the ones you want, then come back.`
-                  : `Quorum can't see any teams in ${linearConnection?.account_label ?? "your workspace"} yet.`}
-              </span>
+              {tab === "github_repo" ? (
+                <>
+                  <b>No repos to show</b>
+                  <span className="caption">
+                    {githubConnection?.account_label
+                      ? `The Quorum app can't see any repos on @${githubConnection.account_label} yet. Give it access to the ones you want, then come back.`
+                      : null}
+                  </span>
+                </>
+              ) : null}
             </div>
           ) : searchNoMatch ? (
             <div className="quorum-picker-msg">
               <b>Nothing matches &quot;{query.trim()}&quot;</b>
-              <span className="caption">
-                {tab === "github_repo"
-                  ? "Check the spelling, or give Quorum access to more repos in GitHub."
-                  : "Check the spelling, or confirm the team exists in Linear."}
-              </span>
+              {tab === "github_repo" ? (
+                <span className="caption">
+                  Check the spelling, or give Quorum access to more repos in GitHub.
+                </span>
+              ) : null}
             </div>
           ) : (
             <div className="quorum-picker-list">
@@ -410,7 +485,7 @@ export function AddSourcePicker({
               className="quorum-link"
               href={GITHUB_ACCESS_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
             >
               Give Quorum access in GitHub
               <IconExternal />
@@ -418,24 +493,38 @@ export function AddSourcePicker({
           </div>
         ) : null}
         <div className="quorum-picker-footer">
-          <button type="button" className="dom-btn dom-btn--ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="dom-btn dom-btn--primary"
-            disabled={selectedCount === 0 || adding || loadState === "loading"}
-            onClick={() => void handleAdd()}
-          >
-            {adding ? (
-              <>
-                <span className="quorum-spin" aria-hidden="true" />
-                Adding
-              </>
-            ) : (
-              addSourcesButtonLabel(selectedCount)
-            )}
-          </button>
+          {addError ? (
+            <div className="quorum-picker-add-err">
+              <div className="quorum-callout-err" role="alert">
+                {addError.message}
+              </div>
+              {renderErrorAction(addError.status, () => void handleAdd())}
+            </div>
+          ) : null}
+          <div className="quorum-picker-footer-actions">
+            <button
+              type="button"
+              className="dom-btn dom-btn--ghost"
+              onClick={closeAndReturnFocus}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="dom-btn dom-btn--primary"
+              disabled={selectedCount === 0 || adding || loadState === "loading"}
+              onClick={() => void handleAdd()}
+            >
+              {adding ? (
+                <>
+                  <span className="quorum-spin" aria-hidden="true" />
+                  Adding
+                </>
+              ) : (
+                addSourcesButtonLabel(selectedCount)
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

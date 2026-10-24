@@ -1,12 +1,22 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockSourcesApi,
   mockConnectionsNone,
   mockSourcesEmpty,
-  setSourcesApi,
-} from "../lib/api/sources";
+} from "../lib/api/sources/mock";
+import { setSourcesApi } from "../lib/api/sources";
 import { ConnectionsView } from "./ConnectionsView";
+
+vi.mock("../lib/api/sources", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api/sources")>();
+  const http = await import("../lib/api/sources/http");
+  return {
+    ...actual,
+    resolveSourcesApi: async () => http.createHttpSourcesApi(),
+    getSourcesMockMode: () => "http" as const,
+  };
+});
 
 describe("ConnectionsView", () => {
   beforeEach(() => {
@@ -16,6 +26,7 @@ describe("ConnectionsView", () => {
   afterEach(() => {
     cleanup();
     setSourcesApi(null);
+    vi.unstubAllGlobals();
   });
 
   it("shows loading then source rows", async () => {
@@ -86,5 +97,38 @@ describe("ConnectionsView", () => {
         screen.getByText("Something went wrong on our side. Try again in a moment."),
       ).toBeTruthy(),
     );
+    expect(screen.queryByRole("status", { name: "Loading sources" })).toBeNull();
+  });
+
+  it("shows load failed when HTTP routes return 404", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("Not Found", { status: 404 }))),
+    );
+    render(<ConnectionsView />);
+    await waitFor(() =>
+      expect(
+        screen.getByText("Something went wrong on our side. Try again in a moment."),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "Loading sources" })).toBeNull();
+  });
+
+  it("shows toast and pending rows after adding sources", async () => {
+    const api = createMockSourcesApi({
+      sources: mockSourcesEmpty(),
+    });
+    render(<ConnectionsView api={api} />);
+    await waitFor(() => screen.getByRole("button", { name: "Add sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add sources" }));
+    await waitFor(() => expect(screen.getByText("didi-build/legacy-api")).toBeTruthy());
+    fireEvent.click(screen.getByText("didi-build/legacy-api"));
+    fireEvent.click(screen.getByText("didi-build/nodrift"));
+    fireEvent.click(screen.getByRole("button", { name: "Add 2 sources" }));
+    await waitFor(() =>
+      expect(screen.getByText("Added 2 sources. Indexing has started.")).toBeTruthy(),
+    );
+    expect(screen.getAllByText("Waiting to start").length).toBeGreaterThanOrEqual(2);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddSourcePicker } from "../components/AddSourcePicker";
 import {
   IconCheck,
@@ -8,11 +8,16 @@ import {
   IconRefresh,
   IconX,
 } from "../components/icons";
-import { removeSourceErrorMessage, SourceListItem } from "../components/SourceListItem";
+import {
+  refreshSourceErrorMessage,
+  removeSourceErrorMessage,
+  SourceListItem,
+} from "../components/SourceListItem";
+import { addedSourcesToast } from "../lib/addSourceLabels";
 import { humanizeApiError } from "../lib/authErrors";
 import {
-  getSourcesApi,
   oauthAuthorizeUrl,
+  resolveSourcesApi,
   SourcesApiError,
   type SourcesApi,
 } from "../lib/api/sources";
@@ -27,21 +32,39 @@ export interface ConnectionsViewProps {
 }
 
 export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
-  const api = apiProp ?? getSourcesApi();
+  const [api, setApi] = useState<SourcesApi | null>(apiProp ?? null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set());
+  const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTab, setPickerTab] = useState<SourceType>("github_repo");
   const [bannerProvider, setBannerProvider] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const addSourcesButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (apiProp) {
+      setApi(apiProp);
+      return;
+    }
+    void resolveSourcesApi()
+      .then(setApi)
+      .catch(() => setLoadError(true));
+  }, [apiProp]);
+
+  const resolvedApi = api ?? apiProp ?? null;
 
   const loadAll = useCallback(async () => {
+    if (!resolvedApi) {
+      return;
+    }
     try {
       const [nextConnections, nextSources] = await Promise.all([
-        api.listConnections(),
-        api.listSources(),
+        resolvedApi.listConnections(),
+        resolvedApi.listSources(),
       ]);
       setConnections(nextConnections);
       setSources(nextSources);
@@ -51,11 +74,14 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [resolvedApi]);
 
   useEffect(() => {
+    if (!resolvedApi) {
+      return;
+    }
     void loadAll();
-  }, [loadAll]);
+  }, [loadAll, resolvedApi]);
 
   useEffect(() => {
     const { provider, status } = parseConnectionCallback();
@@ -68,23 +94,31 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
     }
   }, []);
 
+  useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+    const id = window.setTimeout(() => setToastMessage(null), 5000);
+    return () => window.clearTimeout(id);
+  }, [toastMessage]);
+
   const needsPoll = useMemo(
     () => sources.some((s) => s.status === "pending" || s.status === "indexing"),
     [sources],
   );
 
   useEffect(() => {
-    if (!needsPoll) {
+    if (!needsPoll || !resolvedApi) {
       return;
     }
     const id = window.setInterval(() => {
-      void api
+      void resolvedApi
         .listSources()
         .then(setSources)
         .catch(() => undefined);
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [api, needsPoll]);
+  }, [resolvedApi, needsPoll]);
 
   const readyCount = sources.filter((s) => s.status === "ready").length;
   const anyConnected = connections.some((c) => c.connected);
@@ -108,12 +142,26 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
   };
 
   const handleRefresh = async (source: KnowledgeSource) => {
+    if (!resolvedApi) {
+      return;
+    }
     setRefreshingIds((prev) => new Set(prev).add(source.id));
+    setRefreshErrors((prev) => {
+      const next = { ...prev };
+      delete next[source.id];
+      return next;
+    });
     try {
-      const updated = await api.refreshSource(source.id);
+      const updated = await resolvedApi.refreshSource(source.id);
       setSources((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    } catch {
-      // keep row as-is; user can retry
+    } catch (error) {
+      const status = error instanceof SourcesApiError ? error.status : 500;
+      const message = refreshSourceErrorMessage(
+        status,
+        source.external_ref,
+        source.source_type === "linear" ? "linear" : "github",
+      );
+      setRefreshErrors((prev) => ({ ...prev, [source.id]: message }));
     } finally {
       setRefreshingIds((prev) => {
         const next = new Set(prev);
@@ -124,8 +172,11 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
   };
 
   const handleRemove = async (source: KnowledgeSource) => {
+    if (!resolvedApi) {
+      return;
+    }
     try {
-      await api.deleteSource(source.id);
+      await resolvedApi.deleteSource(source.id);
       setSources((prev) => prev.filter((s) => s.id !== source.id));
     } catch (error) {
       const message =
@@ -136,14 +187,37 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
     }
   };
 
+  const handleSourcesAdded = (count: number) => {
+    setToastMessage(addedSourcesToast(count));
+    void loadAll();
+  };
+
+  if (!resolvedApi && !loadError) {
+    return (
+      <section className="quorum-connections-page">
+        <div className="quorum-source-list" role="status" aria-label="Loading sources">
+          {[0, 1, 2].map((i) => (
+            <div className="quorum-source-row quorum-source-row--sk" key={i}>
+              <span className="quorum-skel quorum-skel--ic" />
+              <div className="quorum-source-row__body">
+                <span className="quorum-skel" style={{ width: 180 + i * 30 }} />
+                <span className="quorum-skel quorum-skel--sm" style={{ width: 90 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <>
-      <div
-        id="quorum-sources-toast"
-        className="quorum-sources-toast"
-        role="status"
-        hidden
-      />
+      {toastMessage ? (
+        <div className="quorum-sources-toast" role="status">
+          <IconCheck size={14} />
+          {toastMessage}
+        </div>
+      ) : null}
       <section className="quorum-connections-page">
         {bannerCopy ? (
           <div className="quorum-conn-banner" role="status">
@@ -189,6 +263,7 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
                 </span>
                 <button
                   type="button"
+                  ref={addSourcesButtonRef}
                   className="dom-btn dom-btn--primary dom-btn--sm"
                   onClick={() => openPicker()}
                 >
@@ -250,6 +325,7 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
                   key={source.id}
                   source={source}
                   refreshing={refreshingIds.has(source.id)}
+                  refreshError={refreshErrors[source.id] ?? null}
                   onRefresh={() => void handleRefresh(source)}
                   onRemove={() => handleRemove(source)}
                 />
@@ -259,14 +335,17 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
         </div>
       </section>
 
-      <AddSourcePicker
-        open={pickerOpen}
-        connections={connections}
-        api={api}
-        initialTab={pickerTab}
-        onClose={() => setPickerOpen(false)}
-        onAdded={() => void loadAll()}
-      />
+      {resolvedApi ? (
+        <AddSourcePicker
+          open={pickerOpen}
+          connections={connections}
+          api={resolvedApi}
+          initialTab={pickerTab}
+          returnFocusRef={addSourcesButtonRef}
+          onClose={() => setPickerOpen(false)}
+          onAdded={handleSourcesAdded}
+        />
+      ) : null}
     </>
   );
 }
@@ -280,6 +359,13 @@ function AccountCard({
 }) {
   const isGithub = connection.provider === "github";
   const title = providerDisplayName(connection.provider);
+
+  const connectedLine =
+    connection.connected && connection.account_label
+      ? isGithub
+        ? `Connected as @${connection.account_label}`
+        : `Connected to ${connection.account_label}`
+      : null;
 
   return (
     <div className="quorum-conn-acct">
@@ -295,15 +381,14 @@ function AccountCard({
           <span className="caption quorum-conn-acct-nc">Not connected</span>
         )}
       </div>
-      <span className="caption">
-        {connection.connected
-          ? isGithub
-            ? `Connected as @${connection.account_label ?? "your-account"}`
-            : `Connected to ${connection.account_label ?? "your workspace"}`
-          : isGithub
+      {connectedLine ? <span className="caption">{connectedLine}</span> : null}
+      {!connection.connected ? (
+        <span className="caption">
+          {isGithub
             ? "Install the Quorum app on the repos you want it to read."
             : "Let Quorum read your team's issues."}
-      </span>
+        </span>
+      ) : null}
       <div>
         {connection.connected ? (
           <button
