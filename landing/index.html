@@ -5,120 +5,94 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#141210" />
     <title>Quorum</title>
-    <link rel="stylesheet" href="/app/fonts/geist.css" />
-    <style>
-      :root {
-        color-scheme: dark light;
-        --bg: #141210;
-        --fg: #f3efe9;
-        --mu: #a8a095;
-        --ac: #f0a24b;
-        --ok: #72c493;
-        --er: #f08e7e;
-        font-family: "Geist", system-ui, sans-serif;
-      }
-      @media (prefers-color-scheme: light) {
-        :root {
-          --bg: #faf8f5;
-          --fg: #1d1a16;
-          --mu: #6a6258;
-          --ok: #2f8a55;
-          --er: #c2412f;
-        }
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: var(--bg);
-        color: var(--fg);
-        display: flex;
-        flex-direction: column;
-        padding: 24px;
-      }
-      main {
-        flex: 1;
-        max-width: 720px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        justify-content: center;
-      }
-      h1 {
-        font-size: 40px;
-        line-height: 44px;
-        font-weight: 600;
-        letter-spacing: -0.02em;
-        margin: 0;
-      }
-      p {
-        margin: 0;
-        font-size: 17px;
-        line-height: 27px;
-        color: var(--mu);
-      }
-      a.btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        height: 42px;
-        padding: 0 18px;
-        border-radius: 10px;
-        background: var(--ac);
-        color: #1b1206;
-        font-weight: 600;
-        text-decoration: none;
-        width: fit-content;
-        margin-top: 8px;
-      }
-      footer {
-        max-width: 720px;
-        margin: 0 auto;
-        width: 100%;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding-top: 24px;
-        border-top: 1px solid color-mix(in srgb, var(--mu) 35%, transparent);
-        font-size: 13px;
-        color: var(--mu);
-      }
-      .health {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--ok);
-      }
-      .dot.down {
-        background: var(--er);
-      }
-    </style>
+    <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <main>
-      <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em">
-        Decision council for your codebase
-      </p>
-      <h1>Three seats debate. One recommendation ships.</h1>
-      <p>
-        Quorum reads your GitHub repos and Linear team. Ask a quick question and get an
-        answer with sources. Ask a hard one and three seats weigh in, then a chair gives
-        you one recommendation you can write back as a pull request and an issue.
-      </p>
-      <a class="btn" href="/app/">Open Quorum</a>
-    </main>
-    <footer>
-      <span class="health" id="health">
-        <span class="dot" id="health-dot" aria-hidden="true"></span>
-        <span id="health-text"></span>
-      </span>
-      <span>quorum.didi.build</span>
-    </footer>
+    <div class="landing">
+      <header class="l-bar">
+        <a class="brand" href="/">
+          <span class="mark" aria-hidden="true">
+            <span class="mark-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            <span class="mark-bar"></span>
+          </span>
+          <span class="word">Quorum</span>
+        </a>
+        <a class="btn btn-secondary btn-sm" href="/app/">Open app</a>
+      </header>
+      <section class="l-hero">
+        <p class="ovl">Decision council for your codebase</p>
+        <h1>Three seats debate.<br />One recommendation ships.</h1>
+        <p class="l-lede">
+          Quorum reads your GitHub repos and Linear team. Ask a quick question and get
+          an answer with sources. Ask a hard one and three seats weigh in, then a chair
+          gives you one recommendation you can write back as a pull request and an
+          issue.
+        </p>
+        <div class="l-cta">
+          <a class="btn btn-primary" href="/app/">Open Quorum</a>
+          <a class="btn btn-quiet" href="#how">See how it works</a>
+        </div>
+      </section>
+      <section class="l-demo" aria-label="Example council result">
+        <p class="l-q">
+          Should launchpad move session storage from KV to D1 before the public beta?
+        </p>
+        <div class="l-seats">
+          <div class="l-seat">
+            <span class="seat-mark" style="color: var(--ux)">ux</span>
+            <b>UX</b>
+            <span class="verdict verdict-approve">Approve</span>
+          </div>
+          <div class="l-seat">
+            <span class="seat-mark" style="color: var(--dx)">dx</span>
+            <b>Dev experience</b>
+            <span class="verdict verdict-changes">Request changes</span>
+          </div>
+          <div class="l-seat">
+            <span class="seat-mark" style="color: var(--biz)">bp</span>
+            <b>Business</b>
+            <span class="verdict verdict-comment">Comment</span>
+          </div>
+        </div>
+        <div class="l-chair">
+          <span class="ovl">Chair</span>
+          <span>Move sessions to D1, but not in the same release as the beta.</span>
+        </div>
+      </section>
+      <section class="l-how" id="how">
+        <div class="l-step">
+          <span class="ovl">01</span>
+          <b>Connect your sources</b>
+          <span class="muted">Pick the repos and Linear teams Quorum can read.</span>
+        </div>
+        <div class="l-step">
+          <span class="ovl">02</span>
+          <b>Ask in one chat</b>
+          <span class="muted"
+            >Quick questions get a direct answer. Big decisions go to the council.</span
+          >
+        </div>
+        <div class="l-step">
+          <span class="ovl">03</span>
+          <b>Write it back</b>
+          <span class="muted"
+            >Review the plan, refine it, and Quorum opens the pull request and the
+            issue.</span
+          >
+        </div>
+      </section>
+      <footer class="l-foot">
+        <span class="health" id="health" role="status">
+          <span class="dot" id="health-dot" aria-hidden="true"></span>
+          <span id="health-text"></span>
+        </span>
+        <span class="small muted">quorum.didi.build</span>
+      </footer>
+    </div>
     <script>
       fetch("/health")
         .then((r) => r.json())

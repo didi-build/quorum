@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
+import { AuthFrame } from "../components/AuthFrame";
 import { DomMark } from "../components/DomMark";
-import {
-  fetchAccessDeniedInfo,
-  githubLogoutUrl,
-  initialsFromLogin,
-  requestAccessMailto,
-} from "../lib/auth";
+import { ExternalLinkIcon } from "../components/ExternalLinkIcon";
+import { EntryLoading } from "./EntryLoading";
+import { fetchAccessDeniedInfo } from "../lib/api/auth";
+import { githubLogoutUrl, initialsFromLogin, requestAccessMailto } from "../lib/auth";
 import { humanizeApiError } from "../lib/authErrors";
 import { appPath } from "../lib/routing";
 
@@ -29,7 +28,7 @@ export function NotAllowedScreen() {
 
   if (loadFailed) {
     return (
-      <div className="quorum-auth-card">
+      <AuthFrame>
         <DomMark size={44} />
         <h1>We couldn&apos;t check your access</h1>
         <div className="quorum-callout-err" role="alert">
@@ -38,25 +37,21 @@ export function NotAllowedScreen() {
         <a className="dom-btn dom-btn--primary" href={appPath("chat")}>
           Try signing in again
         </a>
-      </div>
+      </AuthFrame>
     );
   }
 
   if (!login) {
-    return (
-      <div className="quorum-auth-loading" aria-busy="true">
-        <DomMark size={40} />
-        <span className="quorum-spin" aria-hidden="true" />
-        Loading
-      </div>
-    );
+    return <EntryLoading />;
   }
 
   return (
-    <div className="quorum-auth-card">
+    <AuthFrame>
       <div className="quorum-auth-id">
         <span className="quorum-avatar">{initialsFromLogin(login)}</span>
-        <span>Signed in as @{login}</span>
+        <span className="quorum-auth-id-label">
+          Signed in as <strong>@{login}</strong>
+        </span>
       </div>
       <h1>You&apos;re not on the list yet</h1>
       <p>
@@ -68,17 +63,18 @@ export function NotAllowedScreen() {
           Request access
         </a>
         <a
-          className="dom-btn dom-btn--secondary"
+          className="dom-btn dom-btn--secondary dom-btn--with-icon"
           href={githubLogoutUrl()}
           target="_blank"
           rel="noreferrer"
         >
           Use a different account
+          <ExternalLinkIcon size={12} />
         </a>
+        <p className="quorum-auth-hint">
+          Sign out of GitHub first in the new tab, then try again.
+        </p>
       </div>
-      <p className="caption">
-        Sign out of GitHub first in the new tab, then try again.
-      </p>
-    </div>
+    </AuthFrame>
   );
 }

@@ -1,10 +1,12 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { quorumAuthMockGuard } from "./vite-auth-mock-guard";
 
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [
+    quorumAuthMockGuard(),
     react(),
     VitePWA({
       registerType: "autoUpdate",

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { AuthUser } from "../lib/auth";
 import { fetchAuthUser } from "../lib/auth";
-import { resolveAppView } from "../lib/routing";
+import { appPath, resolveAppView } from "../lib/routing";
 import { clearLegacyApiKeyStorage } from "../lib/session";
-import { DomMark } from "./DomMark";
-import { AppTopBar } from "./AppTopBar";
+import { EntryLoading } from "../screens/EntryLoading";
 import { NotAllowedScreen } from "../screens/NotAllowedScreen";
 import { SignInScreen } from "../screens/SignInScreen";
+import { AppTopBar } from "./AppTopBar";
 
 type AuthState = "loading" | "signed-out" | "signed-in";
 
@@ -54,7 +54,7 @@ export function AppShell() {
   const handleSignedOut = () => {
     setUser(null);
     setAuthState("signed-out");
-    window.location.assign(`${import.meta.env.BASE_URL}`);
+    window.location.assign(appPath("chat"));
   };
 
   if (view === "not-allowed") {
@@ -68,11 +68,7 @@ export function AppShell() {
   if (authState === "loading") {
     return (
       <main className="quorum-app quorum-app--auth">
-        <div className="quorum-auth-loading" aria-busy="true">
-          <DomMark size={40} />
-          <span className="quorum-spin" aria-hidden="true" />
-          Loading
-        </div>
+        <EntryLoading />
       </main>
     );
   }
