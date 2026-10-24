@@ -49,7 +49,7 @@ Wrangler **secrets** and **vars** mirror names in `.dev.vars.example` for non-lo
 4. Chat message: supervisor classifies intent; retrieval runs Vectorize plus FTS5, RRF fusion, coverage per documented v1 intent; council path fans out personas then chair synthesis.
 5. Write-back: confirmed proposals open GitHub PRs and Linear issues via installation or OAuth tokens.
 
-Today the repo implements only the Worker shell (`GET /health`) and static frontend build; the flows above are the build target.
+Today the repo implements the Worker shell (`GET /health`, `GET /ready`), typed config from Worker `env`, shared `{ "detail": string }` errors, and static frontend build; the flows above are the build target.
 
 ## Open questions
 
