@@ -1,0 +1,187 @@
+/*
+ * Quorum design tokens (variant A, approved UI polish spec).
+ * Load before components/bundle.css. Geist fonts from Google Fonts.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap");
+
+:root {
+  color-scheme: dark;
+
+  /* Spec surface tokens (dark default) */
+  --bg: #141210;
+  --sf: #1c1a17;
+  --sf2: #26231f;
+  --bd: #34302a;
+  --bd2: #2a2723;
+  --fg: #f3efe9;
+  --mu: #a8a095;
+  --mu2: #7d766c;
+  --ac: #f0a24b;
+  --acfg: #1b1206;
+  --act: #f5b56e;
+  --acs: rgba(240, 162, 75, 0.12);
+  --acb: rgba(240, 162, 75, 0.34);
+  --ok: #72c493;
+  --oks: rgba(114, 196, 147, 0.13);
+  --er: #f08e7e;
+  --ers: rgba(240, 142, 126, 0.12);
+  --info: #8fb8e0;
+  --ux: #e3a0a8;
+  --dx: #9fb1ec;
+  --biz: #c8c97a;
+  --shadow-spec:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px rgba(0, 0, 0, 0.35);
+  --scrim: rgba(8, 7, 6, 0.62);
+
+  /* Aliases for v1 component/bundle.css */
+  --color-accent: var(--ac);
+  --color-accent-hover: #f7b97a;
+  --color-accent-surface: var(--acs);
+  --color-accent-border: var(--acb);
+
+  --color-success: var(--ok);
+  --color-success-surface: var(--oks);
+  --color-success-border: color-mix(in srgb, var(--ok) 55%, transparent);
+
+  --color-danger: var(--er);
+  --color-danger-surface: var(--ers);
+  --color-danger-border: color-mix(in srgb, var(--er) 55%, transparent);
+
+  --color-info: var(--info);
+  --color-info-surface: color-mix(in srgb, var(--info) 12%, var(--bg));
+  --color-info-border: color-mix(in srgb, var(--info) 45%, transparent);
+
+  --color-persona-ux: var(--ux);
+  --color-persona-ux-surface: color-mix(in srgb, var(--ux) 14%, var(--bg));
+  --color-persona-dx: var(--dx);
+  --color-persona-dx-surface: color-mix(in srgb, var(--dx) 14%, var(--bg));
+  --color-persona-biz: var(--biz);
+  --color-persona-biz-surface: color-mix(in srgb, var(--biz) 14%, var(--bg));
+  --color-persona-chair: var(--ac);
+
+  --color-bg-canvas: var(--bg);
+  --color-bg-surface: var(--sf);
+  --color-bg-raised: var(--sf);
+  --color-bg-sunken: var(--sf2);
+  --color-bg-hover: color-mix(in srgb, var(--sf2) 85%, var(--fg));
+  --color-bg-active: var(--sf2);
+  --color-bg-selected: var(--acs);
+
+  --color-border-subtle: var(--bd2);
+  --color-border-default: var(--bd);
+  --color-border-strong: var(--bd);
+
+  --color-text-primary: var(--fg);
+  --color-text-secondary: var(--mu);
+  --color-text-muted: var(--mu);
+  --color-text-on-solid: var(--acfg);
+
+  --color-syntax-comment: var(--mu);
+  --color-syntax-keyword: var(--info);
+  --color-syntax-string: var(--ok);
+  --color-syntax-number: var(--ac);
+  --color-syntax-punct: var(--mu2);
+
+  --color-overlay-scrim: var(--scrim);
+  --color-focus-ring: var(--ac);
+
+  --color-auth-bg: var(--bg);
+  --color-auth-surface: var(--sf);
+  --color-auth-surface-2: var(--sf2);
+  --color-auth-border: var(--bd);
+  --color-auth-text: var(--fg);
+  --color-auth-muted: var(--mu);
+  --color-auth-accent: var(--ac);
+  --color-auth-accent-fg: var(--acfg);
+  --color-auth-accent-text: var(--act);
+  --radius-auth-button: 10px;
+  --radius-auth-mark: 12px;
+
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+
+  --font-sans: "Geist", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --text-display-lg: 600 28px/36px var(--font-sans);
+  --text-display-md: 600 24px/32px var(--font-sans);
+  --text-display-sm: 600 20px/28px var(--font-sans);
+  --text-body-lg: 400 16px/26px var(--font-sans);
+  --text-body: 400 15px/23px var(--font-sans);
+  --text-label-strong: 600 14px/20px var(--font-sans);
+  --text-label: 500 14px/20px var(--font-sans);
+  --text-caption: 400 13px/19px var(--font-sans);
+  --text-code: 400 14px/20px var(--font-mono);
+  --text-code-block: 400 11.5px/18px var(--font-mono);
+  --text-code-sm: 400 11.5px/16px var(--font-mono);
+  --text-mono-label: 500 11px/16px var(--font-mono);
+  --text-overline: 500 11px/16px var(--font-mono);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  --layout-thread-max: 980px;
+  --layout-bubble-max: 560px;
+  --layout-rail-w: 300px;
+  --layout-gutter: 24px;
+  --layout-control-h-sm: 30px;
+  --layout-control-h: 36px;
+  --layout-control-h-lg: 44px;
+  --layout-icon: 16px;
+  --layout-icon-sm: 14px;
+  --layout-icon-lg: 20px;
+  --layout-focus-offset: 2px;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 9999px;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: var(--shadow-spec);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --bg: #faf8f5;
+    --sf: #ffffff;
+    --sf2: #f2eee8;
+    --bd: #e5dfd6;
+    --bd2: #eee9e1;
+    --fg: #1d1a16;
+    --mu: #6a6258;
+    --mu2: #8a8277;
+    --ac: #ec9a45;
+    --act: #a4560c;
+    --acs: rgba(236, 154, 69, 0.13);
+    --acb: rgba(236, 154, 69, 0.45);
+    --ok: #2f8a55;
+    --oks: rgba(47, 138, 85, 0.1);
+    --er: #c2412f;
+    --ers: rgba(194, 65, 47, 0.08);
+    --info: #2f6c9e;
+    --ux: #9a4f58;
+    --dx: #40569e;
+    --biz: #6f6a24;
+    --shadow-spec: 0 1px 2px rgba(28, 25, 23, 0.05), 0 8px 24px rgba(28, 25, 23, 0.06);
+    --scrim: rgba(29, 26, 22, 0.32);
+  }
+}

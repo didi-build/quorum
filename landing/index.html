@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#141210" />
+    <title>Quorum</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #141210;
+        --fg: #f3efe9;
+        --mu: #a8a095;
+        --ac: #f0a24b;
+        --ok: #72c493;
+        --er: #f08e7e;
+        font-family: "Geist", system-ui, sans-serif;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #faf8f5;
+          --fg: #1d1a16;
+          --mu: #6a6258;
+          --ok: #2f8a55;
+          --er: #c2412f;
+        }
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--fg);
+        display: flex;
+        flex-direction: column;
+        padding: 24px;
+      }
+      main {
+        flex: 1;
+        max-width: 720px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        justify-content: center;
+      }
+      h1 {
+        font-size: 40px;
+        line-height: 44px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        margin: 0;
+      }
+      p {
+        margin: 0;
+        font-size: 17px;
+        line-height: 27px;
+        color: var(--mu);
+      }
+      a.btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 42px;
+        padding: 0 18px;
+        border-radius: 10px;
+        background: var(--ac);
+        color: #1b1206;
+        font-weight: 600;
+        text-decoration: none;
+        width: fit-content;
+        margin-top: 8px;
+      }
+      footer {
+        max-width: 720px;
+        margin: 0 auto;
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 24px;
+        border-top: 1px solid color-mix(in srgb, var(--mu) 35%, transparent);
+        font-size: 13px;
+        color: var(--mu);
+      }
+      .health {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+      .dot.down {
+        background: var(--er);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em">
+        Decision council for your codebase
+      </p>
+      <h1>Three seats debate. One recommendation ships.</h1>
+      <p>
+        Quorum reads your GitHub repos and Linear team. Ask a quick question and get an
+        answer with sources. Ask a hard one and three seats weigh in, then a chair gives
+        you one recommendation you can write back as a pull request and an issue.
+      </p>
+      <a class="btn" href="/app/">Open Quorum</a>
+    </main>
+    <footer>
+      <span class="health" id="health">
+        <span class="dot" id="health-dot" aria-hidden="true"></span>
+        <span id="health-text">Checking status</span>
+      </span>
+      <span>quorum.didi.build</span>
+    </footer>
+    <script>
+      fetch("/health")
+        .then((r) => r.json())
+        .then((data) => {
+          const ok = data && data.status === "ok";
+          document.getElementById("health-text").textContent = ok
+            ? "All systems operational"
+            : "Quorum is having trouble right now";
+          if (!ok) document.getElementById("health-dot").classList.add("down");
+        })
+        .catch(() => {
+          document.getElementById("health-text").textContent =
+            "Quorum is having trouble right now";
+          document.getElementById("health-dot").classList.add("down");
+        });
+    </script>
+  </body>
+</html>

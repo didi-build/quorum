@@ -1,0 +1,399 @@
+@import "../../../docs/business/design-system/tokens.css";
+@import "../../../docs/business/design-system/components/bundle.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--text-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.quorum-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.quorum-app--auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.quorum-auth-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  color: var(--mu);
+  font-size: 13px;
+}
+
+.quorum-auth-card {
+  width: min(400px, 100%);
+  background: var(--sf);
+  border: 1px solid var(--bd2);
+  border-radius: 18px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow-sm);
+}
+
+.quorum-auth-card h1 {
+  margin: 6px 0 0;
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.quorum-auth-card p {
+  margin: 0;
+  color: var(--mu);
+}
+
+.quorum-auth-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--sf2);
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.quorum-auth-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.quorum-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--ac);
+}
+
+.quorum-mark__dots {
+  display: flex;
+  align-items: flex-start;
+}
+
+.quorum-mark__dots span {
+  border-radius: 50%;
+  background: var(--acfg);
+}
+
+.quorum-mark > span:last-child {
+  background: var(--acfg);
+}
+
+.quorum-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 60px;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--bd2);
+  flex: none;
+}
+
+.quorum-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 20px;
+  letter-spacing: -0.025em;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.quorum-brand__word {
+  display: inline;
+}
+
+@media (max-width: 639px) {
+  .quorum-bar {
+    height: 56px;
+    padding: 0 14px;
+  }
+
+  .quorum-brand__word {
+    display: none;
+  }
+}
+
+.quorum-seg {
+  justify-self: center;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--sf2);
+  border-radius: 10px;
+}
+
+.quorum-seg a {
+  padding: 6px 16px;
+  border-radius: 7px;
+  color: var(--mu);
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 20px;
+  text-decoration: none;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.quorum-seg a:hover {
+  color: var(--fg);
+}
+
+.quorum-seg a[aria-current="page"] {
+  background: var(--sf);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.quorum-acct-wrap {
+  justify-self: end;
+  position: relative;
+}
+
+.quorum-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--sf2);
+  border: 1px solid var(--bd);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 12px/1 var(--font-sans);
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.quorum-avatar:hover {
+  border-color: var(--mu2);
+}
+
+.quorum-avatar-lg {
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
+}
+
+.quorum-acct-menu {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  z-index: var(--z-dropdown);
+  width: 248px;
+  padding: 6px;
+  background: var(--sf);
+  border: 1px solid var(--bd);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+
+.quorum-acct-menu-h {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 8px 12px;
+  border-bottom: 1px solid var(--bd2);
+  margin-bottom: 4px;
+}
+
+.quorum-acct-menu-id {
+  display: flex;
+  flex-direction: column;
+  line-height: 18px;
+  font-size: 14px;
+}
+
+.quorum-acct-menu-id span {
+  color: var(--mu);
+  font-size: 13px;
+}
+
+.quorum-acct-menu-item {
+  display: block;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  color: var(--fg);
+  text-decoration: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+.quorum-acct-menu-item:hover {
+  background: var(--sf2);
+}
+
+.quorum-page-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.quorum-page-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  color: var(--mu);
+  font-size: 14px;
+  text-align: center;
+}
+
+.quorum-spin {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  display: inline-block;
+  animation: quorum-spin 0.8s linear infinite;
+  opacity: 0.8;
+}
+
+@keyframes quorum-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.quorum-callout-err {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 20px;
+  background: var(--ers);
+  color: var(--fg);
+  box-shadow: inset 3px 0 0 var(--er);
+}
+
+.quorum-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 639px) {
+  .quorum-seats {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+  }
+}
+
+.quorum-cite {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--bd2);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.quorum-cite-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font: 400 11.5px/16px var(--font-mono);
+  color: var(--mu);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.quorum-cite-h:hover {
+  color: var(--fg);
+}
+
+.quorum-cite-h .path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.quorum-cite pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--bd2);
+  font: 400 11.5px/18px var(--font-mono);
+  color: var(--fg);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.quorum-cite pre .hit {
+  background: var(--acs);
+  margin: 0 -10px;
+  padding: 0 10px;
+}
+
+.quorum-cite pre .ln {
+  color: var(--mu2);
+  display: inline-block;
+  width: 3ch;
+  margin-right: 10px;
+  text-align: right;
+  user-select: none;
+}

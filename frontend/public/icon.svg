@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Quorum">
+  <rect width="512" height="512" rx="128" fill="#f0a24b"/>
+  <circle cx="176" cy="200" r="44" fill="#1b1206"/>
+  <circle cx="256" cy="168" r="44" fill="#1b1206"/>
+  <circle cx="336" cy="200" r="44" fill="#1b1206"/>
+  <rect x="144" y="296" width="224" height="48" rx="24" fill="#1b1206"/>
+</svg>
