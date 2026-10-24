@@ -1,0 +1,416 @@
+@import url("/app/fonts/geist.css");
+
+:root {
+  color-scheme: dark light;
+  --bg: #141210;
+  --sf: #1c1a17;
+  --sf2: #26231f;
+  --bd: #34302a;
+  --bd2: #2a2723;
+  --fg: #f3efe9;
+  --mu: #a8a095;
+  --mu2: #7d766c;
+  --ac: #f0a24b;
+  --acfg: #1b1206;
+  --act: #f5b56e;
+  --acs: rgba(240, 162, 75, 0.12);
+  --acb: rgba(240, 162, 75, 0.34);
+  --ok: #72c493;
+  --oks: rgba(114, 196, 147, 0.13);
+  --er: #f08e7e;
+  --ers: rgba(240, 142, 126, 0.12);
+  --ux: #e3a0a8;
+  --dx: #9fb1ec;
+  --biz: #c8c97a;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  font-family: "Geist", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #faf8f5;
+    --sf: #ffffff;
+    --sf2: #f2eee8;
+    --bd: #e5dfd6;
+    --bd2: #eee9e1;
+    --fg: #1d1a16;
+    --mu: #6a6258;
+    --mu2: #8a8277;
+    --ac: #ec9a45;
+    --act: #a4560c;
+    --acs: rgba(236, 154, 69, 0.13);
+    --acb: rgba(236, 154, 69, 0.45);
+    --ok: #2f8a55;
+    --oks: rgba(47, 138, 85, 0.1);
+    --er: #c2412f;
+    --ers: rgba(194, 65, 47, 0.08);
+    --ux: #9a4f58;
+    --dx: #40569e;
+    --biz: #6f6a24;
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.landing {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.l-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 68px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 20px;
+  letter-spacing: -0.025em;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--ac);
+}
+
+.mark-dots {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.mark-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--acfg);
+}
+
+.mark-dots span:first-child,
+.mark-dots span:last-child {
+  margin-top: 1px;
+}
+
+.mark-bar {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--acfg);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: var(--ac);
+  color: var(--acfg);
+  border-color: var(--ac);
+}
+
+.btn-primary:hover {
+  filter: brightness(1.05);
+}
+
+.btn-secondary {
+  background: var(--sf);
+  color: var(--fg);
+  border-color: var(--bd);
+}
+
+.btn-secondary:hover {
+  background: var(--sf2);
+}
+
+.btn-quiet {
+  background: transparent;
+  color: var(--mu);
+  border-color: transparent;
+  font-weight: 500;
+}
+
+.btn-quiet:hover {
+  color: var(--fg);
+}
+
+.btn-sm {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.l-hero {
+  padding: 56px 0 32px;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ovl {
+  margin: 0;
+  font:
+    500 11px/16px "Geist Mono",
+    monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mu);
+}
+
+.l-hero h1 {
+  margin: 0;
+  font-size: 52px;
+  line-height: 56px;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+}
+
+.l-lede {
+  margin: 0;
+  font-size: 17px;
+  line-height: 27px;
+  color: var(--mu);
+  max-width: 620px;
+}
+
+.l-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.l-demo {
+  background: var(--sf);
+  border: 1px solid var(--bd2);
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: var(--shadow);
+}
+
+.l-q {
+  margin: 0;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 23px;
+}
+
+.l-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 8px;
+}
+
+.l-seat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--bd2);
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.seat-mark {
+  font:
+    600 11px/1 "Geist Mono",
+    monospace;
+  text-transform: lowercase;
+}
+
+.l-seat b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.verdict::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.verdict-approve {
+  background: var(--oks);
+  color: var(--ok);
+}
+
+.verdict-changes {
+  background: var(--ers);
+  color: var(--er);
+}
+
+.verdict-comment {
+  background: var(--sf2);
+  color: var(--mu);
+}
+
+.l-chair {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--acs);
+  border: 1px solid var(--acb);
+  font-size: 15px;
+  line-height: 23px;
+}
+
+.l-chair .ovl {
+  color: var(--act);
+}
+
+.l-how {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  padding: 48px 0;
+}
+
+.l-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.l-step b {
+  font-size: 15px;
+}
+
+.l-step .muted {
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--mu);
+}
+
+.l-foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 0 28px;
+  border-top: 1px solid var(--bd2);
+}
+
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--mu);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+
+.dot.down {
+  background: var(--er);
+}
+
+.muted {
+  color: var(--mu);
+}
+
+@media (max-width: 639px) {
+  .landing {
+    padding: 0 14px;
+  }
+
+  .l-hero {
+    padding: 32px 0 24px;
+  }
+
+  .l-hero h1 {
+    font-size: 36px;
+    line-height: 40px;
+  }
+
+  .l-lede {
+    font-size: 15.5px;
+    line-height: 24px;
+  }
+
+  .l-how {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 32px 0;
+  }
+
+  .l-foot {
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  .l-cta .btn {
+    flex: 1;
+    min-width: 0;
+  }
+}

@@ -22,6 +22,9 @@ describe("Worker static assets (integration, vitest-pool-workers)", () => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html).toContain("Three seats debate");
+    expect(html).toContain("Open Quorum");
+    expect(html).toContain('id="health-text"');
+    expect(html).toContain('fetch("/health")');
     expect(html).toContain("/app/");
   });
 

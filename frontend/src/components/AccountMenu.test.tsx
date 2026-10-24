@@ -1,14 +1,14 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import * as auth from "../lib/auth";
+import * as authApi from "../lib/api/auth";
 import { AccountMenu } from "./AccountMenu";
 
 const user = { login: "diadem", github_id: 1 };
 
 describe("AccountMenu", () => {
   beforeEach(() => {
-    vi.spyOn(auth, "logout").mockResolvedValue();
+    vi.spyOn(authApi, "logout").mockResolvedValue();
   });
 
   afterEach(() => {
@@ -40,7 +40,7 @@ describe("AccountMenu", () => {
     );
     await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
-    expect(auth.logout).toHaveBeenCalled();
+    expect(authApi.logout).toHaveBeenCalled();
     expect(onSignedOut).toHaveBeenCalled();
   });
 });

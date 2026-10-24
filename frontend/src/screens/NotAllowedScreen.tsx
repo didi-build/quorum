@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import { DomMark } from "../components/DomMark";
-import {
-  fetchAccessDeniedInfo,
-  githubLogoutUrl,
-  initialsFromLogin,
-  requestAccessMailto,
-} from "../lib/auth";
+import { EntryLoading } from "./EntryLoading";
+import { fetchAccessDeniedInfo } from "../lib/api/auth";
+import { githubLogoutUrl, initialsFromLogin, requestAccessMailto } from "../lib/auth";
 import { humanizeApiError } from "../lib/authErrors";
 import { appPath } from "../lib/routing";
 
@@ -43,13 +40,7 @@ export function NotAllowedScreen() {
   }
 
   if (!login) {
-    return (
-      <div className="quorum-auth-loading" aria-busy="true">
-        <DomMark size={40} />
-        <span className="quorum-spin" aria-hidden="true" />
-        Loading
-      </div>
-    );
+    return <EntryLoading />;
   }
 
   return (

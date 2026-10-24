@@ -32,8 +32,13 @@ for (const entry of fs.readdirSync(dist)) {
   moveIntoApp(entry);
 }
 
-const landingSrc = path.join(root, "landing", "index.html");
-const landingDest = path.join(dist, "index.html");
-fs.copyFileSync(landingSrc, landingDest);
+const landingDir = path.join(root, "landing");
+for (const name of fs.readdirSync(landingDir)) {
+  const from = path.join(landingDir, name);
+  if (!fs.statSync(from).isFile()) {
+    continue;
+  }
+  fs.copyFileSync(from, path.join(dist, name));
+}
 
-console.log("finish-frontend-dist: SPA at dist/app/, landing at dist/index.html");
+console.log("finish-frontend-dist: SPA at dist/app/, landing assets at dist/");

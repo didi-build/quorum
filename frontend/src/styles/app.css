@@ -98,6 +98,44 @@ textarea {
   margin-top: 6px;
 }
 
+.quorum-auth-card .caption {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 19px;
+  text-align: center;
+}
+
+.quorum-auth-card .caption a {
+  color: var(--mu);
+  text-decoration: none;
+}
+
+.quorum-auth-card .caption a:hover {
+  color: var(--act);
+}
+
+.dom-btn--block {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dom-btn--github {
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--fg);
+  font-weight: 600;
+}
+
+.dom-btn--github:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.dom-btn--github:disabled {
+  opacity: 0.75;
+  cursor: wait;
+}
+
 .quorum-mark {
   display: flex;
   flex-direction: column;
