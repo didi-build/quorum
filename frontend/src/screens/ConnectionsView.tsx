@@ -43,7 +43,7 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
   const [pickerTab, setPickerTab] = useState<SourceType>("github_repo");
   const [bannerProvider, setBannerProvider] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const addSourcesButtonRef = useRef<HTMLButtonElement>(null);
+  const pickerReturnFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (apiProp) {
@@ -137,6 +137,8 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
   })();
 
   const openPicker = (tab: SourceType = "github_repo") => {
+    pickerReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPickerTab(tab);
     setPickerOpen(true);
   };
@@ -263,7 +265,6 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
                 </span>
                 <button
                   type="button"
-                  ref={addSourcesButtonRef}
                   className="dom-btn dom-btn--primary dom-btn--sm"
                   onClick={() => openPicker()}
                 >
@@ -341,7 +342,7 @@ export function ConnectionsView({ api: apiProp }: ConnectionsViewProps = {}) {
           connections={connections}
           api={resolvedApi}
           initialTab={pickerTab}
-          returnFocusRef={addSourcesButtonRef}
+          returnFocusRef={pickerReturnFocusRef}
           onClose={() => setPickerOpen(false)}
           onAdded={handleSourcesAdded}
         />

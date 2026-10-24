@@ -142,6 +142,32 @@ describe("AddSourcePicker", () => {
     );
   });
 
+  it("shows Check GitHub access link on 403 when adding", async () => {
+    const api = createMockSourcesApi();
+    api.createSources = async () => {
+      throw new SourcesApiError(403, "lost access");
+    };
+    render(
+      <AddSourcePicker
+        open
+        connections={connected}
+        api={api}
+        onClose={() => undefined}
+        onAdded={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("didi-build/legacy-api")).toBeTruthy());
+    fireEvent.click(screen.getByText("didi-build/legacy-api"));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 source" }));
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /Check GitHub access/ })).toHaveAttribute(
+        "href",
+        "https://github.com/settings/installations",
+      ),
+    );
+    expect(screen.queryByRole("button", { name: "Check GitHub access" })).toBeNull();
+  });
+
   it("disables already added rows", async () => {
     const api = createMockSourcesApi();
     render(

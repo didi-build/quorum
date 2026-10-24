@@ -40,4 +40,25 @@ describe("AddSourcePicker accessibility", () => {
     expect(document.activeElement).toBe(opener);
     opener.remove();
   });
+
+  it("switches tabs with ArrowLeft and ArrowRight", async () => {
+    const api = createMockSourcesApi();
+    render(
+      <AddSourcePicker
+        open
+        connections={connected}
+        api={api}
+        onClose={() => undefined}
+        onAdded={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("didi-build/legacy-api")).toBeTruthy());
+    const githubTab = screen.getByRole("tab", { name: /GitHub repos/ });
+    const linearTab = screen.getByRole("tab", { name: /Linear teams/ });
+    githubTab.focus();
+    fireEvent.keyDown(githubTab, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(linearTab);
+    fireEvent.keyDown(linearTab, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(githubTab);
+  });
 });

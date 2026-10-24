@@ -257,11 +257,24 @@ export function AddSourcePicker({
   const loadingLabel = tab === "github_repo" ? "Loading repos" : "Loading teams";
   const panelId = tab === "github_repo" ? "picker-panel-github" : "picker-panel-linear";
 
-  const renderErrorAction = (status: number, onRetry: () => void) => {
+  const renderErrorAction = (status: number, onRetry: () => void, forAdd = false) => {
     if (status === 401) {
       return (
         <a className="dom-btn dom-btn--primary dom-btn--sm" href={githubLoginUrl()}>
           Sign in again
+        </a>
+      );
+    }
+    if (status === 403 && forAdd) {
+      return (
+        <a
+          className="dom-btn dom-btn--secondary dom-btn--sm"
+          href={GITHUB_ACCESS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Check GitHub access
+          <IconExternal />
         </a>
       );
     }
@@ -498,7 +511,7 @@ export function AddSourcePicker({
               <div className="quorum-callout-err" role="alert">
                 {addError.message}
               </div>
-              {renderErrorAction(addError.status, () => void handleAdd())}
+              {renderErrorAction(addError.status, () => void handleAdd(), true)}
             </div>
           ) : null}
           <div className="quorum-picker-footer-actions">

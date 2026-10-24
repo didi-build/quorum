@@ -93,4 +93,13 @@ describe("createHttpSourcesApi", () => {
     const api = createHttpSourcesApi();
     await expect(api.deleteSource("src-1")).resolves.toBeUndefined();
   });
+
+  it("accepts 200 delete responses with an empty body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("", { status: 200 }))),
+    );
+    const api = createHttpSourcesApi();
+    await expect(api.deleteSource("src-1")).resolves.toBeUndefined();
+  });
 });

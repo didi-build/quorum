@@ -4,6 +4,45 @@ import { SourcesApiError } from "./errors";
 import { expectJsonArray, parseResponseJson } from "./parse";
 import type { SourcesApi } from "./types";
 
+async function requestEmpty(
+  path: string,
+  init: RequestInit = {},
+  provider?: string,
+): Promise<void> {
+  const response = await fetch(path, {
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...init.headers,
+    },
+    ...init,
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const text = await response.text();
+      if (text.trim()) {
+        const body = parseResponseJson(text, response.status) as { detail?: string };
+        detail = typeof body.detail === "string" ? body.detail : "";
+      }
+    } catch {
+      // ignore parse errors for error bodies
+    }
+    throw new SourcesApiError(response.status, detail, provider);
+  }
+
+  if (response.status === 204) {
+    return;
+  }
+
+  const text = await response.text();
+  if (!text.trim()) {
+    return;
+  }
+  parseResponseJson(text, response.status);
+}
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -72,7 +111,7 @@ export function createHttpSourcesApi(): SourcesApi {
         },
       ),
     deleteSource: (id) =>
-      request<void>(`/sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      requestEmpty(`/sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
     listAvailableSources: (connectionId, provider) =>
       request<AvailableSourceItem[]>(
         `/connections/${encodeURIComponent(connectionId)}/available-sources`,

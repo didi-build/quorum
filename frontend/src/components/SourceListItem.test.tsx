@@ -68,6 +68,22 @@ describe("SourceListItem", () => {
     ).toBeTruthy();
   });
 
+  it("closes the menu on Escape and returns focus to the button", () => {
+    render(
+      <SourceListItem
+        source={baseSource}
+        onRefresh={() => undefined}
+        onRemove={async () => undefined}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: /Actions for/ });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menuitem", { name: /Refresh/ })).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menuitem", { name: /Refresh/ })).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("asks for confirmation before remove", async () => {
     const onRemove = vi.fn(async () => undefined);
     render(

@@ -6,6 +6,7 @@ import {
   mockSourcesEmpty,
 } from "../lib/api/sources/mock";
 import { setSourcesApi } from "../lib/api/sources";
+import { SourcesApiError } from "../lib/api/sources/errors";
 import { ConnectionsView } from "./ConnectionsView";
 
 vi.mock("../lib/api/sources", async (importOriginal) => {
@@ -113,6 +114,27 @@ describe("ConnectionsView", () => {
     );
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     expect(screen.queryByRole("status", { name: "Loading sources" })).toBeNull();
+  });
+
+  it("shows refresh error on the source row", async () => {
+    const api = createMockSourcesApi();
+    const failing = { ...api };
+    failing.refreshSource = async () => {
+      throw new SourcesApiError(429, "slow", "github");
+    };
+    render(<ConnectionsView api={failing} />);
+    await waitFor(() => expect(screen.getByText("didi-build/quorum")).toBeTruthy());
+    fireEvent.click(
+      screen.getByRole("button", { name: /Actions for didi-build\/quorum/ }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Refresh/ }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "GitHub asked Quorum to slow down. Wait a minute, then try again.",
+        ),
+      ).toBeTruthy(),
+    );
   });
 
   it("shows toast and pending rows after adding sources", async () => {

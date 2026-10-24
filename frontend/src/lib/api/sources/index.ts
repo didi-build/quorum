@@ -16,7 +16,7 @@ export async function resolveSourcesApi(): Promise<SourcesApi> {
   if (apiInstance) {
     return apiInstance;
   }
-  if (getSourcesMockMode() === "mock") {
+  if (import.meta.env.DEV && getSourcesMockMode() === "mock") {
     const { createMockSourcesApi } = await import("./mock");
     apiInstance = createMockSourcesApi();
   } else {
