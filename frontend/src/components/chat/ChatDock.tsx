@@ -10,7 +10,7 @@ interface ChatDockProps {
   onDismissSendError: () => void;
   onSend: (content: string) => void;
   mobile: boolean;
-  showComposer: boolean;
+  composerFocusSignal: number;
 }
 
 function RefreshIcon() {
@@ -35,10 +35,9 @@ export function ChatDock({
   onDismissSendError,
   onSend,
   mobile,
-  showComposer,
+  composerFocusSignal,
 }: ChatDockProps) {
-  const composerDisabled =
-    !showComposer || awaitingResponse || connectionState !== "connected";
+  const composerDisabled = awaitingResponse || connectionState !== "connected";
 
   const strip = () => {
     if (sendError) {
@@ -109,14 +108,13 @@ export function ChatDock({
     <div className="quorum-chat-dock">
       <div className="quorum-chat-dock-in">
         {strip()}
-        {showComposer ? (
-          <ChatComposer
-            disabled={composerDisabled}
-            busy={awaitingResponse}
-            mobile={mobile}
-            onSend={onSend}
-          />
-        ) : null}
+        <ChatComposer
+          disabled={composerDisabled}
+          busy={awaitingResponse}
+          mobile={mobile}
+          focusSignal={composerFocusSignal}
+          onSend={onSend}
+        />
       </div>
     </div>
   );

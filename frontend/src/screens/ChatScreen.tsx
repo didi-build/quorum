@@ -6,8 +6,8 @@ import { ChatThread } from "../components/chat/ChatThread";
 import { historyToThreadItems, threadItemFromResponse } from "../lib/chat/history";
 import { fetchReadySourceCount } from "../lib/chat/sourceCount";
 import { getOrCreateSessionId } from "../lib/chat/session";
-import { getChatTransport } from "../lib/chat/transport";
-import { humanizeApiError } from "../lib/authErrors";
+import { resolveChatTransport } from "../lib/chat/transport";
+import { ChatConnectionLostError, toChatUserMessage } from "../lib/chat/errors";
 import { useChatWebSocket } from "../hooks/useChatWebSocket";
 
 function useIsMobile(): boolean {
@@ -37,27 +37,33 @@ export function ChatScreen() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const [transportReady, setTransportReady] = useState(false);
+  const [composerFocusSignal, setComposerFocusSignal] = useState(0);
   const mobile = useIsMobile();
+
+  useEffect(() => {
+    void resolveChatTransport().then(() => {
+      setTransportReady(true);
+    });
+  }, []);
 
   const refreshSourceCount = useCallback(async () => {
     try {
       const count = await fetchReadySourceCount();
       setReadySourceCount(count);
-    } catch {
-      setReadySourceCount(0);
+    } catch (error) {
+      setSendError(toChatUserMessage(error));
     }
   }, []);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
-      const transport = getChatTransport();
+      const transport = await resolveChatTransport();
       const history = await transport.fetchHistory(sessionId);
       setItems(historyToThreadItems(history.messages));
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : humanizeApiError(500, "", {});
-      setSendError(message);
+      setSendError(toChatUserMessage(error));
     } finally {
       setHistoryLoading(false);
       setHistoryLoaded(true);
@@ -65,20 +71,22 @@ export function ChatScreen() {
   }, [sessionId]);
 
   useEffect(() => {
+    if (!transportReady) {
+      return;
+    }
     void Promise.all([loadHistory(), refreshSourceCount()]);
-  }, [loadHistory, refreshSourceCount]);
+  }, [transportReady, loadHistory, refreshSourceCount]);
 
   const { connectionState, sendMessage } = useChatWebSocket({
-    enabled: true,
+    enabled: transportReady,
+    sessionId,
     onStatus: () => {
       // Council status frames are handled in DIDI-788.
     },
   });
 
-  const showComposer = readySourceCount !== null && readySourceCount > 0;
-
   const handleSend = async (content: string) => {
-    if (awaitingResponse || !showComposer) {
+    if (awaitingResponse) {
       return;
     }
 
@@ -98,13 +106,12 @@ export function ChatScreen() {
         setItems((current) => [...current, threadItemFromResponse(response)]);
       }
     } catch (error) {
-      setSendError(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong on our side. Try again in a moment.",
-      );
+      if (!(error instanceof ChatConnectionLostError)) {
+        setSendError(toChatUserMessage(error));
+      }
     } finally {
       setAwaitingResponse(false);
+      setComposerFocusSignal((value) => value + 1);
       void refreshSourceCount();
     }
   };
@@ -129,7 +136,7 @@ export function ChatScreen() {
           void handleSend(content);
         }}
         mobile={mobile}
-        showComposer={showComposer}
+        composerFocusSignal={composerFocusSignal}
       />
     </div>
   );

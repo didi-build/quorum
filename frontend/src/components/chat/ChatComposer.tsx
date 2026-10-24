@@ -4,6 +4,7 @@ interface ChatComposerProps {
   disabled: boolean;
   busy: boolean;
   mobile: boolean;
+  focusSignal: number;
   onSend: (content: string) => void;
 }
 
@@ -21,7 +22,13 @@ function SendIcon() {
   );
 }
 
-export function ChatComposer({ disabled, busy, mobile, onSend }: ChatComposerProps) {
+export function ChatComposer({
+  disabled,
+  busy,
+  mobile,
+  focusSignal,
+  onSend,
+}: ChatComposerProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -35,6 +42,12 @@ export function ChatComposer({ disabled, busy, mobile, onSend }: ChatComposerPro
     const maxHeight = lineHeight * 4 + 14;
     textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
   }, [text]);
+
+  useEffect(() => {
+    if (focusSignal > 0 && !disabled) {
+      textareaRef.current?.focus();
+    }
+  }, [focusSignal, disabled]);
 
   const placeholder = busy
     ? "Quorum is answering"

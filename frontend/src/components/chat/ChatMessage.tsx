@@ -83,13 +83,7 @@ function CouncilPlaceholder({ content }: { content: string }) {
   return (
     <article className="quorum-chat-answer">
       <QuorumLabel route="Council review" />
-      <div className="quorum-chat-answer-body">
-        <p className="quorum-chat-muted">
-          Council results will appear here in a follow-up release. The recommendation
-          summary is kept below for now.
-        </p>
-        {content ? <p>{content}</p> : null}
-      </div>
+      <div className="quorum-chat-answer-body">{content ? <p>{content}</p> : null}</div>
     </article>
   );
 }

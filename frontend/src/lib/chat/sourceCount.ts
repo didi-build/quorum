@@ -1,11 +1,13 @@
 import type { KnowledgeSourceListResponse } from "../../types/sources";
-import { humanizeApiError } from "../authErrors";
-import { getChatTransport, isChatMockMode, MockChatTransport } from "./transport";
+import { userFacingChatError } from "./errors";
+import { isChatMockMode } from "./mockMode";
+import { resolveChatTransport } from "./transport";
+import type { MockChatTransport } from "./transport/mock";
 
 async function parseSources(response: Response): Promise<KnowledgeSourceListResponse> {
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(humanizeApiError(response.status, detail));
+    throw userFacingChatError(response.status, detail);
   }
   return (await response.json()) as KnowledgeSourceListResponse;
 }
@@ -13,9 +15,10 @@ async function parseSources(response: Response): Promise<KnowledgeSourceListResp
 /** Ready source count for the chat status line (isolated from Connections UI). */
 export async function fetchReadySourceCount(): Promise<number> {
   if (isChatMockMode()) {
-    const transport = getChatTransport();
-    if (transport instanceof MockChatTransport) {
-      return transport.readySourceCount;
+    const transport = await resolveChatTransport();
+    const mock = transport as MockChatTransport;
+    if (typeof mock.readySourceCount === "number") {
+      return mock.readySourceCount;
     }
     return 0;
   }

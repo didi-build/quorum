@@ -1,3 +1,5 @@
+import { isChatResponseFrame, isChatStatusUpdateFrame } from "../lib/chat/frameGuards";
+
 export type Verdict = "approve" | "request_changes" | "comment";
 
 export interface Citation {
@@ -131,10 +133,10 @@ export type ThreadItem =
 
 export type IncomingFrame = ChatResponse | ChatStatusUpdate;
 
-export function isChatResponse(frame: IncomingFrame): frame is ChatResponse {
-  return "response_kind" in frame;
+export function isChatResponse(frame: unknown): frame is ChatResponse {
+  return isChatResponseFrame(frame);
 }
 
-export function isChatStatusUpdate(frame: IncomingFrame): frame is ChatStatusUpdate {
-  return "scope" in frame;
+export function isChatStatusUpdate(frame: unknown): frame is ChatStatusUpdate {
+  return isChatStatusUpdateFrame(frame);
 }

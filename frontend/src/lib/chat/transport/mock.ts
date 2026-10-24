@@ -49,6 +49,9 @@ class MockChatSocket implements ChatSocket {
   }
 
   send(data: string): void {
+    if (this.transport.stallSend) {
+      return;
+    }
     const payload = JSON.parse(data) as ChatMessageIn;
     if (this.transport.failSend) {
       queueMicrotask(() => {
@@ -81,7 +84,12 @@ export class MockChatTransport implements ChatTransport {
   readySourceCount = 2;
   failOpen = false;
   failSend = false;
+  stallSend = false;
   private sockets = new Set<MockChatSocket>();
+
+  activeSocket(): MockChatSocket | undefined {
+    return [...this.sockets].at(-1);
+  }
 
   async fetchHistory(sessionId: string): Promise<ChatHistoryResponse> {
     return {
@@ -113,15 +121,4 @@ function buildMockResponse(payload: ChatMessageIn): ChatResponse {
 
 export function createMockChatTransport(): MockChatTransport {
   return new MockChatTransport();
-}
-
-export function isChatMockMode(): boolean {
-  const flag = import.meta.env.VITE_CHAT_MOCK;
-  if (flag === "true") {
-    return true;
-  }
-  if (flag === "false") {
-    return false;
-  }
-  return import.meta.env.DEV;
 }

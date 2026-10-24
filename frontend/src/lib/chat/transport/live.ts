@@ -1,5 +1,5 @@
 import type { ChatHistoryResponse } from "../../../types/chat";
-import { humanizeApiError } from "../../authErrors";
+import { userFacingChatError } from "../errors";
 import type { ChatTransport } from "./types";
 
 function websocketUrl(): string {
@@ -10,7 +10,7 @@ function websocketUrl(): string {
 async function parseHistory(response: Response): Promise<ChatHistoryResponse> {
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(humanizeApiError(response.status, detail));
+    throw userFacingChatError(response.status, detail);
   }
   return (await response.json()) as ChatHistoryResponse;
 }
@@ -18,10 +18,13 @@ async function parseHistory(response: Response): Promise<ChatHistoryResponse> {
 export function createLiveChatTransport(): ChatTransport {
   return {
     async fetchHistory(sessionId: string) {
-      const response = await fetch(`/chat/sessions/${sessionId}/messages`, {
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
+      const response = await fetch(
+        `/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+        {
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        },
+      );
       return parseHistory(response);
     },
     openSocket() {

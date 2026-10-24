@@ -1,31 +1,56 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  ChatMessageIn,
-  ChatResponse,
-  ChatStatusUpdate,
-  IncomingFrame,
-} from "../types/chat";
-import { isChatResponse, isChatStatusUpdate } from "../types/chat";
-import { getChatTransport } from "../lib/chat/transport";
+import type { ChatMessageIn, ChatResponse, ChatStatusUpdate } from "../types/chat";
+import { isChatResponse } from "../types/chat";
+import { parseIncomingFrameJson } from "../lib/chat/frameGuards";
+import { ChatConnectionLostError, genericChatError } from "../lib/chat/errors";
+import { resolveChatTransport } from "../lib/chat/transport";
 import type { ChatSocket } from "../lib/chat/transport";
 import { SOCKET_OPEN } from "../lib/chat/transport";
 
 export type ChatConnectionState = "connecting" | "connected" | "closed" | "failed";
 
+const DEFAULT_TURN_TIMEOUT_MS = 120_000;
+
 interface UseChatWebSocketOptions {
   enabled: boolean;
+  sessionId: string;
   onStatus: (frame: ChatStatusUpdate) => void;
+  turnTimeoutMs?: number;
 }
 
-export function useChatWebSocket({ enabled, onStatus }: UseChatWebSocketOptions) {
+export function useChatWebSocket({
+  enabled,
+  sessionId,
+  onStatus,
+  turnTimeoutMs = DEFAULT_TURN_TIMEOUT_MS,
+}: UseChatWebSocketOptions) {
   const socketRef = useRef<ChatSocket | null>(null);
   const onStatusRef = useRef(onStatus);
+  const turnTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingTurnRef = useRef<{
     resolve: (response: ChatResponse) => void;
     reject: (error: Error) => void;
   } | null>(null);
   const [connectionState, setConnectionState] =
     useState<ChatConnectionState>("connecting");
+
+  const clearTurnTimeout = useCallback(() => {
+    if (turnTimeoutRef.current) {
+      clearTimeout(turnTimeoutRef.current);
+      turnTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetTurnTimeout = useCallback(() => {
+    clearTurnTimeout();
+    if (!pendingTurnRef.current) {
+      return;
+    }
+    turnTimeoutRef.current = setTimeout(() => {
+      pendingTurnRef.current?.reject(genericChatError());
+      pendingTurnRef.current = null;
+    }, turnTimeoutMs);
+  }, [clearTurnTimeout, turnTimeoutMs]);
 
   useEffect(() => {
     onStatusRef.current = onStatus;
@@ -37,84 +62,101 @@ export function useChatWebSocket({ enabled, onStatus }: UseChatWebSocketOptions)
       return;
     }
 
-    const transport = getChatTransport();
-    const socket = transport.openSocket();
-    socketRef.current = socket;
-    setConnectionState("connecting");
+    let cancelled = false;
+    let detachSocket: (() => void) | null = null;
 
-    const handleOpen = () => {
-      setConnectionState("connected");
-    };
+    void resolveChatTransport().then((transport) => {
+      if (cancelled) {
+        return;
+      }
 
-    const handleClose = () => {
-      setConnectionState("closed");
-      pendingTurnRef.current?.reject(new Error("Chat connection closed."));
-      pendingTurnRef.current = null;
-    };
+      const socket = transport.openSocket();
+      socketRef.current = socket;
+      setConnectionState("connecting");
 
-    const handleError = () => {
-      setConnectionState("failed");
-      pendingTurnRef.current?.reject(
-        new Error("Something went wrong on our side. Try again in a moment."),
-      );
-      pendingTurnRef.current = null;
-    };
+      const handleOpen = () => {
+        setConnectionState("connected");
+      };
 
-    const handleMessage = (event: Event) => {
-      try {
-        const frame = JSON.parse(String((event as MessageEvent).data)) as IncomingFrame;
-        if (isChatStatusUpdate(frame)) {
-          onStatusRef.current(frame);
+      const handleClose = () => {
+        setConnectionState("closed");
+        clearTurnTimeout();
+        pendingTurnRef.current?.reject(new ChatConnectionLostError());
+        pendingTurnRef.current = null;
+      };
+
+      const handleError = () => {
+        setConnectionState("failed");
+        clearTurnTimeout();
+        pendingTurnRef.current?.reject(genericChatError());
+        pendingTurnRef.current = null;
+      };
+
+      const handleMessage = (event: Event) => {
+        const frame = parseIncomingFrameJson(
+          String((event as MessageEvent).data),
+          sessionId,
+        );
+        if (!frame) {
           return;
         }
-        if (isChatResponse(frame)) {
-          pendingTurnRef.current?.resolve(frame);
-          pendingTurnRef.current = null;
+        if (!isChatResponse(frame)) {
+          onStatusRef.current(frame);
+          resetTurnTimeout();
+          return;
         }
-      } catch {
-        pendingTurnRef.current?.reject(
-          new Error("Received an invalid chat frame from the server."),
-        );
+        clearTurnTimeout();
+        pendingTurnRef.current?.resolve(frame);
         pendingTurnRef.current = null;
-      }
-    };
+      };
 
-    socket.addEventListener("open", handleOpen);
-    socket.addEventListener("close", handleClose);
-    socket.addEventListener("error", handleError);
-    socket.addEventListener("message", handleMessage);
+      socket.addEventListener("open", handleOpen);
+      socket.addEventListener("close", handleClose);
+      socket.addEventListener("error", handleError);
+      socket.addEventListener("message", handleMessage);
+
+      detachSocket = () => {
+        socket.removeEventListener("open", handleOpen);
+        socket.removeEventListener("close", handleClose);
+        socket.removeEventListener("error", handleError);
+        socket.removeEventListener("message", handleMessage);
+        socket.close();
+        socketRef.current = null;
+      };
+    });
 
     return () => {
-      socket.removeEventListener("open", handleOpen);
-      socket.removeEventListener("close", handleClose);
-      socket.removeEventListener("error", handleError);
-      socket.removeEventListener("message", handleMessage);
-      socket.close();
-      socketRef.current = null;
+      cancelled = true;
+      clearTurnTimeout();
+      pendingTurnRef.current?.reject(new ChatConnectionLostError());
+      pendingTurnRef.current = null;
+      detachSocket?.();
     };
-  }, [enabled]);
+  }, [enabled, sessionId, clearTurnTimeout, resetTurnTimeout]);
 
   const sendMessage = useCallback(
     async (payload: ChatMessageIn): Promise<ChatResponse> => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== SOCKET_OPEN) {
-        throw new Error("Chat is not connected.");
+        throw genericChatError();
       }
       if (pendingTurnRef.current) {
-        throw new Error("A message is already in flight.");
+        throw genericChatError();
       }
 
       return new Promise((resolve, reject) => {
         pendingTurnRef.current = { resolve, reject };
+        resetTurnTimeout();
         try {
           socket.send(JSON.stringify(payload));
         } catch {
+          clearTurnTimeout();
           pendingTurnRef.current = null;
-          reject(new Error("Failed to send message."));
+          reject(genericChatError());
         }
       });
     },
-    [],
+    [clearTurnTimeout, resetTurnTimeout],
   );
 
   return {

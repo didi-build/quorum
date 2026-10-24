@@ -7,15 +7,22 @@ import {
 import { responseKindRouteLabel } from "./chat/labels";
 import { isChatResponse, isChatStatusUpdate } from "../types/chat";
 import {
+  isChatResponseFrame,
+  isCitation,
+  parseIncomingFrame,
+} from "./chat/frameGuards";
+import {
   FIXTURE_DIRECT_RESPONSE,
   FIXTURE_STUB_RESPONSE,
 } from "./chat/transport/fixtures";
+
+const SESSION = "00000000-0000-4000-8000-000000000001";
 
 describe("frame guards", () => {
   it("distinguishes status updates from final responses", () => {
     expect(
       isChatStatusUpdate({
-        session_id: "00000000-0000-4000-8000-000000000001",
+        session_id: SESSION,
         scope: "supervisor",
         persona: null,
         status: "alerting_council",
@@ -24,7 +31,7 @@ describe("frame guards", () => {
     expect(
       isChatResponse({
         id: "00000000-0000-4000-8000-000000000002",
-        session_id: "00000000-0000-4000-8000-000000000001",
+        session_id: SESSION,
         content: "Hello",
         classified_intent: "greeting",
         response_kind: "direct_answer",
@@ -32,6 +39,61 @@ describe("frame guards", () => {
         council_decision: null,
       }),
     ).toBe(true);
+  });
+
+  it("rejects malformed response frames", () => {
+    expect(isChatResponseFrame(null)).toBe(false);
+    expect(isChatResponseFrame("text")).toBe(false);
+    expect(
+      isChatResponseFrame({
+        id: "x",
+        session_id: SESSION,
+        content: "Hi",
+        classified_intent: "greeting",
+        response_kind: "direct_answer",
+        citations: [{ bad: true }],
+        council_decision: null,
+      }),
+    ).toBe(false);
+    expect(
+      isChatResponseFrame({
+        id: "x",
+        session_id: SESSION,
+        content: 1,
+        classified_intent: "greeting",
+        response_kind: "direct_answer",
+        citations: [],
+        council_decision: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("drops frames for another session", () => {
+    const frame = parseIncomingFrame(
+      {
+        id: "m1",
+        session_id: "other-session",
+        content: "Hi",
+        classified_intent: "greeting",
+        response_kind: "direct_answer",
+        citations: [],
+        council_decision: null,
+      },
+      SESSION,
+    );
+    expect(frame).toBeNull();
+  });
+
+  it("validates citations", () => {
+    expect(
+      isCitation({
+        document_id: "didi-build/foo",
+        chunk_index: 0,
+        knowledge_source_id: "ks",
+        excerpt: "line",
+      }),
+    ).toBe(true);
+    expect(isCitation({ document_id: "x" })).toBe(false);
   });
 });
 
@@ -55,7 +117,7 @@ describe("history mapping", () => {
       id: "m2",
       session_id: "s1",
       role: "assistant",
-      content: "hidden",
+      content: "Linear read request identified, not yet implemented.",
       classified_intent: "linear_read",
       response_kind: "stub_not_implemented",
       citations: [],
