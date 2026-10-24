@@ -50,6 +50,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     env: {
       BASE_URL: "/app/",
+      VITE_CHAT_MOCK: "true",
     },
   },
 });

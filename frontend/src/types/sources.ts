@@ -16,3 +16,7 @@ export interface KnowledgeSource {
   created_at: string;
   updated_at: string;
 }
+
+export interface KnowledgeSourceListResponse {
+  sources: KnowledgeSource[];
+}
