@@ -1,15 +1,25 @@
+/** Vectorize deleteByIds batch size (DIDI-775). */
+export const CHUNK_VECTOR_DELETE_BATCH_SIZE = 100;
+
 /**
- * Deletes Vectorize embeddings for a knowledge source (metadata filter `knowledge_source_id`).
- * Full implementation ships with the indexing consumer (DIDI-775).
+ * Deletes Vectorize embeddings by chunk id (vector id equals chunk id string).
+ * Implementation calls `deleteByIds` in batches (DIDI-775).
  */
-export type DeleteKnowledgeSourceVectors = (
+export type DeleteChunkVectors = (
   vectorize: VectorizeIndex,
-  knowledgeSourceId: string,
+  chunkIds: string[],
 ) => Promise<void>;
 
-export const deleteKnowledgeSourceVectors: DeleteKnowledgeSourceVectors = async (
-  _vectorize,
-  _knowledgeSourceId,
-) => {
-  // Stub: call Vectorize delete filtered by knowledge_source_id when ingestion lands.
+export const deleteChunkVectors: DeleteChunkVectors = async (_vectorize, chunkIds) => {
+  for (
+    let offset = 0;
+    offset < chunkIds.length;
+    offset += CHUNK_VECTOR_DELETE_BATCH_SIZE
+  ) {
+    const batch = chunkIds.slice(offset, offset + CHUNK_VECTOR_DELETE_BATCH_SIZE);
+    if (batch.length === 0) {
+      continue;
+    }
+    // DIDI-775: await vectorize.deleteByIds(batch);
+  }
 };

@@ -23,4 +23,24 @@ describe("can_access (unit)", () => {
   it("allows when user and project both match", () => {
     expect(can_access(USER_A, PROJECT_A, USER_A, PROJECT_A)).toBe(true);
   });
+
+  it("allows owner match when actor has no project", () => {
+    expect(can_access(USER_A, null, USER_A, null)).toBe(true);
+  });
+
+  it("allows project-only resource when actor project matches", () => {
+    expect(can_access(USER_A, PROJECT_A, null, PROJECT_A)).toBe(true);
+  });
+
+  it("denies project-only resource when actor has no project", () => {
+    expect(can_access(USER_A, null, null, PROJECT_A)).toBe(false);
+  });
+
+  it("treats empty-string ids as values (not global)", () => {
+    expect(can_access("", null, "", null)).toBe(true);
+    expect(can_access(USER_A, null, "", null)).toBe(false);
+    expect(can_access("", null, USER_A, null)).toBe(false);
+    expect(can_access(USER_A, "", null, "")).toBe(true);
+    expect(can_access(USER_A, PROJECT_A, null, "")).toBe(false);
+  });
 });

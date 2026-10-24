@@ -25,7 +25,7 @@ d1_tables:
         retention: until account deletion runbook
       created_at:
         whose: operational
-        data: Account creation timestamp (UTC)
+        data: Account creation timestamp (ISO 8601 UTC)
         purpose: audit and support
         retention: until account deletion runbook
 
@@ -41,33 +41,33 @@ d1_tables:
         whose: operational
         data: Browser session UUID
         purpose: primary key
-        retention: until session expiry or revocation
+        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
       user_id:
-        whose: operational
+        whose: user
         data: Owning user UUID
         purpose: session ownership
-        retention: until session row deleted
+        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
       token_hash:
         whose: operational
         data: SHA-256 hash of session cookie token
         purpose: authenticate browser sessions without storing raw token
-        retention: until session expiry or revocation
+        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
         notes: secret
       created_at:
         whose: operational
-        data: Session creation timestamp (UTC)
+        data: Session creation timestamp (ISO 8601 UTC)
         purpose: audit
-        retention: until session row deleted
+        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
       expires_at:
         whose: operational
-        data: Session expiry timestamp (UTC)
+        data: Session expiry timestamp (ISO 8601 UTC)
         purpose: enforce session lifetime
-        retention: until session row deleted
+        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
       revoked_at:
         whose: operational
-        data: Session revocation timestamp (UTC) when set
+        data: Session revocation timestamp (ISO 8601 UTC) when set
         purpose: sign-out and security
-        retention: until session row deleted
+        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
 
   api_keys:
     defaults:
@@ -100,7 +100,7 @@ d1_tables:
         retention: until key revoked or account deletion runbook
       created_at:
         whose: operational
-        data: API key creation timestamp (UTC)
+        data: API key creation timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until key revoked or account deletion runbook
 
@@ -127,21 +127,23 @@ d1_tables:
         data: Provider name (github or linear)
         purpose: route API calls to the correct integration
         retention: until connection deleted
-      access_token:
+      access_token_ciphertext:
         whose: user
-        data: OAuth access token ciphertext for Linear (nullable for GitHub App)
-        purpose: call Linear API on behalf of the user
+        data: AES-GCM ciphertext of OAuth access token for Linear (nullable for GitHub App); encryption implemented in DIDI-773 using Wrangler secret TOKEN_ENCRYPTION_KEY; no writer exists yet and plaintext must never be stored
+        purpose: call Linear API on behalf of the user after DIDI-773 lands
+        processors: [Cloudflare]
         retention: until connection deleted or token rotated
         notes: secret
-      refresh_token:
+      refresh_token_ciphertext:
         whose: user
-        data: OAuth refresh token ciphertext when issued
-        purpose: refresh Linear OAuth access
+        data: AES-GCM ciphertext of OAuth refresh token when issued; encryption implemented in DIDI-773 using Wrangler secret TOKEN_ENCRYPTION_KEY; no writer exists yet and plaintext must never be stored
+        purpose: refresh Linear OAuth access after DIDI-773 lands
+        processors: [Cloudflare]
         retention: until connection deleted or token rotated
         notes: secret
       token_expires_at:
         whose: operational
-        data: OAuth access token expiry timestamp (UTC)
+        data: OAuth access token expiry timestamp (ISO 8601 UTC)
         purpose: proactive token refresh
         retention: until connection deleted
       installation_id:
@@ -161,12 +163,12 @@ d1_tables:
         retention: until connection deleted
       created_at:
         whose: operational
-        data: Connection creation timestamp (UTC)
+        data: Connection creation timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until connection deleted
       updated_at:
         whose: operational
-        data: Connection last update timestamp (UTC)
+        data: Connection last update timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until connection deleted
 
@@ -225,17 +227,17 @@ d1_tables:
         retention: until source deleted
       last_indexed_at:
         whose: operational
-        data: Last successful index completion timestamp (UTC)
+        data: Last successful index completion timestamp (ISO 8601 UTC)
         purpose: UI freshness and support
         retention: until source deleted
       created_at:
         whose: operational
-        data: Source creation timestamp (UTC)
+        data: Source creation timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until source deleted
       updated_at:
         whose: operational
-        data: Source last update timestamp (UTC)
+        data: Source last update timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until source deleted
 
@@ -249,8 +251,8 @@ d1_tables:
     columns:
       id:
         whose: operational
-        data: Chunk UUID
-        purpose: primary key and Vectorize vector id
+        data: Chunk integer primary key (stringified for Vectorize vector id)
+        purpose: primary key and Vectorize deleteByIds target
         retention: until parent knowledge source deleted
       knowledge_source_id:
         whose: operational
@@ -270,16 +272,18 @@ d1_tables:
       content:
         whose: user
         data: Indexed text from connected GitHub or Linear content (may include names and issue text)
-        purpose: hybrid retrieval keyword leg and council context
+        purpose: hybrid retrieval keyword leg, Voyage embeddings, and council context
+        processors: [Cloudflare, Voyage AI, Anthropic]
         retention: until parent knowledge source deleted
       heading_hierarchy:
         whose: operational
         data: JSON array of heading strings for the chunk
-        purpose: citation display
+        purpose: citation display in chat and council prompts
+        processors: [Cloudflare, Anthropic]
         retention: until parent knowledge source deleted
       created_at:
         whose: operational
-        data: Chunk creation timestamp (UTC)
+        data: Chunk creation timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until parent knowledge source deleted
 
@@ -294,7 +298,8 @@ d1_tables:
       content:
         whose: user
         data: External-content FTS5 index over chunks.content for bm25 search
-        purpose: keyword retrieval leg (join to chunks for source filters)
+        purpose: keyword retrieval leg; matched excerpts may be sent to Anthropic in chat and council
+        processors: [Cloudflare, Anthropic]
         retention: until parent chunk deleted
 
   chat_messages:
@@ -312,8 +317,8 @@ d1_tables:
         retention: until account deletion runbook
       session_id:
         whose: operational
-        data: Browser session UUID grouping messages
-        purpose: load chat history per session
+        data: Chat conversation UUID (v1 GET /sessions/{session_id}/messages), not the browser auth session row
+        purpose: group messages in one chat thread
         retention: until account deletion runbook
       user_id:
         whose: user
@@ -333,7 +338,8 @@ d1_tables:
       content:
         whose: user
         data: Message body text
-        purpose: unified chat and council transcript
+        purpose: unified chat and council transcript sent to Anthropic
+        processors: [Cloudflare, Anthropic]
         retention: until account deletion runbook
       classified_intent:
         whose: operational
@@ -348,16 +354,18 @@ d1_tables:
       citations:
         whose: user
         data: JSON array of citation objects from retrieval
-        purpose: show sources in chat UI
+        purpose: show sources in chat UI and council prompts
+        processors: [Cloudflare, Anthropic]
         retention: until account deletion runbook
       council_decision:
         whose: user
         data: JSON council verdict payload when present
         purpose: show seat opinions and chair synthesis
+        processors: [Cloudflare, Anthropic]
         retention: until account deletion runbook
       created_at:
         whose: operational
-        data: Message creation timestamp (UTC)
+        data: Message creation timestamp (ISO 8601 UTC)
         purpose: order transcript
         retention: until account deletion runbook
 
@@ -392,12 +400,14 @@ d1_tables:
       plan:
         whose: user
         data: JSON write-back plan (GitHub PR and Linear issue actions)
-        purpose: user review before execution
+        purpose: user review and Anthropic write-back planning
+        processors: [Cloudflare, Anthropic]
         retention: until account deletion runbook
       feedback_history:
         whose: user
         data: JSON array of user feedback on the plan
-        purpose: refine write-back proposals
+        purpose: refine write-back proposals via Anthropic
+        processors: [Cloudflare, Anthropic]
         retention: until account deletion runbook
       status:
         whose: operational
@@ -408,20 +418,21 @@ d1_tables:
         whose: user
         data: JSON array of per-action execution outcomes
         purpose: show PR links and errors after execution
+        processors: [Cloudflare]
         retention: until account deletion runbook
       created_at:
         whose: operational
-        data: Proposal creation timestamp (UTC)
+        data: Proposal creation timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until account deletion runbook
       updated_at:
         whose: operational
-        data: Proposal last update timestamp (UTC)
+        data: Proposal last update timestamp (ISO 8601 UTC)
         purpose: audit
         retention: until account deletion runbook
       executed_at:
         whose: operational
-        data: Execution completion timestamp (UTC) when set
+        data: Execution completion timestamp (ISO 8601 UTC) when set
         purpose: audit
         retention: until account deletion runbook
 
