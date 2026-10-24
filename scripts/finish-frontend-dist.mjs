@@ -25,10 +25,8 @@ const moveIntoApp = (name) => {
   }
 };
 
-const keepAtDistRoot = new Set(["fonts"]);
-
 for (const entry of fs.readdirSync(dist)) {
-  if (entry === "app" || keepAtDistRoot.has(entry)) {
+  if (entry === "app") {
     continue;
   }
   moveIntoApp(entry);

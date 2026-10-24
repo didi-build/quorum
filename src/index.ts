@@ -5,15 +5,16 @@ export interface Env {
   VECTORIZE: VectorizeIndex;
 }
 
+export function isAppSpaPath(pathname: string): boolean {
+  return pathname === "/app" || pathname.startsWith("/app/");
+}
+
 function wantsHtmlDocument(request: Request): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return false;
   }
   const accept = request.headers.get("Accept") ?? "";
-  if (accept.includes("text/html")) {
-    return true;
-  }
-  return accept === "" || accept === "*/*";
+  return accept.includes("text/html");
 }
 
 function appSpaShellRequest(url: URL, request: Request): Request {
@@ -22,6 +23,20 @@ function appSpaShellRequest(url: URL, request: Request): Request {
     method: request.method,
     headers: request.headers,
   });
+}
+
+export function shouldServeAppShell(
+  url: URL,
+  request: Request,
+  assetResponse: Response,
+): boolean {
+  if (!isAppSpaPath(url.pathname)) {
+    return false;
+  }
+  if (!wantsHtmlDocument(request)) {
+    return false;
+  }
+  return assetResponse.status === 404 || assetResponse.status === 403;
 }
 
 export default {
@@ -33,12 +48,7 @@ export default {
 
     const assetResponse = await env.ASSETS.fetch(request);
 
-    const needsAppShell =
-      url.pathname.startsWith("/app") &&
-      wantsHtmlDocument(request) &&
-      (assetResponse.status === 404 || assetResponse.status === 403);
-
-    if (needsAppShell) {
+    if (shouldServeAppShell(url, request, assetResponse)) {
       return env.ASSETS.fetch(appSpaShellRequest(url, request));
     }
 

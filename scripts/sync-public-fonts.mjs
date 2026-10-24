@@ -40,9 +40,15 @@ for (const { from, to } of copies) {
   fs.copyFileSync(src, path.join(dest, to));
 }
 
-const ofl = path.join(root, "node_modules", "@fontsource/geist-sans", "OFL.txt");
-if (fs.existsSync(ofl)) {
-  fs.copyFileSync(ofl, path.join(dest, "OFL.txt"));
+const licenseSrc = path.join(root, "node_modules", "@fontsource/geist-sans", "LICENSE");
+if (!fs.existsSync(licenseSrc)) {
+  console.error(
+    "sync-public-fonts: missing LICENSE in @fontsource/geist-sans (expected OFL text)",
+  );
+  process.exit(1);
 }
+fs.copyFileSync(licenseSrc, path.join(dest, "OFL.txt"));
 
-console.log("sync-public-fonts: copied Geist woff2 files to frontend/public/fonts/");
+console.log(
+  "sync-public-fonts: copied Geist woff2 files and OFL.txt to frontend/public/fonts/",
+);
