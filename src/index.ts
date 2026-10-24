@@ -1,9 +1,8 @@
-export interface Env {
-  ASSETS: Fetcher;
-  DB: D1Database;
-  INDEXING_QUEUE: Queue;
-  VECTORIZE: VectorizeIndex;
-}
+import { workerErrorResponse } from "./http/api-error.js";
+import { handleHealth, handleReady } from "./routes/health.js";
+import type { Env } from "./env.js";
+
+export type { Env } from "./env.js";
 
 export function isAppSpaPath(pathname: string): boolean {
   return pathname === "/app" || pathname.startsWith("/app/");
@@ -41,17 +40,25 @@ export function shouldServeAppShell(
 
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === "/health") {
-      return Response.json({ status: "ok" });
+    try {
+      const url = new URL(request.url);
+
+      if (url.pathname === "/health") {
+        return handleHealth();
+      }
+      if (url.pathname === "/ready") {
+        return await handleReady(env);
+      }
+
+      const assetResponse = await env.ASSETS.fetch(request);
+
+      if (shouldServeAppShell(url, request, assetResponse)) {
+        return env.ASSETS.fetch(appSpaShellRequest(url, request));
+      }
+
+      return assetResponse;
+    } catch (error) {
+      return workerErrorResponse(error);
     }
-
-    const assetResponse = await env.ASSETS.fetch(request);
-
-    if (shouldServeAppShell(url, request, assetResponse)) {
-      return env.ASSETS.fetch(appSpaShellRequest(url, request));
-    }
-
-    return assetResponse;
   },
 };

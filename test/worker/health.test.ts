@@ -91,6 +91,15 @@ describe("Worker static assets (integration, vitest-pool-workers)", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ok" });
   });
+
+  it("returns ready JSON for /ready when D1 is reachable", async () => {
+    const request = new Request("http://example.com/ready");
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ready" });
+  });
 });
 
 describe("Service worker precache (built assets)", () => {
