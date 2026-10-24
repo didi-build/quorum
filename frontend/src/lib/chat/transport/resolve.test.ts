@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MockChatTransport } from "./mock";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -15,6 +14,7 @@ describe("resolveChatTransport", () => {
     vi.stubEnv("DEV", "true");
     vi.stubEnv("PROD", "");
     vi.stubEnv("VITE_CHAT_MOCK", "");
+    const { MockChatTransport } = await import("./mock");
     const { resolveChatTransport, setChatTransport } = await loadTransportIndex();
     setChatTransport(null);
     const transport = await resolveChatTransport();
@@ -30,6 +30,7 @@ describe("resolveChatTransport", () => {
       json: async () => ({ session_id: "s", messages: [] }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    const { MockChatTransport } = await import("./mock");
     const { resolveChatTransport, setChatTransport } = await loadTransportIndex();
     setChatTransport(null);
     const transport = await resolveChatTransport();
@@ -45,9 +46,20 @@ describe("resolveChatTransport", () => {
     vi.stubEnv("DEV", "");
     vi.stubEnv("PROD", "true");
     vi.stubEnv("VITE_CHAT_MOCK", "true");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ session_id: "prod-session", messages: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { MockChatTransport } = await import("./mock");
     const { resolveChatTransport, setChatTransport } = await loadTransportIndex();
     setChatTransport(null);
     const transport = await resolveChatTransport();
     expect(transport).not.toBeInstanceOf(MockChatTransport);
+    await transport.fetchHistory("prod-session");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/sessions/prod-session/messages",
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 });

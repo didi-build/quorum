@@ -63,7 +63,9 @@ describe("ChatScreen", () => {
     render(<ChatScreen />);
 
     await waitFor(() => {
-      expect(screen.getByText(CHAT_GENERIC_ERROR_MESSAGE)).toBeTruthy();
+      expect(
+        screen.getByText("Something went wrong on our side. Try again in a moment."),
+      ).toBeTruthy();
     });
     expect(screen.queryByText("Loading chat history")).toBeNull();
   });
@@ -171,11 +173,9 @@ describe("ChatScreen", () => {
       fireEvent.keyDown(textarea, { key: "Enter" });
 
       await waitFor(() => {
-        expect(screen.getByText("hello there")).toBeTruthy();
-      });
-      await waitFor(() => {
         expect(screen.getByText(CHAT_GENERIC_ERROR_MESSAGE)).toBeTruthy();
       });
+      expect(screen.getByText("hello there")).toBeTruthy();
 
       fireEvent.click(screen.getByLabelText("Dismiss"));
       expect(screen.queryByText(CHAT_GENERIC_ERROR_MESSAGE)).toBeNull();
