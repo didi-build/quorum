@@ -2,6 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { describe, expect, it } from "vitest";
 import worker from "../../src/index";
 import { parsePrecacheRelativeUrls, precacheUrlToFetchPath } from "./precache-manifest";
+import { workerEnvWithSecrets } from "./test-env.js";
 
 function htmlRequest(path: string, method = "GET"): Request {
   return new Request(`http://example.com${path}`, {
@@ -95,10 +96,45 @@ describe("Worker static assets (integration, vitest-pool-workers)", () => {
   it("returns ready JSON for /ready when D1 is reachable", async () => {
     const request = new Request("http://example.com/ready");
     const ctx = createExecutionContext();
-    const response = await worker.fetch(request, env, ctx);
+    const response = await worker.fetch(request, workerEnvWithSecrets(env), ctx);
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ready" });
+  });
+
+  it("returns 503 when D1 prepare/first throws", async () => {
+    const brokenDb = {
+      prepare: () => ({
+        first: async () => {
+          throw new Error("D1 unavailable");
+        },
+      }),
+    };
+    const brokenEnv = workerEnvWithSecrets({
+      ...env,
+      DB: brokenDb as D1Database,
+    });
+    const request = new Request("http://example.com/ready");
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, brokenEnv, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ detail: "Database is not reachable" });
+  });
+
+  it("returns ConfigError detail when a required secret is missing", async () => {
+    const incompleteEnv = workerEnvWithSecrets(env);
+    delete incompleteEnv.ANTHROPIC_API_KEY;
+    const request = new Request("http://example.com/ready");
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, incompleteEnv, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({
+      detail: "Missing required environment variable: ANTHROPIC_API_KEY",
+    });
+    expect(body).not.toHaveProperty("stack");
   });
 });
 

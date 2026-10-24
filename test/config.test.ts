@@ -6,6 +6,7 @@ import {
   parseWsAllowedOriginSet,
   requireEnvString,
 } from "../src/config/index.js";
+import { testConfigEnv, withTestConfigEnv } from "./fixtures/config-env.js";
 
 describe("parseAllowedGithubIds (v1 parity)", () => {
   it("returns empty set for blank input", () => {
@@ -20,11 +21,21 @@ describe("parseAllowedGithubIds (v1 parity)", () => {
   it("skips empty segments between commas", () => {
     expect(parseAllowedGithubIds("1,,2")).toEqual(new Set([1, 2]));
   });
+
+  it("throws ConfigError for invalid id segments", () => {
+    expect(() => parseAllowedGithubIds("12abc")).toThrow(ConfigError);
+    expect(() => parseAllowedGithubIds("12abc")).toThrow(
+      /Invalid environment variable: AUTH_ALLOWED_GITHUB_IDS/,
+    );
+  });
 });
 
 describe("parseWsAllowedOriginSet (v1 parity)", () => {
-  it("defaults to app base URL without trailing slash when WS list is empty", () => {
+  it("defaults to app base URL origin when WS list is empty", () => {
     expect(parseWsAllowedOriginSet("", "http://localhost:8787/")).toEqual(
+      new Set(["http://localhost:8787"]),
+    );
+    expect(parseWsAllowedOriginSet("  ", "http://localhost:8787/app/")).toEqual(
       new Set(["http://localhost:8787"]),
     );
     expect(parseWsAllowedOriginSet("  ", "http://localhost:8000")).toEqual(
@@ -53,14 +64,37 @@ describe("requireEnvString", () => {
     ).toThrow(ConfigError);
   });
 
-  it("returns trimmed non-empty values", () => {
-    expect(requireEnvString({ SESSION_SECRET: "abc" }, "SESSION_SECRET")).toBe("abc");
+  it("trims surrounding whitespace from values", () => {
+    expect(requireEnvString({ SESSION_SECRET: "  abc  " }, "SESSION_SECRET")).toBe(
+      "abc",
+    );
   });
 });
 
 describe("loadConfig defaults (v1 / .dev.vars.example)", () => {
+  it("throws ConfigError when a required secret is missing", () => {
+    expect(() => loadConfig({ ...testConfigEnv, ANTHROPIC_API_KEY: "" })).toThrow(
+      ConfigError,
+    );
+    expect(() => loadConfig({ ...testConfigEnv, ANTHROPIC_API_KEY: "" })).toThrow(
+      /ANTHROPIC_API_KEY/,
+    );
+  });
+
+  it("rejects invalid numeric settings", () => {
+    expect(() => loadConfig(withTestConfigEnv({ RRF_K: "12abc" }))).toThrow(
+      /Invalid environment variable: RRF_K/,
+    );
+    expect(() => loadConfig(withTestConfigEnv({ RRF_K: "1.5" }))).toThrow(
+      /Invalid environment variable: RRF_K/,
+    );
+    expect(() =>
+      loadConfig(withTestConfigEnv({ COVERAGE_MIN_SCORE: "0.3oops" })),
+    ).toThrow(/Invalid environment variable: COVERAGE_MIN_SCORE/);
+  });
+
   it("applies Quorum local defaults and derived sets", () => {
-    const config = loadConfig({});
+    const config = loadConfig(testConfigEnv);
     expect(config.appEnv).toBe("development");
     expect(config.appBaseUrl).toBe("http://localhost:8787");
     expect(config.defaultUserId).toBe("00000000-0000-4000-8000-000000000001");
@@ -81,12 +115,19 @@ describe("loadConfig defaults (v1 / .dev.vars.example)", () => {
     expect(config.wsAllowedOriginSet).toEqual(new Set(["http://localhost:8787"]));
   });
 
+  it("honors numeric overrides such as RRF_K", () => {
+    const config = loadConfig(withTestConfigEnv({ RRF_K: "30" }));
+    expect(config.rrfK).toBe(30);
+  });
+
   it("wires allowlist and ws origins from env strings", () => {
-    const config = loadConfig({
-      AUTH_ALLOWED_GITHUB_IDS: "7, 9",
-      WS_ALLOWED_ORIGINS: "https://quorum.example/",
-      APP_BASE_URL: "http://localhost:8787",
-    });
+    const config = loadConfig(
+      withTestConfigEnv({
+        AUTH_ALLOWED_GITHUB_IDS: "7, 9",
+        WS_ALLOWED_ORIGINS: "https://quorum.example/",
+        APP_BASE_URL: "http://localhost:8787",
+      }),
+    );
     expect(config.allowedGithubIds).toEqual(new Set([7, 9]));
     expect(config.wsAllowedOriginSet).toEqual(new Set(["https://quorum.example"]));
   });

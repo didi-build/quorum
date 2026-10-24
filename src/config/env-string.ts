@@ -32,8 +32,11 @@ export function requireEnvString(env: Record<string, unknown>, name: string): st
   if (value === undefined || value.trim() === "") {
     throw new ConfigError(name);
   }
-  return value;
+  return value.trim();
 }
+
+const STRICT_INT_PATTERN = /^-?\d+$/;
+const STRICT_FLOAT_PATTERN = /^-?\d+(\.\d+)?$/;
 
 export function envInt(
   env: Record<string, unknown>,
@@ -44,11 +47,11 @@ export function envInt(
   if (raw === undefined || raw === "") {
     return defaultValue;
   }
-  const parsed = Number.parseInt(raw, 10);
-  if (Number.isNaN(parsed)) {
-    throw new ConfigError(name);
+  const trimmed = raw.trim();
+  if (!STRICT_INT_PATTERN.test(trimmed)) {
+    throw ConfigError.invalid(name);
   }
-  return parsed;
+  return Number.parseInt(trimmed, 10);
 }
 
 export function envFloat(
@@ -60,9 +63,9 @@ export function envFloat(
   if (raw === undefined || raw === "") {
     return defaultValue;
   }
-  const parsed = Number.parseFloat(raw);
-  if (Number.isNaN(parsed)) {
-    throw new ConfigError(name);
+  const trimmed = raw.trim();
+  if (!STRICT_FLOAT_PATTERN.test(trimmed)) {
+    throw ConfigError.invalid(name);
   }
-  return parsed;
+  return Number.parseFloat(trimmed);
 }

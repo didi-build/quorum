@@ -13,8 +13,5 @@ export function workerErrorResponse(error: unknown): Response {
   if (error instanceof ConfigError) {
     return jsonDetail(error.message, 500);
   }
-  if (error instanceof Error) {
-    return jsonDetail(error.message, 500);
-  }
   return jsonDetail("Internal Server Error", 500);
 }

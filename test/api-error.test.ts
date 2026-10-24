@@ -18,4 +18,10 @@ describe("API error shape (FastAPI parity)", () => {
     });
     expect(body).not.toHaveProperty("stack");
   });
+
+  it("returns generic internal error for unexpected failures", async () => {
+    const response = workerErrorResponse(new Error("database driver exploded"));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ detail: "Internal Server Error" });
+  });
 });
