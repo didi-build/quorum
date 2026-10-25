@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AuthUser } from "../lib/auth";
 import { fetchAuthUser } from "../lib/auth";
 import { appPath, resolveAppView } from "../lib/routing";
+import { ChatScreen } from "../screens/ChatScreen";
 import { clearLegacyApiKeyStorage } from "../lib/session";
 import { EntryLoading } from "../screens/EntryLoading";
 import { NotAllowedScreen } from "../screens/NotAllowedScreen";
@@ -91,6 +92,7 @@ export function AppShell() {
       <div className="quorum-page-shell">
         <AppTopBar user={user} onSignedOut={handleSignedOut} />
         <div className="quorum-page-main">
+          {view === "chat" ? <ChatScreen /> : null}
           {view === "connections" ? <ConnectionsView /> : null}
         </div>
       </div>

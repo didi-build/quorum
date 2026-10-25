@@ -350,6 +350,455 @@ textarea {
 .quorum-page-main {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.quorum-chat-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.quorum-chat-scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.quorum-chat-thread {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  flex: 1;
+}
+
+.quorum-chat-you {
+  align-self: flex-end;
+  max-width: 560px;
+  padding: 12px 16px;
+  background: var(--sf2);
+  border-radius: 16px 16px 4px 16px;
+  font-size: 15px;
+  line-height: 23px;
+}
+
+.quorum-chat-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.quorum-chat-who b {
+  font-weight: 600;
+}
+
+.quorum-chat-route {
+  color: var(--mu);
+}
+
+.quorum-chat-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quorum-chat-answer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.quorum-chat-answer-body > p {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 25px;
+}
+
+.quorum-chat-answer-cites {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quorum-chat-answer-foot {
+  display: flex;
+  gap: 8px;
+}
+
+.quorum-chat-note {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border: 1px dashed var(--bd);
+  border-radius: 14px;
+  max-width: 620px;
+  color: var(--mu);
+}
+
+.quorum-chat-note b {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.quorum-chat-note p {
+  margin: 2px 0 0;
+}
+
+.quorum-chat-muted {
+  color: var(--mu);
+}
+
+.quorum-chat-small {
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.quorum-overline {
+  font: 500 11px/16px var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--mu);
+}
+
+.quorum-overline-sm {
+  font-size: 10.5px;
+}
+
+.quorum-chat-link {
+  color: var(--act);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.quorum-chat-link:hover {
+  text-decoration: underline;
+}
+
+.quorum-chat-empty {
+  margin: auto;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 24px 0;
+}
+
+.quorum-chat-empty h2 {
+  margin: 6px 0 0;
+  font-size: 22px;
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.quorum-chat-empty-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0 4px;
+}
+
+.quorum-chat-empty-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 16px;
+  background: var(--sf);
+  border: 1px solid var(--bd2);
+  border-radius: 14px;
+  text-decoration: none;
+  color: var(--fg);
+  text-align: left;
+}
+
+.quorum-chat-empty-card > span:nth-child(2) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.quorum-chat-empty-card:hover {
+  border-color: var(--bd);
+}
+
+.quorum-chat-loading-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mu);
+  font-size: 13px;
+}
+
+.quorum-chat-skel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quorum-chat-skel i {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--sf2),
+    color-mix(in srgb, var(--sf2) 55%, var(--sf)),
+    var(--sf2)
+  );
+  background-size: 200% 100%;
+  animation: quorum-shimmer 1.4s ease-in-out infinite;
+}
+
+.quorum-chat-skel i.quorum-chat-skel-r {
+  align-self: flex-end;
+  width: 46%;
+  height: 44px;
+  border-radius: 14px;
+}
+
+.quorum-chat-skel i.quorum-chat-skel-tall {
+  height: 120px;
+  width: 100%;
+}
+
+.quorum-chat-skel i:not(.quorum-chat-skel-r):not(.quorum-chat-skel-tall) {
+  height: 44px;
+  border-radius: 14px;
+  width: 70%;
+}
+
+@keyframes quorum-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.quorum-chat-dock {
+  flex: none;
+  position: relative;
+  background: var(--bg);
+  padding: 10px 24px 18px;
+}
+
+.quorum-chat-dock::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -24px;
+  height: 24px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+
+.quorum-chat-dock-in {
+  max-width: 932px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quorum-chat-srcline {
+  font-size: 12.5px;
+  color: var(--mu);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  align-self: flex-start;
+  padding: 0 4px;
+}
+
+.quorum-chat-srcline:hover {
+  color: var(--fg);
+}
+
+.quorum-chat-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--mu);
+  padding: 0 4px;
+  min-height: 30px;
+}
+
+.quorum-chat-strip-err {
+  justify-content: space-between;
+  padding: 6px 6px 6px 12px;
+  border-radius: 10px;
+  background: var(--ers);
+  color: var(--fg);
+}
+
+.quorum-chat-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 8px 8px 16px;
+  background: var(--sf);
+  border: 1px solid var(--bd);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.quorum-chat-composer:focus-within {
+  border-color: var(--ac);
+  box-shadow:
+    0 0 0 3px var(--acs),
+    var(--shadow-sm);
+}
+
+.quorum-chat-composer[data-disabled="true"] {
+  opacity: 0.6;
+}
+
+.quorum-chat-composer textarea {
+  flex: 1;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 400 15px/22px var(--font-sans);
+  padding: 7px 0;
+  min-height: 36px;
+  max-height: 120px;
+}
+
+.quorum-chat-composer textarea::placeholder {
+  color: var(--mu);
+}
+
+.quorum-chat-send {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--ac);
+  color: var(--acfg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: none;
+}
+
+.quorum-chat-send:disabled {
+  background: var(--sf2);
+  color: var(--mu);
+  cursor: not-allowed;
+}
+
+.quorum-chat-send:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.quorum-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  color: var(--fg);
+  background: transparent;
+}
+
+.quorum-btn-secondary {
+  border-color: var(--bd);
+  background: var(--sf);
+}
+
+.quorum-btn-secondary:hover {
+  border-color: var(--mu2);
+}
+
+.quorum-btn-sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  border-radius: 8px;
+}
+
+.quorum-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--mu);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.quorum-icon-btn:hover {
+  background: var(--sf2);
+  color: var(--fg);
+}
+
+.quorum-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+
+.quorum-dot-ready {
+  background: var(--ok);
+}
+
+.quorum-dot-idle {
+  border: 1.5px solid var(--mu2);
+  background: transparent;
+}
+
+@media (max-width: 639px) {
+  .quorum-chat-thread {
+    padding: 20px 14px 12px;
+    gap: 16px;
+  }
+
+  .quorum-chat-you {
+    max-width: 88%;
+  }
+
+  .quorum-chat-dock {
+    padding: 12px 12px 14px;
+  }
 }
 
 .quorum-spin {

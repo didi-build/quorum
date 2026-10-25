@@ -1,6 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_FETCH_TIMEOUT_MS, authFetch } from "./auth-http";
-import { authFixtures, createAuthApi } from "./auth";
+import { authFixtures, createAuthApi, fetchAuthUser, resetAuthApiCache } from "./auth";
+
+describe("fetchAuthUser preview gate (unit)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetAuthApiCache();
+    vi.restoreAllMocks();
+  });
+
+  it("returns preview-user when MODE is mock-preview", async () => {
+    vi.stubEnv("MODE", "mock-preview");
+    await expect(fetchAuthUser()).resolves.toEqual({
+      login: "preview-user",
+      github_id: 9001,
+    });
+  });
+});
 
 describe("auth API client (unit)", () => {
   afterEach(() => {
