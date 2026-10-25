@@ -7,6 +7,25 @@
   // Placeholder resource ids only; real ids come from Manual Cloudflare setup tickets.
   "vars": {
     "APP_ENV": "development",
+    "APP_BASE_URL": "http://localhost:8787",
+    "DEFAULT_USER_ID": "00000000-0000-4000-8000-000000000001",
+    "GITHUB_AUTH_REDIRECT_URI": "http://localhost:8787/auth/github/callback",
+    "SESSION_COOKIE_NAME": "quorum_session",
+    "SESSION_TTL_DAYS": "30",
+    "AUTH_DISPLAY_COOKIE_NAME": "quorum_auth_display",
+    "LINEAR_REDIRECT_URI": "http://localhost:8787/oauth/linear/callback",
+    "LINEAR_SCOPES": "read write",
+    "VOYAGE_MODEL": "voyage-context-4",
+    "EMBEDDING_DIMENSIONS": "1024",
+    "CHUNK_TARGET_TOKENS": "512",
+    "CHUNK_OVERLAP_TOKENS": "50",
+    "SUPERVISOR_MODEL": "claude-haiku-4-5",
+    "RETRIEVAL_ANSWER_MODEL": "claude-sonnet-5",
+    "PERSONA_MODEL": "claude-sonnet-5",
+    "COUNCIL_CHAIR_MODEL": "claude-sonnet-5",
+    "RRF_K": "60",
+    "RETRIEVAL_TOP_K": "10",
+    "COVERAGE_MIN_SCORE": "0.3",
   },
   "assets": {
     "directory": "./frontend/dist",
@@ -17,6 +36,7 @@
       "binding": "DB",
       "database_name": "quorum-db",
       "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
     },
   ],
   "queues": {

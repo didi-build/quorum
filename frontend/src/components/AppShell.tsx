@@ -6,6 +6,7 @@ import { clearLegacyApiKeyStorage } from "../lib/session";
 import { EntryLoading } from "../screens/EntryLoading";
 import { NotAllowedScreen } from "../screens/NotAllowedScreen";
 import { SignInScreen } from "../screens/SignInScreen";
+import { ConnectionsView } from "../screens/ConnectionsView";
 import { AppTopBar } from "./AppTopBar";
 
 type AuthState = "loading" | "signed-out" | "signed-in";
@@ -89,7 +90,9 @@ export function AppShell() {
     <main className="quorum-app">
       <div className="quorum-page-shell">
         <AppTopBar user={user} onSignedOut={handleSignedOut} />
-        <div className="quorum-page-main" />
+        <div className="quorum-page-main">
+          {view === "connections" ? <ConnectionsView /> : null}
+        </div>
       </div>
     </main>
   );

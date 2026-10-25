@@ -1,0 +1,9 @@
+{
+  "ignoreTables": [
+    "chunks_fts_config",
+    "chunks_fts_content",
+    "chunks_fts_data",
+    "chunks_fts_docsize",
+    "chunks_fts_idx"
+  ]
+}

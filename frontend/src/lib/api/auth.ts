@@ -86,6 +86,10 @@ export function createAuthApi(overrides: Partial<AuthApi> = {}): AuthApi {
 }
 
 export async function fetchAuthUser(): Promise<AuthUser | null> {
+  if (import.meta.env.MODE === "mock-preview") {
+    const { loadMockPreviewAuthUser } = await import("../preview/loadPreviewMocks");
+    return loadMockPreviewAuthUser();
+  }
   const api = await resolveAuthApi();
   return api.fetchAuthUser();
 }
