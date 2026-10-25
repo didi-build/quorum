@@ -8,6 +8,7 @@ import { DomMark } from "./DomMark";
 import { AppTopBar } from "./AppTopBar";
 import { NotAllowedScreen } from "../screens/NotAllowedScreen";
 import { SignInScreen } from "../screens/SignInScreen";
+import { ConnectionsView } from "../screens/ConnectionsView";
 
 type AuthState = "loading" | "signed-out" | "signed-in";
 
@@ -96,6 +97,7 @@ export function AppShell() {
         <AppTopBar user={user} onSignedOut={handleSignedOut} />
         <div className="quorum-page-main">
           {view === "chat" ? <ChatScreen /> : null}
+          {view === "connections" ? <ConnectionsView /> : null}
         </div>
       </div>
     </main>
