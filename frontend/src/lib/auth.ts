@@ -1,53 +1,5 @@
-export interface AuthUser {
-  login: string;
-  github_id: number;
-}
-
-export interface AccessDeniedInfo {
-  login: string;
-}
-
-export async function fetchAuthUser(): Promise<AuthUser | null> {
-  if (import.meta.env.DEV || import.meta.env.MODE === "mock-preview") {
-    const { loadMockPreviewAuthUser } = await import("./preview/loadPreviewMocks");
-    return loadMockPreviewAuthUser();
-  }
-  const response = await fetch("/auth/me", {
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  if (response.status === 401) {
-    return null;
-  }
-  if (!response.ok) {
-    throw new Error("Something went wrong on our side. Try again in a moment.");
-  }
-  return (await response.json()) as AuthUser;
-}
-
-export async function fetchAccessDeniedInfo(): Promise<AccessDeniedInfo | null> {
-  const response = await fetch("/auth/access-denied", {
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  if (response.status === 404) {
-    return null;
-  }
-  if (!response.ok) {
-    throw new Error("Something went wrong on our side. Try again in a moment.");
-  }
-  return (await response.json()) as AccessDeniedInfo;
-}
-
-export async function logout(): Promise<void> {
-  const response = await fetch("/auth/logout", {
-    method: "POST",
-    credentials: "include",
-  });
-  if (!response.ok && response.status !== 204) {
-    throw new Error("Something went wrong on our side. Try again in a moment.");
-  }
-}
+export type { AccessDeniedInfo, AuthUser } from "./api/auth";
+export { fetchAccessDeniedInfo, fetchAuthUser, logout } from "./api/auth";
 
 export function githubLoginUrl(): string {
   return "/auth/github/login";

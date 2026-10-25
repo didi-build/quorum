@@ -12,7 +12,7 @@ export function parsePrecacheRelativeUrls(swSource) {
 }
 
 const PRECACHE_MOCK_URL_RE = /mock|preview|fixture/i;
-const MOCK_CHUNK_BASENAME_RE = /mockBundle|loadPreviewMocks/i;
+const MOCK_CHUNK_BASENAME_RE = /mockBundle|loadPreviewMocks|auth\.mock/i;
 
 /**
  * @param {string} dir

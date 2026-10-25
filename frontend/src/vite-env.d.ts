@@ -5,9 +5,13 @@ interface ImportMetaEnv {
   readonly BASE_URL: string;
   readonly DEV: boolean;
   readonly PROD: boolean;
+  readonly MODE: string;
   /** Dev only: set to "false" to use live chat endpoints while developing. */
   readonly VITE_CHAT_MOCK?: string;
   readonly VITE_SOURCES_MOCK?: string;
+  readonly VITE_AUTH_MOCK?: string;
+  readonly VITE_AUTH_MOCK_USER?: string;
+  readonly VITE_AUTH_MOCK_ACCESS_DENIED?: string;
 }
 
 interface ImportMeta {

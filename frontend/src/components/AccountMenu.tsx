@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuthUser } from "../lib/auth";
-import { initialsFromLogin, logout } from "../lib/auth";
+import { logout } from "../lib/api/auth";
+import { initialsFromLogin } from "../lib/auth";
 import { appPath } from "../lib/routing";
 
 interface AccountMenuProps {

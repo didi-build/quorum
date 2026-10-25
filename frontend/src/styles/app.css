@@ -47,6 +47,46 @@ textarea {
   padding: 24px 16px;
 }
 
+.quorum-auth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+}
+
+.quorum-auth-foot {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--mu);
+  text-align: center;
+}
+
+.quorum-auth-foot a {
+  color: var(--act);
+  text-decoration: none;
+}
+
+.quorum-auth-foot a:hover {
+  text-decoration: underline;
+}
+
+.quorum-auth-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--mu);
+}
+
+.dom-btn--with-icon {
+  gap: 6px;
+}
+
+.quorum-auth-id-label strong {
+  font-weight: 600;
+}
+
 .quorum-auth-loading {
   display: flex;
   flex-direction: column;
@@ -96,6 +136,28 @@ textarea {
   flex-direction: column;
   gap: 8px;
   margin-top: 6px;
+}
+
+.dom-btn--block {
+  width: 100%;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dom-btn--github {
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--fg);
+  font-weight: 600;
+}
+
+.dom-btn--github:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.dom-btn--github:disabled {
+  opacity: 0.75;
+  cursor: wait;
 }
 
 .quorum-mark {

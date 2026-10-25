@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { assertNoMockArtifactsInProductionDist } from "../scripts/lib/frontend-dist-mock-scan.mjs";
 import { assertMockPreviewOutDirNotProductionDist } from "../scripts/lib/frontend-outdir-guard.mjs";
+import { quorumAuthMockGuard } from "./vite-auth-mock-guard";
 
 const frontendRoot = import.meta.dirname;
 
@@ -88,6 +89,7 @@ export default defineConfig(({ mode, command }) => {
   return {
     root: frontendRoot,
     plugins: [
+      quorumAuthMockGuard(),
       quorumBuildOutDirGuardPlugin(mode, command),
       react(),
       ...(enablePwa
