@@ -42,6 +42,14 @@ Group decisions by AI seats that reach a consensus recommendation, with hybrid r
 
 Wrangler **secrets** and **vars** mirror names in `.dev.vars.example` for non-local deploys.
 
+## Scheduled jobs
+
+| Cron (UTC)  | Handler                | Purpose                                                                                                                              |
+| ----------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `0 4 * * *` | `purgeExpiredSessions` | Delete `sessions` rows whose effective end (`expires_at` or earlier `revoked_at`) is more than 30 days old; bounded batches per run. |
+
+Configured in `wrangler.jsonc` `triggers.crons`. Implementation: `src/jobs/session-purge.ts`, invoked from the Worker `scheduled` export in `src/index.ts`. Retention details: `docs/privacy/retention.md`.
+
 ## Data flow (target)
 
 1. Allowlisted user signs in via GitHub OAuth; session stored in D1.

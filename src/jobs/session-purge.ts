@@ -11,7 +11,35 @@ export const SESSION_PURGE_MAX_BATCHES = 500;
  * SQLite GLOB for migration-style ISO 8601 UTC timestamps (`YYYY-MM-DDTHH:MM:SS.sssZ`).
  * Rows with other shapes are never purged (avoids lexicographic false positives).
  */
-export const SESSION_TIMESTAMP_ISO_GLOB = "????-??-??T??:??:??.???Z";
+export const SESSION_TIMESTAMP_ISO_GLOB =
+  "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z";
+
+/**
+ * D1 rejects a single GLOB as long as SESSION_TIMESTAMP_ISO_GLOB; validate with literals
+ * plus segment digit-class GLOBs equivalent to that pattern.
+ */
+export function sessionTimestampIsoSqlMatch(column: string): string {
+  return `(
+    length(${column}) = 24
+    AND substr(${column}, 5, 1) = '-'
+    AND substr(${column}, 8, 1) = '-'
+    AND substr(${column}, 11, 1) = 'T'
+    AND substr(${column}, 14, 1) = ':'
+    AND substr(${column}, 17, 1) = ':'
+    AND substr(${column}, 20, 1) = '.'
+    AND substr(${column}, 24, 1) = 'Z'
+    AND substr(${column}, 1, 4) GLOB '[0-9][0-9][0-9][0-9]'
+    AND substr(${column}, 6, 2) GLOB '[0-9][0-9]'
+    AND substr(${column}, 9, 2) GLOB '[0-9][0-9]'
+    AND substr(${column}, 12, 2) GLOB '[0-9][0-9]'
+    AND substr(${column}, 15, 2) GLOB '[0-9][0-9]'
+    AND substr(${column}, 18, 2) GLOB '[0-9][0-9]'
+    AND substr(${column}, 21, 3) GLOB '[0-9][0-9][0-9]'
+  )`;
+}
+
+const SESSION_EXPIRES_ISO_MATCH = sessionTimestampIsoSqlMatch("expires_at");
+const SESSION_REVOKED_ISO_MATCH = sessionTimestampIsoSqlMatch("revoked_at");
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -35,6 +63,7 @@ export type SessionPurgeResult = {
   totalDeleted: number;
   batches: number;
   capped: boolean;
+  malformedTimestampSkipped: number;
 };
 
 export type SessionPurgeOptions = {
@@ -45,13 +74,22 @@ export type SessionPurgeOptions = {
   log?: (payload: Record<string, string | number | boolean>) => void;
 };
 
+const COUNT_MALFORMED_TIMESTAMPS_SQL = `
+  SELECT COUNT(*) AS c
+  FROM sessions
+  WHERE NOT (
+    ${SESSION_EXPIRES_ISO_MATCH}
+    AND (revoked_at IS NULL OR ${SESSION_REVOKED_ISO_MATCH})
+  )
+`;
+
 const PURGE_BATCH_SQL = `
   DELETE FROM sessions
   WHERE id IN (
     SELECT id
     FROM sessions
-    WHERE expires_at GLOB ?
-      AND (revoked_at IS NULL OR revoked_at GLOB ?)
+    WHERE ${SESSION_EXPIRES_ISO_MATCH}
+      AND (revoked_at IS NULL OR ${SESSION_REVOKED_ISO_MATCH})
       AND (
         CASE
           WHEN revoked_at IS NOT NULL AND revoked_at < expires_at THEN revoked_at
@@ -77,17 +115,16 @@ export async function purgeExpiredSessions(
   const log = options.log ?? ((payload) => console.log(JSON.stringify(payload)));
 
   const cutoffIso = sessionPurgeCutoffIso(now, retentionDays);
-  const isoGlob = SESSION_TIMESTAMP_ISO_GLOB;
+
+  let malformedTimestampSkipped = 0;
+
   let totalDeleted = 0;
   let batches = 0;
   let lastBatchDeleted = 0;
 
   try {
     while (batches < maxBatches) {
-      const result = await db
-        .prepare(PURGE_BATCH_SQL)
-        .bind(isoGlob, isoGlob, cutoffIso, batchSize)
-        .run();
+      const result = await db.prepare(PURGE_BATCH_SQL).bind(cutoffIso, batchSize).run();
       const deleted = result.meta.changes ?? 0;
       batches += 1;
       totalDeleted += deleted;
@@ -111,12 +148,18 @@ export async function purgeExpiredSessions(
 
   const capped = batches >= maxBatches && lastBatchDeleted === batchSize;
 
+  const malformedRow = await db
+    .prepare(COUNT_MALFORMED_TIMESTAMPS_SQL)
+    .first<{ c: number }>();
+  malformedTimestampSkipped = malformedRow?.c ?? 0;
+
   log({
     event: "session_purge_complete",
     total_deleted: totalDeleted,
     batches,
     capped,
+    malformed_timestamp_skipped: malformedTimestampSkipped,
   });
 
-  return { totalDeleted, batches, capped };
+  return { totalDeleted, batches, capped, malformedTimestampSkipped };
 }
