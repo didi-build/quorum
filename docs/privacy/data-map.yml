@@ -41,33 +41,33 @@ d1_tables:
         whose: operational
         data: Browser session UUID
         purpose: primary key
-        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
+        retention: until 30 days after the earlier of expires_at or revoked_at, then purged by daily Worker cron (rows persist until that job runs; production cron not deployed yet; see docs/privacy/retention.md)
       user_id:
         whose: user
         data: Owning user UUID
         purpose: session ownership
-        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
+        retention: until 30 days after the earlier of expires_at or revoked_at, then purged by daily Worker cron (rows persist until that job runs; production cron not deployed yet; see docs/privacy/retention.md)
       token_hash:
         whose: operational
         data: SHA-256 hash of session cookie token
         purpose: authenticate browser sessions without storing raw token
-        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
+        retention: until 30 days after the earlier of expires_at or revoked_at, then purged by daily Worker cron (rows persist until that job runs; production cron not deployed yet; see docs/privacy/retention.md)
         notes: secret
       created_at:
         whose: operational
         data: Session creation timestamp (ISO 8601 UTC)
         purpose: audit
-        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
+        retention: until 30 days after the earlier of expires_at or revoked_at, then purged by daily Worker cron (rows persist until that job runs; production cron not deployed yet; see docs/privacy/retention.md)
       expires_at:
         whose: operational
         data: Session expiry timestamp (ISO 8601 UTC)
         purpose: enforce session lifetime
-        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
+        retention: until 30 days after the earlier of expires_at or revoked_at, then purged by daily Worker cron (rows persist until that job runs; production cron not deployed yet; see docs/privacy/retention.md)
       revoked_at:
         whose: operational
         data: Session revocation timestamp (ISO 8601 UTC) when set
         purpose: sign-out and security
-        retention: until 30 days after expires_at or revoked_at, then purged by DIDI-813 (rows persist until that job runs)
+        retention: until 30 days after the earlier of expires_at or revoked_at, then purged by daily Worker cron (rows persist until that job runs; production cron not deployed yet; see docs/privacy/retention.md)
 
   api_keys:
     defaults:
