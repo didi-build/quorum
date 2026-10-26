@@ -12,6 +12,10 @@ Use this runbook when a user requests account deletion or when you must remove p
 - Disable authentication for the account.
 - Revoke active sessions and API tokens tied to the account.
 
+### Browser session rows (`sessions` table)
+
+Expired and revoked browser sessions are rejected at auth time. For retention, a daily Worker cron deletes `sessions` rows when the earlier of `expires_at` and `revoked_at` (ISO 8601 UTC) is more than **30 days** in the past. See `docs/privacy/data-map.yml` (`sessions` table) and `docs/privacy/retention.md`.
+
 ## 3. Delete or anonymize by store
 
 Use `docs/privacy/data-map.yml` as the checklist of stores. For each row that holds this user's data, record what you did.
@@ -38,6 +42,7 @@ Use `docs/privacy/data-map.yml` as the checklist of stores. For each row that ho
 ## 7. Related links
 
 - `docs/privacy/data-map.yml`
+- `docs/privacy/retention.md`
 - `docs/privacy/subprocessors.yml`
 - Vendor deletion or data-processing tickets (if any)
 

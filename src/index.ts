@@ -1,4 +1,5 @@
 import { workerErrorResponse } from "./http/api-error.js";
+import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import { handleHealth, handleReady } from "./routes/health.js";
 import type { Env } from "./env.js";
 
@@ -39,6 +40,14 @@ export function shouldServeAppShell(
 }
 
 export default {
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(purgeExpiredSessions(env.DB));
+  },
+
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);
