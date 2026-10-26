@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import {
+  expectedPreviewScreenshotCount,
+  PREVIEW_SCREENSHOT_COLOR_SCHEMES,
+  PREVIEW_SCREENSHOT_ROUTES,
+  PREVIEW_SCREENSHOT_VIEWPORTS,
+  previewWorkerOriginFromBaseUrl,
+} from "../scripts/lib/preview-screenshot-plan.mjs";
+
+describe("preview screenshot plan (unit)", () => {
+  it("captures four routes at two widths in light and dark (16 images)", () => {
+    expect(PREVIEW_SCREENSHOT_ROUTES.map((route) => route.name)).toEqual([
+      "landing",
+      "sign-in",
+      "chat",
+      "connections",
+    ]);
+    expect(PREVIEW_SCREENSHOT_VIEWPORTS).toHaveLength(2);
+    expect(PREVIEW_SCREENSHOT_COLOR_SCHEMES).toEqual(["light", "dark"]);
+    expect(expectedPreviewScreenshotCount()).toBe(16);
+  });
+
+  it("derives workers.dev origin from the deploy /app/ entry URL", () => {
+    expect(
+      previewWorkerOriginFromBaseUrl(
+        "https://pr-13-quorum-preview.example.workers.dev/app/",
+      ),
+    ).toBe("https://pr-13-quorum-preview.example.workers.dev");
+  });
+});
