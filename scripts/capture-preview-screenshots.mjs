@@ -8,6 +8,7 @@ import {
   PREVIEW_SCREENSHOT_COLOR_SCHEMES,
   PREVIEW_SCREENSHOT_ROUTES,
   PREVIEW_SCREENSHOT_VIEWPORTS,
+  previewWorkerOriginFromBaseUrl,
 } from "./lib/preview-screenshot-plan.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,11 +25,11 @@ function normalizeBaseUrl(raw) {
   if (!trimmed) {
     return null;
   }
-  return trimmed.replace(/\/$/, "");
+  return trimmed;
 }
 
-async function waitForServer(baseUrl) {
-  const probe = `${baseUrl}/index.html`;
+async function waitForServer(origin) {
+  const probe = `${origin}/index.html`;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
       const response = await fetch(probe, { redirect: "manual" });
@@ -52,22 +53,24 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const configuredBase = normalizeBaseUrl(process.env.PREVIEW_BASE_URL);
-  let baseUrl = configuredBase;
+  let routeOrigin = configuredBase
+    ? previewWorkerOriginFromBaseUrl(configuredBase)
+    : null;
   let localServer = null;
 
-  if (!baseUrl) {
+  if (!routeOrigin) {
     localServer = await startMockPreviewStaticServer({ distRoot });
-    baseUrl = localServer.baseUrl;
+    routeOrigin = localServer.baseUrl;
     process.stderr.write(
-      `capture-preview-screenshots: using local static server at ${baseUrl}\n`,
+      `capture-preview-screenshots: using local static server at ${routeOrigin}\n`,
     );
   } else {
     process.stderr.write(
-      `capture-preview-screenshots: using deployed preview base URL ${baseUrl}\n`,
+      `capture-preview-screenshots: using deployed preview worker origin ${routeOrigin}\n`,
     );
   }
 
-  await waitForServer(baseUrl);
+  await waitForServer(routeOrigin);
 
   const browser = await chromium.launch();
   try {
@@ -79,7 +82,7 @@ async function main() {
             colorScheme,
           });
           const page = await context.newPage();
-          const target = new URL(route.path, `${baseUrl}/`).toString();
+          const target = new URL(route.path, `${routeOrigin}/`).toString();
           await page.goto(target, { waitUntil: "networkidle", timeout: 60_000 });
           await page.waitForSelector(route.readySelector, { timeout: 30_000 });
           const fileName = `${route.name}-${viewport.name}-${colorScheme}.png`;

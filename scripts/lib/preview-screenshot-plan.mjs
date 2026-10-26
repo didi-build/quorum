@@ -38,3 +38,16 @@ export function expectedPreviewScreenshotCount() {
     PREVIEW_SCREENSHOT_COLOR_SCHEMES.length
   );
 }
+
+/**
+ * Deploy outputs the /app/ entry URL; screenshots need the workers.dev origin.
+ * @param {string} previewBaseUrl
+ */
+export function previewWorkerOriginFromBaseUrl(previewBaseUrl) {
+  const trimmed = previewBaseUrl.trim();
+  if (!trimmed) {
+    throw new Error("previewWorkerOriginFromBaseUrl: missing preview base URL");
+  }
+  const parsed = new URL(trimmed.endsWith("/") ? trimmed : `${trimmed}/`);
+  return parsed.origin;
+}
