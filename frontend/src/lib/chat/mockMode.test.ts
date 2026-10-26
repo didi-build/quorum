@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("isChatMockMode", () => {
@@ -26,6 +29,16 @@ describe("isChatMockMode", () => {
     vi.stubEnv("VITE_CHAT_MOCK", "false");
     const { isChatMockMode } = await import("./mockMode");
     expect(isChatMockMode()).toBe(false);
+  });
+
+  it("uses the ADR 0010 inline gate expression", () => {
+    const source = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "mockMode.ts"),
+      "utf8",
+    );
+    expect(source).toContain(
+      '!(import.meta.env.DEV || import.meta.env.MODE === "mock-preview")',
+    );
   });
 
   it("is true in mock-preview when VITE_CHAT_MOCK is unset", async () => {

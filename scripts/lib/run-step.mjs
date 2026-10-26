@@ -20,6 +20,11 @@ export function runStepOrExit(label, command, args, options = {}) {
     process.exit(1);
   }
 
+  if (result.signal) {
+    console.error(`run-step: ${label} killed by signal ${result.signal}`);
+    process.exit(1);
+  }
+
   const code = result.status ?? 1;
   if (code !== 0) {
     console.error(`run-step: ${label} exited with code ${code}`);

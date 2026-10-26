@@ -32,6 +32,6 @@ UI pull requests need a shareable URL that works on mobile without provisioning 
 
 - Preview deployments are **public** on workers.dev with mock auth only; there is no access control on preview URLs. Re-uploading the same preview alias replaces which version that alias serves.
 - When a PR closes, the alias is not automatically deleted in this workflow; treat preview URLs as short-lived and non-secret. Do not put sensitive data in mock fixtures.
-- Chat and other transports should add `MODE === "mock-preview"` to their gates when [DIDI-787](https://linear.app/didi-build/issue/DIDI-787) and connections work land.
+- Chat and Connections transports include `MODE === "mock-preview"` in their mock gates (landed with [DIDI-819](https://linear.app/didi-build/issue/DIDI-819)).
 - Maintainers must create a Cloudflare API token with Workers Scripts Edit on `quorum-preview` and set `QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW` plus `QUORUM_CLOUDFLARE_ACCOUNT_ID`.
 - `.github/workflows/preview.yml` changes require CTO review; a CTO sign-off comment pinned to the head SHA is the record of privileged workflow approval.

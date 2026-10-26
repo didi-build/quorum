@@ -13,8 +13,5 @@ export function resolveSourcesMockMode(env: SourcesEnv): "mock" | "http" {
   if (env.DEV || env.MODE === "mock-preview") {
     return "mock";
   }
-  if (env.PROD) {
-    return "http";
-  }
   return "http";
 }

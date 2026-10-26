@@ -5,11 +5,12 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveBuildFrontendPlan } from "./lib/build-frontend-plan.mjs";
+import { resolveViteBin } from "./lib/resolve-vite-bin.mjs";
 import { runStepOrExit } from "./lib/run-step.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptsDir = path.join(root, "scripts");
-const viteBin = path.join(root, "node_modules", "vite", "bin", "vite.js");
+const viteBin = resolveViteBin();
 
 const mode = process.argv[2];
 let plan;
