@@ -5,12 +5,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { expectedPreviewScreenshotCount } from "../scripts/lib/preview-screenshot-plan.mjs";
+import {
+  PLAYWRIGHT_CHROMIUM_INTEGRATION_SKIP_REASON,
+  playwrightChromiumInstalled,
+} from "./fixtures/playwright-chromium.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const chromiumReady = playwrightChromiumInstalled();
 
 describe("capture-preview-screenshots (integration)", () => {
-  it(
-    "writes the expected PNG set from dist-preview and repo landing",
+  it.skipIf(!chromiumReady)(
+    chromiumReady
+      ? "writes the expected PNG set from dist-preview and repo landing"
+      : PLAYWRIGHT_CHROMIUM_INTEGRATION_SKIP_REASON,
     { timeout: 300_000 },
     () => {
       execSync("npm run build:frontend:mock-preview", {
@@ -40,6 +47,13 @@ describe("capture-preview-screenshots (integration)", () => {
       } finally {
         fs.rmSync(outDir, { recursive: true, force: true });
       }
+    },
+  );
+
+  it.skipIf(chromiumReady)(
+    "defers end-to-end capture to preview.yml when Chromium is not installed",
+    () => {
+      expect(chromiumReady).toBe(false);
     },
   );
 });
