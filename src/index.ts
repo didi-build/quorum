@@ -1,6 +1,19 @@
-import { workerErrorResponse } from "./http/api-error.js";
-import { handleHealth, handleReady } from "./routes/health.js";
+import { ConfigError } from "./config/errors.js";
+import { loadConfig } from "./config/load-config.js";
+import { ensureBootstrapApiKey } from "./domain/auth/api-key.js";
+import { resolveActor } from "./domain/auth/actor.js";
+import {
+  isApiPath,
+  isPublicApiPath,
+  normalizePath,
+  notAuthenticatedResponse,
+  requiresAuthentication,
+} from "./domain/auth/middleware.js";
 import type { Env } from "./env.js";
+import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
+import { handleAuthRoute } from "./routes/auth.js";
+import { handleChatWebSocket } from "./routes/chat-ws.js";
+import { handleHealth, handleReady } from "./routes/health.js";
 
 export type { Env } from "./env.js";
 
@@ -38,16 +51,73 @@ export function shouldServeAppShell(
   return assetResponse.status === 404 || assetResponse.status === 403;
 }
 
+async function handleProtectedApi(
+  request: Request,
+  env: Env,
+  pathname: string,
+): Promise<Response | null> {
+  const config = loadConfig(env);
+  await ensureBootstrapApiKey(env.DB, config);
+
+  if (pathname === "/chat/ws") {
+    return handleChatWebSocket(request, env, config);
+  }
+
+  const authResponse = await handleAuthRoute(request, env, config, pathname);
+  if (authResponse !== null) {
+    return authResponse;
+  }
+
+  if (isApiPath(pathname)) {
+    return jsonDetail("Not Found", 404);
+  }
+
+  return null;
+}
+
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);
+      const pathname = normalizePath(url.pathname);
 
-      if (url.pathname === "/health") {
+      if (pathname === "/health") {
         return handleHealth();
       }
-      if (url.pathname === "/ready") {
+      if (pathname === "/ready") {
         return await handleReady(env);
+      }
+
+      if (isPublicApiPath(pathname)) {
+        const config = loadConfig(env);
+        await ensureBootstrapApiKey(env.DB, config);
+        const publicAuth = await handleAuthRoute(request, env, config, pathname);
+        if (publicAuth !== null) {
+          return publicAuth;
+        }
+      }
+
+      if (requiresAuthentication(pathname)) {
+        let config;
+        try {
+          config = loadConfig(env);
+        } catch (error) {
+          if (error instanceof ConfigError) {
+            return jsonDetail(error.message, 503);
+          }
+          throw error;
+        }
+        await ensureBootstrapApiKey(env.DB, config);
+
+        const actor = await resolveActor(env.DB, config, request);
+        if (actor === null) {
+          return notAuthenticatedResponse();
+        }
+
+        const protectedResponse = await handleProtectedApi(request, env, pathname);
+        if (protectedResponse !== null) {
+          return protectedResponse;
+        }
       }
 
       const assetResponse = await env.ASSETS.fetch(request);

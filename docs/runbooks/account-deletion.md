@@ -9,8 +9,8 @@ Use this runbook when a user requests account deletion or when you must remove p
 
 ## 2. Block sign-in and end sessions
 
-- Disable authentication for the account.
-- Revoke active sessions and API tokens tied to the account.
+- Disable authentication for the account (remove the GitHub id from `AUTH_ALLOWED_GITHUB_IDS` in the Worker environment).
+- Revoke active sessions and API tokens tied to the account. Expired and revoked sessions are already rejected by the Worker session resolver for HTTP and WebSocket; purge old `sessions` rows per `docs/privacy/retention.md` once DIDI-813 is deployed.
 
 ## 3. Delete or anonymize by store
 
