@@ -8,7 +8,7 @@ import {
 } from "../../src/domain/auth/browser-session.js";
 import {
   purgeExpiredSessions,
-  SESSION_TIMESTAMP_ISO_GLOB,
+  sessionTimestampIsoSqlMatch,
 } from "../../src/jobs/session-purge.js";
 import { isoFrom } from "../../src/lib/time.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
@@ -47,16 +47,20 @@ async function readSessionColumn(
 
 async function expectTimestampMatchesPurgeGlob(value: string | null): Promise<void> {
   expect(value).toBeTruthy();
-  const globRow = await env.DB.prepare(`SELECT 1 AS ok WHERE ? GLOB ?`)
-    .bind(value, SESSION_TIMESTAMP_ISO_GLOB)
+  const globRow = await env.DB.prepare(
+    `SELECT 1 AS ok FROM (SELECT ? AS v) WHERE ${sessionTimestampIsoSqlMatch("v")}`,
+  )
+    .bind(value)
     .first<{ ok: number }>();
   expect(globRow?.ok).toBe(1);
 }
 
 async function expectTimestampFailsPurgeGlob(value: string | null): Promise<void> {
   expect(value).toBeTruthy();
-  const globRow = await env.DB.prepare(`SELECT 1 AS ok WHERE ? GLOB ?`)
-    .bind(value, SESSION_TIMESTAMP_ISO_GLOB)
+  const globRow = await env.DB.prepare(
+    `SELECT 1 AS ok FROM (SELECT ? AS v) WHERE ${sessionTimestampIsoSqlMatch("v")}`,
+  )
+    .bind(value)
     .first<{ ok: number }>();
   expect(globRow?.ok).toBeUndefined();
 }
