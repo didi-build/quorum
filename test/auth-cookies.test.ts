@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config/index.js";
 import {
+  clearAuthDisplayCookieHeader,
   clearSessionCookieHeader,
   setAuthDisplayCookieHeader,
   setSessionCookieHeader,
@@ -23,5 +24,6 @@ describe("auth cookie headers (unit)", () => {
       setAuthDisplayCookieHeader(config, "signed", 300),
     );
     expectStandardAuthCookieAttributes(clearSessionCookieHeader(config));
+    expectStandardAuthCookieAttributes(clearAuthDisplayCookieHeader(config));
   });
 });

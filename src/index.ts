@@ -70,8 +70,6 @@ async function handleProtectedApi(
   pathname: string,
   config: QuorumConfig,
 ): Promise<Response | null> {
-  await ensureBootstrapApiKey(env.DB, config);
-
   if (pathname === "/chat/ws") {
     return handleChatWebSocket(request, env, config);
   }

@@ -14,7 +14,7 @@ POSTGRES_PASSWORD=change-me
 TOKEN_ENCRYPTION_KEY=placeholder-generate-for-real-env
 
 # API key for service auth (plain text; stored hashed in D1 on first API request per isolate).
-# Rotation: change this value, deploy, and ensure no stale bootstrap rows (user_id IS NULL) keep the old hash.
+# Rotation: change this value, deploy, then delete the old user_id IS NULL api_keys row for the previous hash.
 BOOTSTRAP_API_KEY=dev-api-key-change-me
 
 # Browser login (GitHub App user OAuth)

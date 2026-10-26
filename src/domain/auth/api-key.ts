@@ -1,5 +1,9 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { QuorumConfig } from "../../config/types.js";
+import {
+  DEV_VARS_EXAMPLE_PLACEHOLDERS,
+  isDevelopmentAppEnv,
+} from "../../config/placeholder-secrets.js";
 
 export async function hashApiKey(key: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
@@ -9,24 +13,41 @@ export async function hashApiKey(key: string): Promise<string> {
 }
 
 /**
- * Ensures the bootstrap API key hash exists in D1. Runs on each call (typically once per
- * isolate on the first request that loads config on a public or protected API path, not only `/ready`).
- *
- * Rotation: when `BOOTSTRAP_API_KEY` changes, stale bootstrap rows (`user_id IS NULL` with a
- * different hash) are deleted before insert. `INSERT OR IGNORE` avoids duplicate-key errors on
+ * Ensures the bootstrap API key hash exists in D1 once per isolate (first public or
+ * protected API path that loads config, including `/ready`). Uses `INSERT OR IGNORE` for
  * concurrent cold starts.
+ *
+ * Bootstrap key rotation is manual: after `BOOTSTRAP_API_KEY` changes and deploy finishes,
+ * delete the old `user_id IS NULL` row for the previous hash in D1.
  */
+let bootstrapEnsurePromise: Promise<void> | null = null;
+
+export function resetBootstrapApiKeyGuard(): void {
+  bootstrapEnsurePromise = null;
+}
+
 export async function ensureBootstrapApiKey(
   db: D1Database,
   config: QuorumConfig,
 ): Promise<void> {
+  if (bootstrapEnsurePromise) {
+    return bootstrapEnsurePromise;
+  }
+
+  bootstrapEnsurePromise = insertBootstrapRowIfMissing(db, config);
+  try {
+    await bootstrapEnsurePromise;
+  } catch (error) {
+    bootstrapEnsurePromise = null;
+    throw error;
+  }
+}
+
+async function insertBootstrapRowIfMissing(
+  db: D1Database,
+  config: QuorumConfig,
+): Promise<void> {
   const keyHash = await hashApiKey(config.bootstrapApiKey);
-
-  await db
-    .prepare("DELETE FROM api_keys WHERE user_id IS NULL AND key_hash != ?")
-    .bind(keyHash)
-    .run();
-
   await db
     .prepare(
       "INSERT OR IGNORE INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
@@ -35,14 +56,18 @@ export async function ensureBootstrapApiKey(
     .run();
 }
 
-/** No-op kept for tests that reset isolate-local guards between cases. */
-export function resetBootstrapApiKeyGuard(): void {}
-
 export async function validateApiKey(
   db: D1Database,
   config: QuorumConfig,
   apiKey: string,
 ): Promise<{ userId: string; projectId: string | null } | null> {
+  if (!isDevelopmentAppEnv(config.appEnv)) {
+    const placeholders = DEV_VARS_EXAMPLE_PLACEHOLDERS.BOOTSTRAP_API_KEY ?? [];
+    if (placeholders.includes(apiKey)) {
+      return null;
+    }
+  }
+
   const keyHash = await hashApiKey(apiKey);
   const record = await db
     .prepare("SELECT user_id, project_id FROM api_keys WHERE key_hash = ? LIMIT 1")

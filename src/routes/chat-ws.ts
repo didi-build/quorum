@@ -1,6 +1,7 @@
 import type { QuorumConfig } from "../config/types.js";
 import { resolveWebSocketActor, websocketOriginAllowed } from "../domain/auth/actor.js";
 import type { Env } from "../env.js";
+import { truncateUtf8ToMaxBytes } from "../lib/utf8.js";
 
 /** Max bytes echoed from a single client text frame on the auth probe socket. */
 export const CHAT_WS_PROBE_ECHO_MAX_BYTES = 4096;
@@ -35,11 +36,7 @@ export async function handleChatWebSocket(
     if (typeof event.data !== "string") {
       return;
     }
-    const bytes = new TextEncoder().encode(event.data);
-    const echo =
-      bytes.byteLength > CHAT_WS_PROBE_ECHO_MAX_BYTES
-        ? new TextDecoder().decode(bytes.slice(0, CHAT_WS_PROBE_ECHO_MAX_BYTES))
-        : event.data;
+    const echo = truncateUtf8ToMaxBytes(event.data, CHAT_WS_PROBE_ECHO_MAX_BYTES);
     server.send(JSON.stringify({ authenticated: true, echo }));
   });
 
