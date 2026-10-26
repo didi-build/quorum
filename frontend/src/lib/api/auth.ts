@@ -85,8 +85,21 @@ export function createAuthApi(overrides: Partial<AuthApi> = {}): AuthApi {
   return { ...liveAuthApi, ...overrides };
 }
 
+function mockPreviewSignedOutForScreenshot(): boolean {
+  if (import.meta.env.MODE !== "mock-preview") {
+    return false;
+  }
+  return (
+    new URLSearchParams(window.location.search).get("quorum_preview_screen") ===
+    "sign-in"
+  );
+}
+
 export async function fetchAuthUser(): Promise<AuthUser | null> {
   if (import.meta.env.DEV || import.meta.env.MODE === "mock-preview") {
+    if (mockPreviewSignedOutForScreenshot()) {
+      return null;
+    }
     const { loadMockPreviewAuthUser } = await import("../preview/loadPreviewMocks");
     return loadMockPreviewAuthUser();
   }
