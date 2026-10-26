@@ -1,6 +1,6 @@
 import type { QuorumConfig } from "../config/types.js";
 
-/** Re-validate open chat WebSockets at most once per this interval (milliseconds). */
+/** Minimum spacing between auth re-checks on an open chat WebSocket (milliseconds). */
 export const CHAT_WS_SESSION_RECHECK_INTERVAL_MS = 30_000;
 
 export type ChatWsClock = {
@@ -15,11 +15,6 @@ let chatWsClock: ChatWsClock = defaultClock;
 
 export function getChatWsClock(): ChatWsClock {
   return chatWsClock;
-}
-
-/** Test-only: inject a clock (use with fake timers or fixed time). */
-export function setChatWsClockForTests(clock: ChatWsClock): void {
-  chatWsClock = clock;
 }
 
 /** Test-only: restore the default wall clock. */

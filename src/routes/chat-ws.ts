@@ -4,30 +4,17 @@ import { registerChatWebSocket } from "../domain/auth/chat-ws-registry.js";
 import { resolveWebSocketActor, websocketOriginAllowed } from "../domain/auth/actor.js";
 import { parseCookieHeader } from "../domain/auth/cookies.js";
 import type { Env } from "../env.js";
-import { truncateUtf8ToMaxBytes } from "../lib/utf8.js";
+import {
+  attachChatWsInboundHandler,
+  deliverChatWsProbeEcho,
+} from "./chat-ws-inbound.js";
 import {
   buildChatWsAuthRecheckRequest,
-  chatWsRecheckDue,
   getChatWsClock,
   type ChatWsAuthRecheck,
 } from "./chat-ws-recheck.js";
 
-/** Max bytes echoed from a single client text frame on the auth probe socket. */
-export const CHAT_WS_PROBE_ECHO_MAX_BYTES = 4096;
-
-const CHAT_WS_INVALID_SESSION_CLOSE_CODE = 1008;
-const CHAT_WS_INVALID_SESSION_CLOSE_REASON = "session invalid";
-
-function closeChatWsInvalidSession(server: WebSocket): void {
-  try {
-    server.close(
-      CHAT_WS_INVALID_SESSION_CLOSE_CODE,
-      CHAT_WS_INVALID_SESSION_CLOSE_REASON,
-    );
-  } catch {
-    // ignore close errors on already-closed sockets
-  }
-}
+export { CHAT_WS_PROBE_ECHO_MAX_BYTES } from "./chat-ws-inbound.js";
 
 async function recheckChatWsAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boolean> {
   let config: QuorumConfig;
@@ -47,7 +34,7 @@ async function recheckChatWsAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boo
 
 /**
  * Minimal chat WebSocket endpoint for auth gating (full chat pipeline is a separate ticket).
- * Accepts authenticated clients and echoes a single auth probe frame.
+ * Accepts authenticated clients and echoes a single auth probe frame per inbound message.
  */
 export async function handleChatWebSocket(
   request: Request,
@@ -83,27 +70,10 @@ export async function handleChatWebSocket(
     await registerChatWebSocket(sessionToken, server);
   }
 
-  let lastRecheckAtMs = getChatWsClock().nowMs();
-
-  server.addEventListener("message", (event) => {
-    void (async () => {
-      if (typeof event.data !== "string") {
-        return;
-      }
-
-      const nowMs = getChatWsClock().nowMs();
-      if (chatWsRecheckDue(lastRecheckAtMs, nowMs)) {
-        const stillValid = await recheckChatWsAuth(env, authRecheck);
-        if (!stillValid) {
-          closeChatWsInvalidSession(server);
-          return;
-        }
-        lastRecheckAtMs = nowMs;
-      }
-
-      const echo = truncateUtf8ToMaxBytes(event.data, CHAT_WS_PROBE_ECHO_MAX_BYTES);
-      server.send(JSON.stringify({ authenticated: true, echo }));
-    })();
+  attachChatWsInboundHandler(server, env, authRecheck, {
+    clock: getChatWsClock(),
+    recheckAuth: recheckChatWsAuth,
+    deliverProbeEcho: deliverChatWsProbeEcho,
   });
 
   return new Response(null, { status: 101, webSocket: client });
