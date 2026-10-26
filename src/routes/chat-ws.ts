@@ -70,7 +70,10 @@ export async function handleChatWebSocket(
   }
 
   const apiKey = viaSession ? null : request.headers.get("X-API-Key");
-  const authRecheck: ChatWsAuthRecheck = { sessionToken, apiKey };
+  const authRecheck: ChatWsAuthRecheck = {
+    sessionToken: viaSession ? sessionToken : null,
+    apiKey,
+  };
 
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair);

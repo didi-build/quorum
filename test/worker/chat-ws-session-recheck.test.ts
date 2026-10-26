@@ -224,6 +224,31 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     expect(await closed).toBe(1008);
   });
 
+  it("keeps API-key auth when a stale session cookie is present across re-check", async () => {
+    const workerEnv = testEnv();
+    const cfg = loadConfig(workerEnv);
+    await ensureBootstrapApiKey(env.DB, cfg);
+
+    const request = new Request("http://test/chat/ws", {
+      headers: {
+        Upgrade: "websocket",
+        "X-API-Key": cfg.bootstrapApiKey,
+        Cookie: `${cfg.sessionCookieName}=stale-session-token-not-in-d1`,
+      },
+    });
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, workerEnv, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(101);
+    const ws = response.webSocket!;
+    ws.accept();
+
+    vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS + 1);
+    const frame = await sendAndWaitForEcho(ws, "api-with-stale-cookie");
+    expect(frame.authenticated).toBe(true);
+    expect(frame.echo).toBe("api-with-stale-cookie");
+  });
+
   it("keeps echoing when the session stays valid across the re-check interval", async () => {
     const workerEnv = testEnv();
     const cfg = loadConfig(workerEnv);
