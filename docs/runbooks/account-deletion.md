@@ -11,7 +11,7 @@ Use this runbook when a user requests account deletion or when you must remove p
 
 - Disable authentication for the account.
 - Revoke active sessions and API tokens tied to the account.
-- Removing a GitHub id from `AUTH_ALLOWED_GITHUB_IDS` blocks new sign-ins and rejects existing browser sessions on the next authenticated request. Revoke that user's `sessions` rows explicitly to block new requests and new WebSocket handshakes. Allowlist removal, session revocation in the database, and session expiry do not close already-open chat WebSockets until DIDI-889 (planned periodic re-check) lands. `POST /auth/logout` may close sockets on the same Worker isolate, best effort only; it is not a guarantee across isolates.
+- Removing a GitHub id from `AUTH_ALLOWED_GITHUB_IDS` blocks new sign-ins and rejects existing browser sessions on the next authenticated request. Revoke that user's `sessions` rows explicitly to block new requests and new WebSocket handshakes. Open chat WebSockets re-validate auth at most once every 30 seconds on incoming messages; revocation, expiry, or allowlist removal closes the socket with code 1008 on the next message after that interval (about 30 seconds). An idle socket receives nothing until the client sends a message. `POST /auth/logout` may close sockets on the same Worker isolate immediately as a fast path; it is not a guarantee across isolates.
 
 ### Browser session rows (`sessions` table)
 
