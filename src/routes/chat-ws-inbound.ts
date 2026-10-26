@@ -92,6 +92,9 @@ export function attachChatWsInboundHandler(
       closeChatWsAuthInvalid(server);
       return;
     }
+    if (socketClosed) {
+      return;
+    }
     await deps.deliverProbeEcho(server, text);
   }
 

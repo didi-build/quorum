@@ -17,8 +17,14 @@ import {
   CHAT_WS_AUTH_INVALID_CLOSE_REASON,
   CHAT_WS_AUTH_INVALID_CLOSE_CODE,
 } from "../../src/routes/chat-ws-inbound.js";
-import { CHAT_WS_SESSION_RECHECK_INTERVAL_MS } from "../../src/routes/chat-ws-recheck.js";
-import { resetChatWsClockForTests } from "../../src/routes/chat-ws-recheck.js";
+import {
+  CHAT_WS_SESSION_RECHECK_INTERVAL_MS,
+  chatWsRecheckDue,
+  resetChatWsClockForTests,
+} from "../../src/routes/chat-ws-recheck.js";
+import type { ChatWsInboundDeps } from "../../src/routes/chat-ws-inbound.js";
+import type { ChatWsAuthRecheck } from "../../src/routes/chat-ws-recheck.js";
+import type { Env } from "../../src/env.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 
@@ -85,6 +91,169 @@ function waitForClose(ws: WebSocket): Promise<{ code: number; reason: string }> 
       resolve({ code: event.code, reason: event.reason });
     });
   });
+}
+
+type CloseDuringRecheckHandlerOptions = {
+  postRecheckClosedGuard: boolean;
+  closeListenerClearsQueue: boolean;
+};
+
+/** Test-only mirror of attachChatWsInboundHandler with toggles for regression checks. */
+function attachChatWsInboundHandlerForCloseTest(
+  server: WebSocket,
+  env: Env,
+  authRecheck: ChatWsAuthRecheck,
+  deps: ChatWsInboundDeps,
+  handlerOptions: CloseDuringRecheckHandlerOptions,
+): void {
+  let lastRecheckAtMs = deps.clock.nowMs();
+  let recheckInFlight: Promise<boolean> | null = null;
+  let socketClosed = false;
+  const queue: string[] = [];
+  let draining = false;
+
+  function markSocketClosedAndClearQueue(): void {
+    socketClosed = true;
+    if (handlerOptions.closeListenerClearsQueue) {
+      queue.length = 0;
+    }
+  }
+
+  async function runRecheckIfDue(nowMs: number): Promise<boolean> {
+    if (!chatWsRecheckDue(lastRecheckAtMs, nowMs)) {
+      return true;
+    }
+    if (recheckInFlight) {
+      return recheckInFlight;
+    }
+    recheckInFlight = (async () => {
+      try {
+        let valid: boolean;
+        try {
+          valid = await deps.recheckAuth(env, authRecheck);
+        } catch {
+          return false;
+        }
+        if (valid) {
+          lastRecheckAtMs = nowMs;
+        }
+        return valid;
+      } finally {
+        recheckInFlight = null;
+      }
+    })();
+    return recheckInFlight;
+  }
+
+  async function processOne(text: string): Promise<void> {
+    if (socketClosed) {
+      return;
+    }
+    const nowMs = deps.clock.nowMs();
+    const stillValid = await runRecheckIfDue(nowMs);
+    if (!stillValid) {
+      markSocketClosedAndClearQueue();
+      chatWsInbound.closeChatWsAuthInvalid(server);
+      return;
+    }
+    if (handlerOptions.postRecheckClosedGuard && socketClosed) {
+      return;
+    }
+    await deps.deliverProbeEcho(server, text);
+  }
+
+  async function drainQueue(): Promise<void> {
+    if (draining) {
+      return;
+    }
+    draining = true;
+    try {
+      while (queue.length > 0 && !socketClosed) {
+        const text = queue.shift()!;
+        await processOne(text);
+      }
+    } finally {
+      draining = false;
+      if (queue.length > 0 && !socketClosed) {
+        void drainQueue();
+      }
+    }
+  }
+
+  if (handlerOptions.closeListenerClearsQueue) {
+    server.addEventListener("close", () => {
+      markSocketClosedAndClearQueue();
+    });
+  }
+
+  server.addEventListener("message", (event) => {
+    void (async () => {
+      if (typeof event.data !== "string") {
+        return;
+      }
+      if (socketClosed) {
+        return;
+      }
+      queue.push(event.data);
+      await drainQueue();
+    })();
+  });
+}
+
+async function deliverCountDuringClientCloseWhileRecheckPending(
+  handlerOptions: CloseDuringRecheckHandlerOptions,
+): Promise<number> {
+  let releaseRecheck!: () => void;
+  const recheckBlocked = new Promise<boolean>((resolve) => {
+    releaseRecheck = () => resolve(true);
+  });
+
+  const pair = new WebSocketPair();
+  const [client, server] = Object.values(pair);
+  server.accept();
+  client.accept();
+
+  const deliverSpy = vi.spyOn(chatWsInbound, "deliverChatWsProbeEcho");
+  const deps: ChatWsInboundDeps = {
+    clock: { nowMs: () => Date.now() },
+    recheckAuth: async () => recheckBlocked,
+    deliverProbeEcho: chatWsInbound.deliverChatWsProbeEcho,
+  };
+  const authRecheck: ChatWsAuthRecheck = {
+    sessionToken: "close-during-recheck",
+    apiKey: null,
+  };
+
+  const useProductionHandler =
+    handlerOptions.postRecheckClosedGuard && handlerOptions.closeListenerClearsQueue;
+  if (useProductionHandler) {
+    attachChatWsInboundHandler(server, testEnv(), authRecheck, deps);
+  } else {
+    attachChatWsInboundHandlerForCloseTest(
+      server,
+      testEnv(),
+      authRecheck,
+      deps,
+      handlerOptions,
+    );
+  }
+
+  vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
+  client.send("in-flight");
+  client.send("queued");
+
+  const serverClosed = new Promise<void>((resolve) => {
+    server.addEventListener("close", () => resolve());
+  });
+  client.close(1000);
+  await serverClosed;
+
+  releaseRecheck();
+  await vi.runAllTimersAsync();
+
+  const count = deliverSpy.mock.calls.length;
+  deliverSpy.mockRestore();
+  return count;
 }
 
 function collectEchoStrings(ws: WebSocket, count: number): Promise<string[]> {
@@ -473,33 +642,28 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     });
   });
 
-  it("drops queued inbound frames when the socket closes", async () => {
-    const workerEnv = testEnv();
-    const cfg = loadConfig(workerEnv);
-    const userId = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
-      .bind(userId, 999026, "recheck-close-queue")
-      .run();
-    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+  it("does not deliver in-flight or queued frames when the client closes during a pending re-check", async () => {
+    const productionDeliveries = await deliverCountDuringClientCloseWhileRecheckPending(
+      {
+        postRecheckClosedGuard: true,
+        closeListenerClearsQueue: true,
+      },
+    );
+    expect(productionDeliveries).toBe(0);
 
-    const deliverSpy = vi.spyOn(chatWsInbound, "deliverChatWsProbeEcho");
-    const ws = await openSessionChatWebSocket(workerEnv, rawToken);
+    const withoutPostRecheckGuard =
+      await deliverCountDuringClientCloseWhileRecheckPending({
+        postRecheckClosedGuard: false,
+        closeListenerClearsQueue: true,
+      });
+    expect(withoutPostRecheckGuard).toBeGreaterThan(0);
 
-    await env.DB.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ?")
-      .bind(new Date().toISOString(), userId)
-      .run();
-
-    const closed = waitForClose(ws);
-    vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("first-after-revoke");
-    ws.send("second-after-revoke");
-
-    expect((await closed).code).toBe(1008);
-    await vi.waitFor(() => {
-      expect(deliverSpy).not.toHaveBeenCalledWith(
-        expect.anything(),
-        "second-after-revoke",
-      );
-    });
+    const withoutCloseListener = await deliverCountDuringClientCloseWhileRecheckPending(
+      {
+        postRecheckClosedGuard: true,
+        closeListenerClearsQueue: false,
+      },
+    );
+    expect(withoutCloseListener).toBeGreaterThan(0);
   });
 });
