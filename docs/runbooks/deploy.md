@@ -20,7 +20,7 @@ PR preview deploys use `wrangler versions upload` against the `quorum-preview` s
 
 1. Ensure `QUORUM_CLOUDFLARE_ACCOUNT_ID` matches the target account and preview URLs are enabled for Workers on that account.
 2. Authenticate Wrangler (`wrangler login` or `CLOUDFLARE_API_TOKEN` with Workers Scripts Edit on `quorum-preview`).
-3. From the repo root, with a current `frontend/dist-preview` (run `npm run build:frontend:mock-preview`):
+3. From the repo root, with a current `frontend/dist-preview` (run `npm run build:frontend:mock-preview`; the npm script uses `scripts/build-frontend.mjs`, which sets `NODE_ENV` and `FRONTEND_DIST` in the Node child env so the build works on Windows PowerShell and on Linux):
 
    ```bash
    npm ci
