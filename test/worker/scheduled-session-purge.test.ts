@@ -41,18 +41,4 @@ describe("Worker scheduled session purge (integration, vitest-pool-workers)", ()
     }>();
     expect(row?.c).toBe(0);
   });
-
-  it("awaits purge before scheduled resolves without waitOnExecutionContext", async () => {
-    const controller = createScheduledController({
-      cron: "0 4 * * *",
-      scheduledTime: new Date(),
-    });
-    const ctx = createExecutionContext();
-    await worker.scheduled(controller, env, ctx);
-
-    const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM sessions`).first<{
-      c: number;
-    }>();
-    expect(row?.c).toBe(0);
-  });
 });

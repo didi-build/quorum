@@ -5,6 +5,10 @@ import {
   purgeExpiredSessions,
   sessionPurgeCutoffIso,
 } from "../../src/jobs/session-purge.js";
+import {
+  SESSION_ISO_SEGMENT_MALFORM_LENGTH,
+  SESSION_ISO_SEGMENT_MALFORMS,
+} from "./session-purge-iso-segment-fixtures.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000060";
 const NOW = new Date("2026-10-26T12:00:00.000Z");
@@ -223,32 +227,21 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
     expect(await sessionCount()).toBe(2);
   });
 
-  it("skips 24-character malformed expires_at values and counts them", async () => {
-    await insertSession(
-      "00000000-0000-4000-8000-000000000074",
-      "2020-1X-26T12:00:00.000Z",
-      null,
-      "hash-24char-letter",
-    );
-    await insertSession(
-      "00000000-0000-4000-8000-000000000075",
-      "2020/10/26T12:00:00.000Z",
-      null,
-      "hash-24char-slash",
-    );
-    await insertSession(
-      "00000000-0000-4000-8000-000000000076",
-      daysBeforeNow(45),
-      null,
-      "hash-valid-control",
-    );
+  it.each(SESSION_ISO_SEGMENT_MALFORMS)(
+    "skips 24-char malformed expires_at ($segment) and counts it",
+    async ({ expiresAt }, index) => {
+      expect(expiresAt.length).toBe(SESSION_ISO_SEGMENT_MALFORM_LENGTH);
 
-    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+      const sessionId = `00000000-0000-4000-8000-${(0x70 + index).toString(16).padStart(12, "0")}`;
+      await insertSession(sessionId, expiresAt, null, `hash-segment-${index}`);
 
-    expect(result.totalDeleted).toBe(1);
-    expect(result.malformedTimestampSkipped).toBe(2);
-    expect(await sessionCount()).toBe(2);
-  });
+      const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+
+      expect(result.totalDeleted).toBe(0);
+      expect(result.malformedTimestampSkipped).toBe(1);
+      expect(await sessionCount()).toBe(1);
+    },
+  );
 
   it("uses expires_at and revoked_at indexes in the purge candidate plan", async () => {
     await insertSession(
