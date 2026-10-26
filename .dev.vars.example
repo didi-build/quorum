@@ -10,10 +10,11 @@ DEFAULT_USER_ID=00000000-0000-4000-8000-000000000001
 DATABASE_URL=postgresql+asyncpg://domain:domain@localhost:5432/domain
 POSTGRES_PASSWORD=change-me
 
-# Token encryption (AES-GCM for OAuth tokens at rest)
+# Signing key for provider OAuth state (connection flows; tokens at rest are a later ticket)
 TOKEN_ENCRYPTION_KEY=placeholder-generate-for-real-env
 
-# API key for service auth (plain text; stored hashed in D1 on bootstrap)
+# API key for service auth (plain text; stored hashed in D1 on first API request per isolate).
+# Rotation: set a new value, deploy, then in D1 delete the api_keys row where user_id IS NULL and key_hash is the hash of the previous bootstrap secret.
 BOOTSTRAP_API_KEY=dev-api-key-change-me
 
 # Browser login (GitHub App user OAuth)

@@ -90,6 +90,21 @@ describe("loadConfig defaults (v1 / .dev.vars.example)", () => {
     ).toThrow(/Invalid environment variable: APP_BASE_URL/);
   });
 
+  it("rejects SESSION_TTL_DAYS outside the allowed range", () => {
+    expect(() => loadConfig(withTestConfigEnv({ SESSION_TTL_DAYS: "0" }))).toThrow(
+      /SESSION_TTL_DAYS/,
+    );
+    expect(() => loadConfig(withTestConfigEnv({ SESSION_TTL_DAYS: "99999" }))).toThrow(
+      /SESSION_TTL_DAYS/,
+    );
+  });
+
+  it("treats unset APP_ENV as production", () => {
+    const env = withTestConfigEnv();
+    delete (env as Record<string, unknown>).APP_ENV;
+    expect(loadConfig(env).appEnv).toBe("production");
+  });
+
   it("rejects invalid numeric settings", () => {
     expect(() => loadConfig(withTestConfigEnv({ RRF_K: "12abc" }))).toThrow(
       /Invalid environment variable: RRF_K/,
