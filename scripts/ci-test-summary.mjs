@@ -10,18 +10,32 @@ const unitJunitPath = process.env.UNIT_JUNIT_PATH ?? "test-results/junit.xml";
 const workerJunitPath =
   process.env.WORKER_JUNIT_PATH ?? "test-results/worker-junit.xml";
 
+/** Vitest puts totals on `<testsuites>` but per-suite `skipped` only on each `<testsuite>`. */
+function sumTestsuiteAttribute(xml, attribute) {
+  const re = new RegExp(`<testsuite\\b[^>]*\\s${attribute}="(\\d+)"`, "g");
+  let sum = 0;
+  for (const match of xml.matchAll(re)) {
+    sum += Number(match[1]);
+  }
+  return sum;
+}
+
 function vitestLine(label, junitPath) {
   if (!existsSync(junitPath)) {
     return `_${label}: JUnit output missing._`;
   }
   const xml = readFileSync(junitPath, "utf8");
-  const tests = Number(xml.match(/tests="(\d+)"/)?.[1] ?? 0);
-  const failures = Number(xml.match(/failures="(\d+)"/)?.[1] ?? 0);
-  const errors = Number(xml.match(/errors="(\d+)"/)?.[1] ?? 0);
+  const tests = Number(xml.match(/<testsuites\b[^>]*\btests="(\d+)"/)?.[1] ?? 0);
+  const failures = Number(xml.match(/<testsuites\b[^>]*\bfailures="(\d+)"/)?.[1] ?? 0);
+  const errors = Number(xml.match(/<testsuites\b[^>]*\berrors="(\d+)"/)?.[1] ?? 0);
+  const skipped = sumTestsuiteAttribute(xml, "skipped");
   const failed = failures + errors;
-  const passed = Math.max(0, tests - failed);
+  const passed = Math.max(0, tests - failed - skipped);
   const icon = failed === 0 ? "✅" : "❌";
-  return `${icon} **${label}**: ${passed}/${tests} passed (${failed} failed)`;
+  const result =
+    skipped > 0 ? `${passed} passed, ${skipped} skipped` : `${passed}/${tests} passed`;
+  const failedSuffix = failed > 0 ? ` (${failed} failed)` : "";
+  return `${icon} **${label}**: ${result}${failedSuffix}`;
 }
 
 function stepLine(label, outcome, detail) {
