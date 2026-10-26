@@ -75,12 +75,49 @@ jobs:
             echo "preview_url=$url" >> "$GITHUB_OUTPUT"
           fi
 
+  screenshots:
+    name: mock-preview screenshots
+    needs: [build, deploy]
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Download mock-preview dist
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: quorum-mock-preview-dist
+          path: frontend/dist-preview
+      - name: Capture UI screenshots
+        env:
+          PREVIEW_BASE_URL: ${{ needs.deploy.outputs.preview_url }}
+          PREVIEW_SCREENSHOTS_DIR: preview-screenshots
+        run: node scripts/capture-preview-screenshots.mjs
+      - name: Upload UI screenshots
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: quorum-mock-preview-screenshots
+          path: preview-screenshots/
+          retention-days: 7
+
   comment:
     name: mock-preview comment
-    needs: deploy
+    needs: [deploy, screenshots]
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.deploy.outputs.preview_url != ''
+      (needs.deploy.outputs.preview_url != '' || needs.screenshots.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -93,16 +130,34 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: github-actions[bot]
           body-includes: "<!-- quorum-mock-preview -->"
+      - name: Compose preview comment
+        id: compose
+        env:
+          PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo '<!-- quorum-mock-preview -->'
+            echo '## Mock preview deploy'
+            echo ''
+            if [ -n "$PREVIEW_URL" ]; then
+              echo "**Preview URL:** $PREVIEW_URL"
+              echo ''
+              echo 'Opens the app at `/app/` (root redirects to `/app/` on the preview Worker). Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.'
+              echo ''
+            else
+              echo '_Preview deploy was skipped (missing Cloudflare preview credentials or Worker bootstrap)._'
+              echo ''
+            fi
+            echo '## UI screenshots'
+            echo ''
+            echo "**Artifact:** Download \`quorum-mock-preview-screenshots\` from [this workflow run]($WORKFLOW_RUN_URL) (landing, sign-in, chat, connections at 390px and 1280px, light and dark)."
+          } > preview-comment.md
       - name: Update preview comment
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
           edit-mode: replace
-          body: |
-            <!-- quorum-mock-preview -->
-            ## Mock preview deploy
-
-            **Preview URL:** ${{ needs.deploy.outputs.preview_url }}
-
-            Opens the app at `/app/` (root redirects to `/app/` on the preview Worker). Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.
+          body-file: preview-comment.md
