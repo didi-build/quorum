@@ -65,6 +65,10 @@ export async function exchangeGithubUserCode(
     throw new GithubTokenExchangeError();
   }
 
+  if (typeof payload !== "object" || payload === null) {
+    throw new GithubTokenExchangeError();
+  }
+
   if (typeof payload.error === "string" && payload.error.length > 0) {
     throw new GithubTokenExchangeError();
   }

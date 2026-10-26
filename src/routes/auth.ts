@@ -30,21 +30,10 @@ import {
   githubUserAuthorizeUrl,
 } from "../domain/oauth/github-user.js";
 import type { Env } from "../env.js";
-import { sha256Hex, timingSafeEqualHex } from "../lib/crypto.js";
+import { oauthLoginNoncesMatch } from "../domain/auth/oauth-login-nonce.js";
 import { jsonDetail } from "../http/api-error.js";
 
 const AUTH_DISPLAY_MAX_AGE_SECONDS = 300;
-
-async function oauthLoginNoncesMatch(
-  cookieNonce: string,
-  stateNonce: string,
-): Promise<boolean> {
-  const [cookieHash, stateHash] = await Promise.all([
-    sha256Hex(cookieNonce),
-    sha256Hex(stateNonce),
-  ]);
-  return timingSafeEqualHex(cookieHash, stateHash);
-}
 
 function oauthCallbackJsonResponse(detail: string, status: number): Response {
   const headers = new Headers();
