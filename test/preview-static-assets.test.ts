@@ -77,7 +77,7 @@ function spawnWranglerDev(
   );
 }
 
-function killWranglerDevProcess(child: ChildProcess): void {
+function killTree(child: ChildProcess, force = false): void {
   if (!child.pid) {
     return;
   }
@@ -92,47 +92,29 @@ function killWranglerDevProcess(child: ChildProcess): void {
     return;
   }
   try {
-    process.kill(-child.pid, "SIGTERM");
-  } catch {
-    // already exited
-  }
-}
-
-function forceKillWranglerDevProcess(child: ChildProcess): void {
-  if (!child.pid) {
-    return;
-  }
-  if (process.platform === "win32") {
-    try {
-      execFileSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-      });
-    } catch {
-      // already exited
-    }
-    return;
-  }
-  try {
-    process.kill(-child.pid, "SIGKILL");
+    process.kill(-child.pid, force ? "SIGKILL" : "SIGTERM");
   } catch {
     // already exited
   }
 }
 
 async function stopWranglerDev(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
   if (!child.pid) {
     return;
   }
   await new Promise<void>((resolve) => {
     const killTimer = setTimeout(() => {
-      forceKillWranglerDevProcess(child);
+      killTree(child, true);
       resolve();
     }, 10_000);
     child.once("exit", () => {
       clearTimeout(killTimer);
       resolve();
     });
-    killWranglerDevProcess(child);
+    killTree(child);
   });
 }
 
@@ -163,6 +145,8 @@ describe("mock-preview dist-preview static layout", () => {
 
       try {
         await waitForServer(`http://127.0.0.1:${port}/`);
+        expect(fs.existsSync(wranglerPersist)).toBe(true);
+        expect(fs.existsSync(path.join(root, ".wrangler", "state"))).toBe(false);
 
         const rootResponse = await fetch(`http://127.0.0.1:${port}/`, {
           redirect: "manual",

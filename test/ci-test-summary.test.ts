@@ -81,8 +81,9 @@ describe("ci-test-summary (unit)", () => {
         junitPath,
         `<?xml version="1.0"?>
 <testsuites name="vitest tests" tests="375" failures="0" errors="0" time="1">
-  <testsuite name="launchpad" tests="100" failures="0" errors="0" skipped="3" time="1"></testsuite>
-  <testsuite name="frontend" tests="275" failures="0" errors="0" skipped="1" time="1"></testsuite>
+  <testsuite name="launchpad" tests="50" failures="0" errors="0" skipped="0" time="1"></testsuite>
+  <testsuite name="frontend" tests="100" failures="0" errors="0" skipped="3" time="1"></testsuite>
+  <testsuite name="frontend-components" tests="225" failures="0" errors="0" skipped="1" time="1"></testsuite>
 </testsuites>`,
       );
       writeFileSync(
@@ -103,6 +104,7 @@ describe("ci-test-summary (unit)", () => {
         WORKER_JUNIT_PATH: workerJunitPath,
       });
       expect(body).toContain("**Vitest (unit)**: 371 passed, 4 skipped");
+      expect(body).not.toContain("(0 failed)");
       expect(body).toContain(
         "**Vitest (Worker, vitest-pool-workers)**: 3 passed, 1 skipped (1 failed)",
       );
