@@ -8,6 +8,7 @@ export function getSourcesMockMode(): "mock" | "http" {
   return resolveSourcesMockMode({
     DEV: import.meta.env.DEV,
     PROD: import.meta.env.PROD,
+    MODE: import.meta.env.MODE,
     VITE_SOURCES_MOCK: import.meta.env.VITE_SOURCES_MOCK,
   });
 }
@@ -16,7 +17,10 @@ export async function resolveSourcesApi(): Promise<SourcesApi> {
   if (apiInstance) {
     return apiInstance;
   }
-  if (import.meta.env.DEV && getSourcesMockMode() === "mock") {
+  if (
+    (import.meta.env.DEV || import.meta.env.MODE === "mock-preview") &&
+    getSourcesMockMode() === "mock"
+  ) {
     const { createMockSourcesApi } = await import("./mock");
     apiInstance = createMockSourcesApi();
   } else {
