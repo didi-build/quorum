@@ -28,50 +28,35 @@ function normalizeBaseUrl(raw) {
   return trimmed;
 }
 
+function isPreviewProbeReady(response) {
+  return (
+    response.ok ||
+    response.status === 301 ||
+    response.status === 302 ||
+    response.status === 307 ||
+    response.status === 308
+  );
+}
+
 async function waitForServer(origin) {
-  const probe = `${origin}/index.html`;
+  const probes = [`${origin}/app/`, `${origin}/`, `${origin}/index.html`];
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    try {
-      const response = await fetch(probe, { redirect: "manual" });
-      if (response.ok || response.status === 302) {
-        return;
+    for (const probe of probes) {
+      try {
+        const response = await fetch(probe, { redirect: "manual" });
+        if (isPreviewProbeReady(response)) {
+          return;
+        }
+      } catch {
+        // retry other probes
       }
-    } catch {
-      // retry
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`Timed out waiting for preview server at ${probe}`);
+  throw new Error(`Timed out waiting for preview server at ${origin}`);
 }
 
-async function main() {
-  if (!fs.existsSync(distRoot)) {
-    console.error(`capture-preview-screenshots: missing ${distRoot}`);
-    process.exit(1);
-  }
-
-  fs.mkdirSync(outDir, { recursive: true });
-
-  const configuredBase = normalizeBaseUrl(process.env.PREVIEW_BASE_URL);
-  let routeOrigin = configuredBase
-    ? previewWorkerOriginFromBaseUrl(configuredBase)
-    : null;
-  let localServer = null;
-
-  if (!routeOrigin) {
-    localServer = await startMockPreviewStaticServer({ distRoot });
-    routeOrigin = localServer.baseUrl;
-    process.stderr.write(
-      `capture-preview-screenshots: using local static server at ${routeOrigin}\n`,
-    );
-  } else {
-    process.stderr.write(
-      `capture-preview-screenshots: using deployed preview worker origin ${routeOrigin}\n`,
-    );
-  }
-
-  await waitForServer(routeOrigin);
-
+async function captureScreenshots(routeOrigin, outDir) {
   const browser = await chromium.launch();
   try {
     for (const route of PREVIEW_SCREENSHOT_ROUTES) {
@@ -96,9 +81,61 @@ async function main() {
     }
   } finally {
     await browser.close();
-    if (localServer) {
-      await localServer.close();
+  }
+}
+
+async function main() {
+  if (!fs.existsSync(distRoot)) {
+    console.error(`capture-preview-screenshots: missing ${distRoot}`);
+    process.exit(1);
+  }
+
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const configuredBase = normalizeBaseUrl(process.env.PREVIEW_BASE_URL);
+  let routeOrigin = configuredBase
+    ? previewWorkerOriginFromBaseUrl(configuredBase)
+    : null;
+  /** @type {{ close(): Promise<void> } | null} */
+  let localServer = null;
+
+  const startLocalServer = async () => {
+    localServer = await startMockPreviewStaticServer({ distRoot });
+    routeOrigin = localServer.baseUrl;
+    process.stderr.write(
+      `capture-preview-screenshots: using local static server at ${routeOrigin}\n`,
+    );
+  };
+
+  const runCapture = async () => {
+    await waitForServer(routeOrigin);
+    await captureScreenshots(routeOrigin, outDir);
+  };
+
+  if (!routeOrigin) {
+    await startLocalServer();
+    await runCapture();
+  } else {
+    process.stderr.write(
+      `capture-preview-screenshots: using deployed preview worker origin ${routeOrigin}\n`,
+    );
+    try {
+      await runCapture();
+    } catch (deployedError) {
+      const message =
+        deployedError instanceof Error ? deployedError.message : String(deployedError);
+      process.stderr.write(
+        `capture-preview-screenshots: deployed preview failed (${message}); falling back to local dist\n`,
+      );
+      fs.rmSync(outDir, { recursive: true, force: true });
+      fs.mkdirSync(outDir, { recursive: true });
+      await startLocalServer();
+      await runCapture();
     }
+  }
+
+  if (localServer) {
+    await localServer.close();
   }
 
   const count = fs.readdirSync(outDir).filter((name) => name.endsWith(".png")).length;

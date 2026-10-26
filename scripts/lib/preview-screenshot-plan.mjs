@@ -4,7 +4,7 @@
 export const PREVIEW_SCREENSHOT_ROUTES = [
   {
     name: "landing",
-    path: "/index.html",
+    path: "/",
     readySelector: "h1",
   },
   {

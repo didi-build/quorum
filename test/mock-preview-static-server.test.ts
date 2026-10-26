@@ -18,18 +18,20 @@ describe("mock-preview static server (unit)", () => {
     }
   });
 
-  it("redirects / to /app/ like the preview Worker", () => {
+  it("serves landing HTML at / when index.html exists", () => {
+    const distRoot = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-mock-preview-"));
+    fs.writeFileSync(
+      path.join(distRoot, "index.html"),
+      "<!doctype html><html><head><title>landing</title></head><body><h1>Landing</h1></body></html>",
+    );
     const request = {
       method: "GET",
       url: "/",
       headers: { host: "127.0.0.1:4173", accept: "text/html" },
     } as import("node:http").IncomingMessage;
-    const response = handleMockPreviewStaticRequest(
-      request,
-      `${process.cwd()}/frontend/dist-preview`,
-    );
-    expect(response.status).toBe(302);
-    expect(response.headers.Location).toBe("http://127.0.0.1:4173/app/");
+    const response = handleMockPreviewStaticRequest(request, distRoot);
+    expect(response.status).toBe(200);
+    expect(response.headers["Content-Type"]).toContain("text/html");
   });
 
   it("serves the SPA shell for unknown /app paths when dist exists", async () => {

@@ -72,6 +72,14 @@ export function handleMockPreviewStaticRequest(request, distRoot) {
   const url = new URL(request.url ?? "/", `http://${host}`);
 
   if (url.pathname === "/" || url.pathname === "") {
+    const landingPath = path.join(distRoot, "index.html");
+    if (fileExists(landingPath)) {
+      return {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+        body: readFile(landingPath),
+      };
+    }
     return {
       status: 302,
       headers: { Location: new URL("/app/", url.origin).toString() },
