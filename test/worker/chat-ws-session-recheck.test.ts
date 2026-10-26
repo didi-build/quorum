@@ -232,6 +232,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     const request = new Request("http://test/chat/ws", {
       headers: {
         Upgrade: "websocket",
+        Origin: "http://test",
         "X-API-Key": cfg.bootstrapApiKey,
         Cookie: `${cfg.sessionCookieName}=stale-session-token-not-in-d1`,
       },
