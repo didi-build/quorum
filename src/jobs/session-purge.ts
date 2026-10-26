@@ -7,11 +7,17 @@ export const SESSION_PURGE_BATCH_SIZE = 200;
 /** Safety cap on batch iterations per cron invocation. */
 export const SESSION_PURGE_MAX_BATCHES = 500;
 
+/**
+ * SQLite GLOB for migration-style ISO 8601 UTC timestamps (`YYYY-MM-DDTHH:MM:SS.sssZ`).
+ * Rows with other shapes are never purged (avoids lexicographic false positives).
+ */
+export const SESSION_TIMESTAMP_ISO_GLOB = "????-??-??T??:??:??.???Z";
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
  * ISO 8601 UTC string for lexicographic comparison with D1 `sessions` timestamps
- * (see migrations/0001_initial_schema.sql defaults).
+ * stored in the expected shape (see SESSION_TIMESTAMP_ISO_GLOB).
  */
 export function toIso8601Utc(date: Date): string {
   return date.toISOString();
@@ -44,12 +50,14 @@ const PURGE_BATCH_SQL = `
   WHERE id IN (
     SELECT id
     FROM sessions
-    WHERE (
-      CASE
-        WHEN revoked_at IS NOT NULL AND revoked_at < expires_at THEN revoked_at
-        ELSE expires_at
-      END
-    ) < ?
+    WHERE expires_at GLOB ?
+      AND (revoked_at IS NULL OR revoked_at GLOB ?)
+      AND (
+        CASE
+          WHEN revoked_at IS NOT NULL AND revoked_at < expires_at THEN revoked_at
+          ELSE expires_at
+        END
+      ) < ?
     LIMIT ?
   )
 `;
@@ -69,23 +77,36 @@ export async function purgeExpiredSessions(
   const log = options.log ?? ((payload) => console.log(JSON.stringify(payload)));
 
   const cutoffIso = sessionPurgeCutoffIso(now, retentionDays);
+  const isoGlob = SESSION_TIMESTAMP_ISO_GLOB;
   let totalDeleted = 0;
   let batches = 0;
   let lastBatchDeleted = 0;
 
-  while (batches < maxBatches) {
-    const result = await db.prepare(PURGE_BATCH_SQL).bind(cutoffIso, batchSize).run();
-    const deleted = result.meta.changes ?? 0;
-    batches += 1;
-    totalDeleted += deleted;
-    lastBatchDeleted = deleted;
+  try {
+    while (batches < maxBatches) {
+      const result = await db
+        .prepare(PURGE_BATCH_SQL)
+        .bind(isoGlob, isoGlob, cutoffIso, batchSize)
+        .run();
+      const deleted = result.meta.changes ?? 0;
+      batches += 1;
+      totalDeleted += deleted;
+      lastBatchDeleted = deleted;
 
-    if (deleted === 0) {
-      break;
+      if (deleted === 0) {
+        break;
+      }
+      if (deleted < batchSize) {
+        break;
+      }
     }
-    if (deleted < batchSize) {
-      break;
-    }
+  } catch (error) {
+    log({
+      event: "session_purge_failed",
+      total_deleted: totalDeleted,
+      batches,
+    });
+    throw error;
   }
 
   const capped = batches >= maxBatches && lastBatchDeleted === batchSize;

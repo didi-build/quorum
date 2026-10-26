@@ -4,13 +4,14 @@ import { purgeExpiredSessions } from "../../src/jobs/session-purge.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000060";
 const NOW = new Date("2026-10-26T12:00:00.000Z");
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function daysBeforeNow(days: number): string {
-  return new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(NOW.getTime() - days * MS_PER_DAY).toISOString();
 }
 
 function daysAfterNow(days: number): string {
-  return new Date(NOW.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+  return new Date(NOW.getTime() + days * MS_PER_DAY).toISOString();
 }
 
 async function insertUser(): Promise<void> {
@@ -62,6 +63,32 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
     expect(await sessionCount()).toBe(1);
   });
 
+  it("keeps sessions whose effective end is exactly 30 days ago", async () => {
+    await insertSession(
+      "00000000-0000-4000-8000-000000000067",
+      new Date(NOW.getTime() - 30 * MS_PER_DAY).toISOString(),
+      null,
+      "hash-30d",
+    );
+
+    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+    expect(result.totalDeleted).toBe(0);
+    expect(await sessionCount()).toBe(1);
+  });
+
+  it("deletes sessions whose effective end is 30 days and 1 ms ago", async () => {
+    await insertSession(
+      "00000000-0000-4000-8000-000000000068",
+      new Date(NOW.getTime() - 30 * MS_PER_DAY - 1).toISOString(),
+      null,
+      "hash-30d-1ms",
+    );
+
+    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+    expect(result.totalDeleted).toBe(1);
+    expect(await sessionCount()).toBe(0);
+  });
+
   it("deletes sessions whose effective end is 31 days ago", async () => {
     await insertSession(
       "00000000-0000-4000-8000-000000000062",
@@ -99,6 +126,25 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
     const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
     expect(result.totalDeleted).toBe(0);
     expect(await sessionCount()).toBe(1);
+  });
+
+  it("does not purge rows with non-ISO timestamp shapes", async () => {
+    await insertSession(
+      "00000000-0000-4000-8000-000000000069",
+      "2020-01-01 00:00:00",
+      null,
+      "hash-space-ts",
+    );
+    await insertSession(
+      "00000000-0000-4000-8000-000000000070",
+      "1735689600",
+      null,
+      "hash-epoch",
+    );
+
+    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+    expect(result.totalDeleted).toBe(0);
+    expect(await sessionCount()).toBe(2);
   });
 
   it("is idempotent when run twice", async () => {

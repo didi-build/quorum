@@ -43,9 +43,9 @@ export default {
   async scheduled(
     _controller: ScheduledController,
     env: Env,
-    ctx: ExecutionContext,
+    _ctx: ExecutionContext,
   ): Promise<void> {
-    ctx.waitUntil(purgeExpiredSessions(env.DB));
+    await purgeExpiredSessions(env.DB);
   },
 
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {

@@ -14,7 +14,7 @@ Use this runbook when a user requests account deletion or when you must remove p
 
 ### Browser session rows (`sessions` table)
 
-Auth must reject expired and revoked browser sessions at sign-in; that requirement lands with DIDI-772 (not in place yet). For retention, a daily Worker cron deletes `sessions` rows when the earlier of `expires_at` and `revoked_at` (ISO 8601 UTC) is more than **30 days** in the past. See `docs/privacy/data-map.yml` (`sessions` table) and `docs/privacy/retention.md`.
+Auth must reject expired and revoked browser sessions on every authenticated request; that requirement lands with DIDI-772 (not in place yet). For retention, a daily Worker cron deletes `sessions` rows when the earlier of `expires_at` and `revoked_at` (ISO 8601 UTC) is more than **30 days** in the past. Rows persist until that job runs (production cron not deployed yet). See `docs/privacy/data-map.yml` (`sessions` table) and `docs/privacy/retention.md`.
 
 ## 3. Delete or anonymize by store
 
