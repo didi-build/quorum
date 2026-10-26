@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveBuildFrontendPlan } from "../scripts/lib/build-frontend-plan.mjs";
 
 /** POSIX inline env (fails on Windows cmd/PowerShell); not valid in npm script strings. */
-const POSIX_INLINE_ENV = /(?:^|[\s&;])([A-Za-z][A-Za-z0-9_]*)=/i;
+const POSIX_INLINE_ENV = /(?:^|[\s&;])([a-z][a-z0-9_]*)=/i;
 
 describe("build-frontend plan", () => {
   it("maps mock-preview to frontend/dist-preview for finish-frontend-dist", () => {

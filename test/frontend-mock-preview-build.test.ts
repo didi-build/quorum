@@ -50,7 +50,11 @@ function runProductionBuild(distDir: string): void {
   execSync("node scripts/finish-frontend-dist.mjs", {
     cwd: root,
     stdio: "pipe",
-    env: { ...process.env, FRONTEND_DIST: distDir },
+    env: {
+      ...process.env,
+      FRONTEND_DIST: distDir,
+      QUORUM_FRONTEND_DIST_PROFILE: "production",
+    },
   });
 }
 
@@ -71,7 +75,11 @@ function runMockPreviewBuild(distDir: string): void {
   execSync("node scripts/finish-frontend-dist.mjs", {
     cwd: root,
     stdio: "pipe",
-    env: { ...process.env, FRONTEND_DIST: distDir },
+    env: {
+      ...process.env,
+      FRONTEND_DIST: distDir,
+      QUORUM_FRONTEND_DIST_PROFILE: "mock-preview",
+    },
   });
 }
 
@@ -88,6 +96,7 @@ describe("frontend mock-preview build (integration)", () => {
       fs.mkdirSync(previewDist, { recursive: true });
 
       runProductionBuild(productionDist);
+      expect(fs.existsSync(path.join(productionDist, "index.html"))).toBe(true);
       const productionBundle = readAllJsUnder(productionDist);
       expect(productionBundle).not.toContain(sentinel);
       expect(productionBundle).not.toContain(transportLabel);
@@ -97,6 +106,9 @@ describe("frontend mock-preview build (integration)", () => {
       assertNoMockArtifactsInProductionDist(productionDist);
 
       runMockPreviewBuild(previewDist);
+      expect(fs.existsSync(path.join(previewDist, "index.html"))).toBe(false);
+      expect(fs.existsSync(path.join(previewDist, "_redirects"))).toBe(true);
+      expect(fs.existsSync(path.join(previewDist, "_headers"))).toBe(true);
       const previewBundle = readAllJsUnder(previewDist);
       expect(previewBundle).toContain(sentinel);
       expect(previewBundle).toContain(transportLabel);

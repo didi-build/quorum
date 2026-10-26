@@ -43,5 +43,12 @@ runStepOrExit(
   "finish-frontend-dist",
   process.execPath,
   [path.join(scriptsDir, "finish-frontend-dist.mjs")],
-  { cwd: root, env: { ...baseEnv, FRONTEND_DIST: plan.frontendDist } },
+  {
+    cwd: root,
+    env: {
+      ...baseEnv,
+      FRONTEND_DIST: plan.frontendDist,
+      QUORUM_FRONTEND_DIST_PROFILE: mode,
+    },
+  },
 );

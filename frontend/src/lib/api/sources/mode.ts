@@ -1,6 +1,5 @@
 export interface SourcesEnv {
   DEV: boolean;
-  PROD: boolean;
   MODE?: string;
   VITE_SOURCES_MOCK?: string;
 }

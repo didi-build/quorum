@@ -7,7 +7,6 @@ let apiInstance: SourcesApi | null = null;
 export function getSourcesMockMode(): "mock" | "http" {
   return resolveSourcesMockMode({
     DEV: import.meta.env.DEV,
-    PROD: import.meta.env.PROD,
     MODE: import.meta.env.MODE,
     VITE_SOURCES_MOCK: import.meta.env.VITE_SOURCES_MOCK,
   });

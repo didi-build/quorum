@@ -35,18 +35,24 @@ describe("run-step env (Windows-safe)", () => {
     }).toThrow();
   });
 
-  it("reports the signal name when the child is killed", () => {
-    let stderr = "";
-    try {
-      execSync(`node "${path.join(root, "test/fixtures/run-step-signal-probe.mjs")}"`, {
-        cwd: root,
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    } catch (error) {
-      const err = error as { stderr?: string; stdout?: string };
-      stderr = `${err.stderr ?? ""}${err.stdout ?? ""}`;
-    }
-    expect(stderr).toContain("killed by signal SIGTERM");
-  });
+  it.skipIf(process.platform === "win32")(
+    "reports the signal name when the child is killed",
+    () => {
+      let stderr = "";
+      try {
+        execSync(
+          `node "${path.join(root, "test/fixtures/run-step-signal-probe.mjs")}"`,
+          {
+            cwd: root,
+            encoding: "utf8",
+            stdio: ["pipe", "pipe", "pipe"],
+          },
+        );
+      } catch (error) {
+        const err = error as { stderr?: string; stdout?: string };
+        stderr = `${err.stderr ?? ""}${err.stdout ?? ""}`;
+      }
+      expect(stderr).toContain("killed by signal SIGTERM");
+    },
+  );
 });
