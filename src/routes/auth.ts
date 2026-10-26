@@ -1,4 +1,3 @@
-import { loadConfig } from "../config/load-config.js";
 import type { QuorumConfig } from "../config/types.js";
 import { resolveActor } from "../domain/auth/actor.js";
 import { isGithubIdAllowed } from "../domain/auth/allowlist.js";
@@ -134,14 +133,4 @@ export async function handleAuthRoute(
   }
 
   return null;
-}
-
-/** Load config and dispatch auth routes (for tests that inject env only). */
-export async function handleAuthRouteWithEnv(
-  request: Request,
-  env: Env,
-): Promise<Response | null> {
-  const config = loadConfig(env);
-  const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
-  return handleAuthRoute(request, env, config, pathname);
 }

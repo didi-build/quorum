@@ -2,8 +2,8 @@ import type { QuorumConfig } from "../config/types.js";
 import { resolveWebSocketActor, websocketOriginAllowed } from "../domain/auth/actor.js";
 import type { Env } from "../env.js";
 
-const WS_CLOSE_NOT_AUTHENTICATED = 1008;
-const WS_CLOSE_ORIGIN = 1008;
+/** Max bytes echoed from a single client text frame on the auth probe socket. */
+export const CHAT_WS_PROBE_ECHO_MAX_BYTES = 4096;
 
 /**
  * Minimal chat WebSocket endpoint for auth gating (full chat pipeline is a separate ticket).
@@ -35,24 +35,13 @@ export async function handleChatWebSocket(
     if (typeof event.data !== "string") {
       return;
     }
-    server.send(
-      JSON.stringify({
-        authenticated: true,
-        user_id: actor.userId,
-        echo: event.data,
-      }),
-    );
+    const bytes = new TextEncoder().encode(event.data);
+    const echo =
+      bytes.byteLength > CHAT_WS_PROBE_ECHO_MAX_BYTES
+        ? new TextDecoder().decode(bytes.slice(0, CHAT_WS_PROBE_ECHO_MAX_BYTES))
+        : event.data;
+    server.send(JSON.stringify({ authenticated: true, echo }));
   });
 
   return new Response(null, { status: 101, webSocket: client });
-}
-
-export function webSocketPolicyCloseCode(): {
-  notAuthenticated: number;
-  origin: number;
-} {
-  return {
-    notAuthenticated: WS_CLOSE_NOT_AUTHENTICATED,
-    origin: WS_CLOSE_ORIGIN,
-  };
 }

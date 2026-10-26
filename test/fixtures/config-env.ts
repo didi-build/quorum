@@ -2,6 +2,7 @@ import type { ConfigEnv } from "../../src/config/load-config.js";
 
 /** Placeholder secrets for unit and worker tests (not real credentials). */
 export const testConfigEnv: ConfigEnv = {
+  APP_ENV: "development",
   TOKEN_ENCRYPTION_KEY: "test-token-encryption-key",
   SESSION_SECRET: "test-session-secret",
   VOYAGE_API_KEY: "test-voyage-api-key",

@@ -8,36 +8,35 @@ export async function hashApiKey(key: string): Promise<string> {
     .join("");
 }
 
-let bootstrapEnsured = false;
-
+/**
+ * Ensures the bootstrap API key hash exists in D1. Runs on each call (typically once per
+ * isolate on the first request that loads config on a public or protected API path, not only `/ready`).
+ *
+ * Rotation: when `BOOTSTRAP_API_KEY` changes, stale bootstrap rows (`user_id IS NULL` with a
+ * different hash) are deleted before insert. `INSERT OR IGNORE` avoids duplicate-key errors on
+ * concurrent cold starts.
+ */
 export async function ensureBootstrapApiKey(
   db: D1Database,
   config: QuorumConfig,
 ): Promise<void> {
-  if (bootstrapEnsured) {
-    return;
-  }
   const keyHash = await hashApiKey(config.bootstrapApiKey);
-  const existing = await db
-    .prepare("SELECT id FROM api_keys WHERE key_hash = ? LIMIT 1")
+
+  await db
+    .prepare("DELETE FROM api_keys WHERE user_id IS NULL AND key_hash != ?")
     .bind(keyHash)
-    .first<{ id: string }>();
+    .run();
 
-  if (!existing) {
-    await db
-      .prepare(
-        "INSERT INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
-      )
-      .bind(crypto.randomUUID(), keyHash)
-      .run();
-  }
-  bootstrapEnsured = true;
+  await db
+    .prepare(
+      "INSERT OR IGNORE INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
+    )
+    .bind(crypto.randomUUID(), keyHash)
+    .run();
 }
 
-/** Reset bootstrap guard for isolated tests. */
-export function resetBootstrapApiKeyGuard(): void {
-  bootstrapEnsured = false;
-}
+/** No-op kept for tests that reset isolate-local guards between cases. */
+export function resetBootstrapApiKeyGuard(): void {}
 
 export async function validateApiKey(
   db: D1Database,

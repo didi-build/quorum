@@ -1,5 +1,5 @@
 import type { QuorumConfig } from "../../config/types.js";
-import { sessionCookieSecure, sessionMaxAgeSeconds } from "./browser-session.js";
+import { sessionMaxAgeSeconds } from "./browser-session.js";
 
 export function parseCookieHeader(cookieHeader: string | null): Map<string, string> {
   const cookies = new Map<string, string>();
@@ -22,32 +22,30 @@ export function parseCookieHeader(cookieHeader: string | null): Map<string, stri
   return cookies;
 }
 
-function cookieAttributes(config: QuorumConfig, maxAgeSeconds: number): string {
-  const secure = sessionCookieSecure(config);
-  const parts = ["Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${maxAgeSeconds}`];
-  if (secure) {
-    parts.push("Secure");
-  }
-  return parts.join("; ");
+/** v1 parity: HttpOnly, Secure, SameSite=Lax on all auth cookies (including localhost). */
+function cookieAttributes(maxAgeSeconds: number): string {
+  return [
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+    `Max-Age=${maxAgeSeconds}`,
+  ].join("; ");
 }
 
 export function setSessionCookieHeader(config: QuorumConfig, rawToken: string): string {
-  return `${config.sessionCookieName}=${rawToken}; ${cookieAttributes(config, sessionMaxAgeSeconds(config))}`;
+  return `${config.sessionCookieName}=${rawToken}; ${cookieAttributes(sessionMaxAgeSeconds(config))}`;
 }
 
 export function clearSessionCookieHeader(config: QuorumConfig): string {
-  const secure = sessionCookieSecure(config);
-  const parts = [
+  return [
     `${config.sessionCookieName}=`,
     "Path=/",
     "HttpOnly",
+    "Secure",
     "SameSite=Lax",
     "Max-Age=0",
-  ];
-  if (secure) {
-    parts.push("Secure");
-  }
-  return parts.join("; ");
+  ].join("; ");
 }
 
 export function setAuthDisplayCookieHeader(
@@ -55,20 +53,16 @@ export function setAuthDisplayCookieHeader(
   signedValue: string,
   maxAgeSeconds: number,
 ): string {
-  return `${config.authDisplayCookieName}=${signedValue}; ${cookieAttributes(config, maxAgeSeconds)}`;
+  return `${config.authDisplayCookieName}=${signedValue}; ${cookieAttributes(maxAgeSeconds)}`;
 }
 
 export function clearAuthDisplayCookieHeader(config: QuorumConfig): string {
-  const secure = sessionCookieSecure(config);
-  const parts = [
+  return [
     `${config.authDisplayCookieName}=`,
     "Path=/",
     "HttpOnly",
+    "Secure",
     "SameSite=Lax",
     "Max-Age=0",
-  ];
-  if (secure) {
-    parts.push("Secure");
-  }
-  return parts.join("; ");
+  ].join("; ");
 }

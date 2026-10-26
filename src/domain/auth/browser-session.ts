@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { QuorumConfig } from "../../config/types.js";
+import { isoFrom, isoNow } from "../../lib/time.js";
 import { actorContext, type ActorContext } from "../schemas/actor.js";
 
 export async function hashSessionToken(token: string): Promise<string> {
@@ -7,10 +8,6 @@ export async function hashSessionToken(token: string): Promise<string> {
   return [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-export function sessionCookieSecure(config: QuorumConfig): boolean {
-  return config.appEnv !== "development";
 }
 
 export function sessionMaxAgeSeconds(config: QuorumConfig): number {
@@ -33,11 +30,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
 function addDaysIso(days: number): string {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().replace(/\.\d{3}Z$/, ".000000Z");
-}
-
-function nowIso(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, ".000000Z");
+  return isoFrom(date);
 }
 
 function sessionIsActive(expiresAt: string, revokedAt: string | null): boolean {
@@ -124,7 +117,7 @@ export async function revokeBrowserSession(
   rawToken: string,
 ): Promise<void> {
   const tokenHash = await hashSessionToken(rawToken);
-  const revokedAt = nowIso();
+  const revokedAt = isoNow();
   await db
     .prepare(
       "UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",

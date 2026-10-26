@@ -1,3 +1,10 @@
+import {
+  base64UrlToBytes,
+  bytesToBase64Url,
+  hmacSha256Hex,
+  timingSafeEqualHex,
+} from "../../lib/crypto.js";
+
 export class SignedValueError extends Error {
   constructor(message: string) {
     super(message);
@@ -10,44 +17,6 @@ function signingSecretBytes(sessionSecret: string): Uint8Array {
     throw new Error("SESSION_SECRET is not configured");
   }
   return new TextEncoder().encode(sessionSecret);
-}
-
-async function hmacSha256Hex(secret: Uint8Array, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    secret,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payload),
-  );
-  return [...new Uint8Array(signature)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  const base64 = btoa(binary);
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function base64UrlToBytes(value: string): Uint8Array {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
 }
 
 export async function signPayload(
@@ -73,14 +42,7 @@ export async function verifySignedPayload(
     const payload = decoded.slice(0, lastColon);
     const signature = decoded.slice(lastColon + 1);
     const expected = await hmacSha256Hex(signingSecretBytes(sessionSecret), payload);
-    if (signature.length !== expected.length) {
-      throw new SignedValueError("Invalid signed value signature");
-    }
-    let mismatch = 0;
-    for (let i = 0; i < signature.length; i++) {
-      mismatch |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
-    }
-    if (mismatch !== 0) {
+    if (!timingSafeEqualHex(signature, expected)) {
       throw new SignedValueError("Invalid signed value signature");
     }
     return payload;

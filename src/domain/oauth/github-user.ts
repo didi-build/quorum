@@ -4,6 +4,9 @@ const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
 
+/** Required by GitHub API; requests without User-Agent may receive 403. */
+export const GITHUB_HTTP_USER_AGENT = "Quorum/1.0 (didi-build/quorum)";
+
 export function githubUserAuthorizeUrl(config: QuorumConfig, state: string): string {
   if (!config.githubAppOauthClientId) {
     throw new Error("GITHUB_APP_OAUTH_CLIENT_ID is not configured");
@@ -27,7 +30,10 @@ export async function exchangeGithubUserCode(
 
   const response = await fetch(GITHUB_TOKEN_URL, {
     method: "POST",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      "User-Agent": GITHUB_HTTP_USER_AGENT,
+    },
     body: new URLSearchParams({
       client_id: config.githubAppOauthClientId,
       client_secret: config.githubAppOauthClientSecret,
@@ -56,6 +62,7 @@ export async function fetchGithubUser(accessToken: string): Promise<{
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github+json",
+      "User-Agent": GITHUB_HTTP_USER_AGENT,
     },
   });
 

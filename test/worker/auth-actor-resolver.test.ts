@@ -50,9 +50,7 @@ describe("resolveActor (worker integration)", () => {
       .run();
     const rawToken = "expired-session-token";
     const tokenHash = await hashSessionToken(rawToken);
-    const expiredAt = new Date(Date.now() - 60_000)
-      .toISOString()
-      .replace(/\.\d{3}Z$/, ".000000Z");
+    const expiredAt = new Date(Date.now() - 60_000).toISOString();
     await env.DB.prepare(
       "INSERT INTO sessions (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
     )
@@ -72,7 +70,7 @@ describe("resolveActor (worker integration)", () => {
       .bind(userId, 999006, "revoked-user")
       .run();
     const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
-    const revokedAt = new Date().toISOString().replace(/\.\d{3}Z$/, ".000000Z");
+    const revokedAt = new Date().toISOString();
     const tokenHash = await hashSessionToken(rawToken);
     await env.DB.prepare("UPDATE sessions SET revoked_at = ? WHERE token_hash = ?")
       .bind(revokedAt, tokenHash)

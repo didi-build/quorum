@@ -60,6 +60,8 @@ describe("GitHub OAuth callback (worker integration)", () => {
     const cookies = response.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith("quorum_session="))).toBe(true);
     expect(cookies.some((c) => c.includes("HttpOnly"))).toBe(true);
+    expect(cookies.some((c) => c.includes("Secure"))).toBe(true);
+    expect(cookies.some((c) => c.includes("SameSite=Lax"))).toBe(true);
   });
 
   it("non-allowlisted user gets display cookie and redirect to not-allowed", async () => {

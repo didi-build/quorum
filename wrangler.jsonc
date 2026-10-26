@@ -6,7 +6,6 @@
   "compatibility_flags": ["nodejs_compat"],
   // Placeholder resource ids only; real ids come from Manual Cloudflare setup tickets.
   "vars": {
-    "APP_ENV": "development",
     "APP_BASE_URL": "http://localhost:8787",
     "DEFAULT_USER_ID": "00000000-0000-4000-8000-000000000001",
     "GITHUB_AUTH_REDIRECT_URI": "http://localhost:8787/auth/github/callback",

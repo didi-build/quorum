@@ -1,5 +1,6 @@
 import { ConfigError } from "./config/errors.js";
 import { loadConfig } from "./config/load-config.js";
+import type { QuorumConfig } from "./config/types.js";
 import { ensureBootstrapApiKey } from "./domain/auth/api-key.js";
 import { resolveActor } from "./domain/auth/actor.js";
 import {
@@ -51,12 +52,23 @@ export function shouldServeAppShell(
   return assetResponse.status === 404 || assetResponse.status === 403;
 }
 
+function loadConfigOr503(env: Env): QuorumConfig | Response {
+  try {
+    return loadConfig(env);
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      return jsonDetail(error.message, 503);
+    }
+    throw error;
+  }
+}
+
 async function handleProtectedApi(
   request: Request,
   env: Env,
   pathname: string,
+  config: QuorumConfig,
 ): Promise<Response | null> {
-  const config = loadConfig(env);
   await ensureBootstrapApiKey(env.DB, config);
 
   if (pathname === "/chat/ws") {
@@ -89,24 +101,23 @@ export default {
       }
 
       if (isPublicApiPath(pathname)) {
-        const config = loadConfig(env);
-        await ensureBootstrapApiKey(env.DB, config);
-        const publicAuth = await handleAuthRoute(request, env, config, pathname);
+        const configOrError = loadConfigOr503(env);
+        if (configOrError instanceof Response) {
+          return configOrError;
+        }
+        await ensureBootstrapApiKey(env.DB, configOrError);
+        const publicAuth = await handleAuthRoute(request, env, configOrError, pathname);
         if (publicAuth !== null) {
           return publicAuth;
         }
       }
 
       if (requiresAuthentication(pathname)) {
-        let config;
-        try {
-          config = loadConfig(env);
-        } catch (error) {
-          if (error instanceof ConfigError) {
-            return jsonDetail(error.message, 503);
-          }
-          throw error;
+        const configOrError = loadConfigOr503(env);
+        if (configOrError instanceof Response) {
+          return configOrError;
         }
+        const config = configOrError;
         await ensureBootstrapApiKey(env.DB, config);
 
         const actor = await resolveActor(env.DB, config, request);
@@ -114,7 +125,12 @@ export default {
           return notAuthenticatedResponse();
         }
 
-        const protectedResponse = await handleProtectedApi(request, env, pathname);
+        const protectedResponse = await handleProtectedApi(
+          request,
+          env,
+          pathname,
+          config,
+        );
         if (protectedResponse !== null) {
           return protectedResponse;
         }
