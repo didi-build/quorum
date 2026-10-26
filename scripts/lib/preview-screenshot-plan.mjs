@@ -1,12 +1,14 @@
-/** @typedef {{ name: string, path: string }} PreviewScreenshotRoute */
+/** @typedef {{ name: string, path: string, origin?: "landing" | "preview" }} PreviewScreenshotRoute */
 
 export const PREVIEW_SCREENSHOT_CAPTURE_SOURCE_FILE = "capture-source.txt";
 
 /** Routes captured in preview CI (landing, sign-in, chat, connections). */
+/** @type {PreviewScreenshotRoute[]} */
 export const PREVIEW_SCREENSHOT_ROUTES = [
   {
     name: "landing",
     path: "/",
+    origin: "landing",
   },
   {
     name: "sign-in",
@@ -41,6 +43,15 @@ export function expectedPreviewScreenshotCount() {
  * Deploy outputs the /app/ entry URL; screenshots need the workers.dev origin.
  * @param {string} previewBaseUrl
  */
+/**
+ * @param {PreviewScreenshotRoute} route
+ * @param {string} landingOrigin
+ * @param {string} previewOrigin
+ */
+export function previewScreenshotRouteOrigin(route, landingOrigin, previewOrigin) {
+  return route.origin === "landing" ? landingOrigin : previewOrigin;
+}
+
 export function previewWorkerOriginFromBaseUrl(previewBaseUrl) {
   const trimmed = previewBaseUrl.trim();
   if (!trimmed) {

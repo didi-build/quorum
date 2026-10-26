@@ -1,22 +1,22 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-const junitReporter = process.env.CI
+const ciJunit = process.env.CI
   ? {
-      reporters: ["default", "junit"] as const,
+      reporters: ["default", "junit"],
       outputFile: { junit: "test-results/junit.xml" },
     }
-  : { reporters: ["default"] as const };
+  : { reporters: ["default"] };
 
 export default defineConfig({
   test: {
+    ...ciJunit,
     projects: [
       {
         test: {
           name: "launchpad",
           include: ["test/**/*.test.ts"],
           exclude: ["test/worker/**", "frontend/**"],
-          ...junitReporter,
         },
       },
       {

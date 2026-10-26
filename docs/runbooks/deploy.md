@@ -32,7 +32,7 @@ PR preview deploys use `wrangler versions upload` against the `quorum-preview` s
 
 After bootstrap, `.github/workflows/preview.yml` uploads per-PR versions with `--preview-alias pr-<number>` only. It does not deploy the main Worker version.
 
-The same workflow also uploads **`quorum-mock-preview-screenshots`** (Playwright PNGs of landing, sign-in, chat, and connections; 7-day artifact retention). Download the artifact from the link in the sticky PR comment when the screenshots job succeeds.
+The same workflow also uploads **`quorum-mock-preview-screenshots`** (Playwright PNGs: landing from repo `landing/`, sign-in, chat, and connections from `dist-preview`; 7-day artifact retention). Download the artifact from the link in the sticky PR comment when the screenshots job succeeds.
 
 ## Verification
 

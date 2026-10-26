@@ -77,6 +77,7 @@ describe("preview.yml workflow structure (unit)", () => {
     expect(screenshots).toContain("npm ci --ignore-scripts");
     expect(screenshots).toContain("if-no-files-found: error");
     expect(screenshots).toContain("Verify screenshot count");
+    expect(screenshots).toContain("node scripts/verify-preview-screenshot-count.mjs");
   });
 
   it("keeps Cloudflare preview secrets out of the screenshots job", () => {
@@ -158,17 +159,24 @@ jobs:
     expect(comment).toContain("needs.screenshots.outputs.artifact_url");
     expect(comment).toContain("SCREENSHOT_ARTIFACT_URL");
     expect(comment).toContain("body-file: preview-comment.md");
+    expect(comment).toContain("honours `_redirects` / `_headers`");
+    expect(comment).not.toContain("honours \\`_redirects\\`");
   });
 
-  it("runs screenshots when build succeeds even if deploy fails", () => {
+  it("runs screenshots when build succeeds and the workflow was not cancelled", () => {
     const screenshots = extractJobBlock(workflow, "screenshots");
-    expect(screenshots).toContain("always()");
+    expect(screenshots).toContain(
+      "${{ !cancelled() && needs.build.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}",
+    );
+    expect(screenshots).not.toContain("always()");
     expect(screenshots).toContain("needs.build.result == 'success'");
   });
 
   it("posts the sticky comment when deploy succeeds regardless of screenshots", () => {
     const comment = extractJobBlock(workflow, "comment");
-    expect(comment).toContain("!cancelled()");
+    expect(comment).toContain(
+      "${{ !cancelled() && needs.deploy.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}",
+    );
     expect(comment).toContain("needs.deploy.result == 'success'");
     expect(comment).toContain('SCREENSHOTS_RESULT" = "success"');
     expect(comment).not.toContain("always()");

@@ -3,18 +3,23 @@ import { chromium } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startMockPreviewStaticServer } from "./lib/mock-preview-static-server.mjs";
+import {
+  startLandingStaticServer,
+  startMockPreviewStaticServer,
+} from "./lib/mock-preview-static-server.mjs";
 import {
   expectedPreviewScreenshotCount,
   PREVIEW_SCREENSHOT_CAPTURE_SOURCE_FILE,
   PREVIEW_SCREENSHOT_COLOR_SCHEMES,
   PREVIEW_SCREENSHOT_ROUTES,
   PREVIEW_SCREENSHOT_VIEWPORTS,
+  previewScreenshotRouteOrigin,
   previewWorkerOriginFromBaseUrl,
 } from "./lib/preview-screenshot-plan.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distRoot = path.join(root, "frontend", "dist-preview");
+const landingRoot = path.join(root, "landing");
 const outDir = process.env.PREVIEW_SCREENSHOTS_DIR
   ? path.resolve(process.env.PREVIEW_SCREENSHOTS_DIR)
   : path.join(root, "preview-screenshots");
@@ -51,8 +56,7 @@ function isPreviewProbeReady(response) {
   );
 }
 
-async function waitForServer(origin) {
-  const probes = [`${origin}/app/`, `${origin}/`, `${origin}/index.html`];
+async function waitForServer(origin, probes) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     for (const probe of probes) {
       try {
@@ -71,7 +75,7 @@ async function waitForServer(origin) {
 
 /**
  * @param {import('@playwright/test').Page} page
- * @param {PreviewScreenshotRoute} route
+ * @param {import('./lib/preview-screenshot-plan.mjs').PreviewScreenshotRoute} route
  */
 async function waitForRouteReady(page, route) {
   switch (route.name) {
@@ -102,10 +106,15 @@ async function waitForRouteReady(page, route) {
   }
 }
 
-async function captureScreenshots(routeOrigin) {
+async function captureScreenshots(landingOrigin, previewOrigin) {
   const browser = await chromium.launch();
   try {
     for (const route of PREVIEW_SCREENSHOT_ROUTES) {
+      const routeOrigin = previewScreenshotRouteOrigin(
+        route,
+        landingOrigin,
+        previewOrigin,
+      );
       for (const viewport of PREVIEW_SCREENSHOT_VIEWPORTS) {
         for (const colorScheme of PREVIEW_SCREENSHOT_COLOR_SCHEMES) {
           const context = await browser.newContext({
@@ -116,7 +125,7 @@ async function captureScreenshots(routeOrigin) {
           const page = await context.newPage();
           await page.emulateMedia({ reducedMotion: "reduce" });
           const target = new URL(route.path, `${routeOrigin}/`).toString();
-          await page.goto(target, { waitUntil: "networkidle", timeout: 60_000 });
+          await page.goto(target, { waitUntil: "load", timeout: 60_000 });
           await waitForRouteReady(page, route);
           const fileName = `${route.name}-${viewport.name}-${colorScheme}.png`;
           await page.screenshot({
@@ -148,57 +157,77 @@ async function main() {
     console.error(`capture-preview-screenshots: missing ${distRoot}`);
     process.exit(1);
   }
+  if (!fs.existsSync(path.join(landingRoot, "index.html"))) {
+    console.error(`capture-preview-screenshots: missing ${landingRoot}/index.html`);
+    process.exit(1);
+  }
 
   fs.mkdirSync(outDir, { recursive: true });
 
+  const landingServer = await startLandingStaticServer({ root: landingRoot });
+  const landingOrigin = landingServer.baseUrl;
+  await waitForServer(landingOrigin, [
+    `${landingOrigin}/`,
+    `${landingOrigin}/style.css`,
+  ]);
+
   const configuredBase = normalizeBaseUrl(process.env.PREVIEW_BASE_URL);
-  let routeOrigin = configuredBase
+  let previewOrigin = configuredBase
     ? previewWorkerOriginFromBaseUrl(configuredBase)
     : null;
   /** @type {{ close(): Promise<void> } | null} */
-  let localServer = null;
+  let previewServer = null;
 
-  const startLocalServer = async () => {
-    localServer = await startMockPreviewStaticServer({ distRoot });
-    routeOrigin = localServer.baseUrl;
+  const startLocalPreviewServer = async () => {
+    previewServer = await startMockPreviewStaticServer({ distRoot });
+    previewOrigin = previewServer.baseUrl;
     captureSource = "local-static-server";
     process.stderr.write(
-      `capture-preview-screenshots: using local static server at ${routeOrigin}\n`,
+      `capture-preview-screenshots: using local static server at ${previewOrigin}\n`,
     );
   };
 
   const runCapture = async () => {
-    await waitForServer(routeOrigin);
-    await captureScreenshots(routeOrigin);
+    await waitForServer(previewOrigin, [
+      `${previewOrigin}/app/`,
+      `${previewOrigin}/`,
+      `${previewOrigin}/index.html`,
+    ]);
+    await captureScreenshots(landingOrigin, previewOrigin);
     assertExpectedScreenshotCount();
     writeCaptureSource();
   };
 
-  if (!routeOrigin) {
-    await startLocalServer();
-    await runCapture();
-  } else {
-    captureSource = "deployed";
-    process.stderr.write(
-      `capture-preview-screenshots: using deployed preview worker origin ${routeOrigin}\n`,
-    );
-    try {
+  try {
+    if (!previewOrigin) {
+      await startLocalPreviewServer();
       await runCapture();
-    } catch (deployedError) {
-      const message =
-        deployedError instanceof Error ? deployedError.message : String(deployedError);
+    } else {
+      captureSource = "deployed";
       process.stderr.write(
-        `capture-preview-screenshots: deployed preview failed (${message}); falling back to local dist\n`,
+        `capture-preview-screenshots: using deployed preview worker origin ${previewOrigin}\n`,
       );
-      fs.rmSync(outDir, { recursive: true, force: true });
-      fs.mkdirSync(outDir, { recursive: true });
-      await startLocalServer();
-      await runCapture();
+      try {
+        await runCapture();
+      } catch (deployedError) {
+        const message =
+          deployedError instanceof Error
+            ? deployedError.message
+            : String(deployedError);
+        process.stderr.write(
+          `capture-preview-screenshots: deployed preview failed (${message}); falling back to local dist\n`,
+        );
+        fs.rmSync(outDir, { recursive: true, force: true });
+        fs.mkdirSync(outDir, { recursive: true });
+        await startLocalPreviewServer();
+        await runCapture();
+      }
     }
-  }
-
-  if (localServer) {
-    await localServer.close();
+  } finally {
+    await landingServer.close();
+    if (previewServer) {
+      await previewServer.close();
+    }
   }
 
   const count = fs.readdirSync(outDir).filter((name) => name.endsWith(".png")).length;

@@ -1,6 +1,5 @@
 export interface SourcesEnv {
   DEV: boolean;
-  PROD: boolean;
   MODE?: string;
   VITE_SOURCES_MOCK?: string;
 }
@@ -12,9 +11,6 @@ export function resolveSourcesMockMode(env: SourcesEnv): "mock" | "http" {
   }
   if (env.DEV || env.MODE === "mock-preview") {
     return "mock";
-  }
-  if (env.PROD) {
-    return "http";
   }
   return "http";
 }

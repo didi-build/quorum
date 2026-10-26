@@ -6,6 +6,9 @@ const installOutcome = process.env.INSTALL_OUTCOME ?? "unknown";
 const nodriftOutcome = process.env.NODRIFT_OUTCOME ?? "unknown";
 const workerTestsOutcome = process.env.WORKER_TESTS_OUTCOME ?? "unknown";
 const sha = (process.env.PR_HEAD_SHA ?? "").slice(0, 7);
+const unitJunitPath = process.env.UNIT_JUNIT_PATH ?? "test-results/junit.xml";
+const workerJunitPath =
+  process.env.WORKER_JUNIT_PATH ?? "test-results/worker-junit.xml";
 
 function vitestLine(label, junitPath) {
   if (!existsSync(junitPath)) {
@@ -36,10 +39,8 @@ if (installOutcome !== "success") {
     "_Common on major Dependabot bumps: peer dependency conflicts. Review the workflow log for the npm ci step._",
   );
 } else {
-  lines.push(vitestLine("Vitest (unit)", "test-results/junit.xml"));
-  lines.push(
-    vitestLine("Vitest (Worker, vitest-pool-workers)", "test-results/worker-junit.xml"),
-  );
+  lines.push(vitestLine("Vitest (unit)", unitJunitPath));
+  lines.push(vitestLine("Vitest (Worker, vitest-pool-workers)", workerJunitPath));
   lines.push(stepLine("nodrift check", nodriftOutcome, "`npx nodrift check` in CI"));
   lines.push(
     stepLine("Worker tests", workerTestsOutcome, "`npm run test:worker` in CI"),

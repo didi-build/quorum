@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { resolveBuildFrontendPlan } from "../scripts/lib/build-frontend-plan.mjs";
 
 /** POSIX inline env (fails on Windows cmd/PowerShell); not valid in npm script strings. */
-const POSIX_INLINE_ENV = /(?:^|[\s&;])([A-Z][A-Z0-9_]*)=/;
+const POSIX_INLINE_ENV = /(?:^|[\s&;])([a-z][a-z0-9_]*)=/i;
 
 describe("build-frontend plan", () => {
   it("maps mock-preview to frontend/dist-preview for finish-frontend-dist", () => {
@@ -21,6 +21,12 @@ describe("build-frontend plan", () => {
 });
 
 describe("package.json scripts (cross-platform env)", () => {
+  it("flags lowercase inline env assignments (case-insensitive probe)", () => {
+    expect("vite build && frontend_dist=frontend/dist-preview node finish.mjs").toMatch(
+      POSIX_INLINE_ENV,
+    );
+  });
+
   it("do not use POSIX inline VAR=value env assignments", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
       scripts: Record<string, string>;

@@ -115,6 +115,9 @@ jobs:
         id: install
         run: npm ci
         continue-on-error: true
+      - name: Install Playwright Chromium
+        if: steps.install.outcome == 'success'
+        run: npx playwright install --with-deps chromium
       - name: nodrift check
         id: nodrift_check
         if: steps.install.outcome == 'success'

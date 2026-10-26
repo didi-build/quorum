@@ -11,6 +11,7 @@ export default tseslint.config(
       "frontend/dist-preview/",
       "coverage/",
       "test-results/",
+      ".wrangler/",
       "design/app/ui-polish/reference/**",
     ],
   },
