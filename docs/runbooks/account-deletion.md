@@ -11,7 +11,7 @@ Use this runbook when a user requests account deletion or when you must remove p
 
 - Disable authentication for the account.
 - Revoke active sessions and API tokens tied to the account.
-- Removing a GitHub id from `AUTH_ALLOWED_GITHUB_IDS` blocks new sign-ins and rejects existing browser sessions on the next authenticated request. Revoke that user's `sessions` rows explicitly to end access immediately and close any open chat WebSockets tied to those sessions.
+- Removing a GitHub id from `AUTH_ALLOWED_GITHUB_IDS` blocks new sign-ins and rejects existing browser sessions on the next authenticated request. Revoke that user's `sessions` rows explicitly to block new requests and new WebSocket handshakes. Already-open chat WebSockets stay open. Only `POST /auth/logout` closes open chat WebSockets, best effort and only on the same Worker isolate. Full teardown is a planned follow-up.
 
 ### Browser session rows (`sessions` table)
 

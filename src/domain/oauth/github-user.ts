@@ -53,7 +53,10 @@ export async function exchangeGithubUserCode(
     throw new GithubTokenExchangeError();
   }
 
-  const payload = (await response.json()) as { access_token?: string };
+  const payload = (await response.json()) as { access_token?: string; error?: string };
+  if (typeof payload.error === "string" && payload.error.length > 0) {
+    throw new GithubTokenExchangeError();
+  }
   const accessToken = payload.access_token;
   if (typeof accessToken !== "string" || !accessToken) {
     throw new Error("GitHub token exchange did not return an access token");

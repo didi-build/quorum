@@ -147,6 +147,34 @@ describe("GitHub OAuth callback (worker integration)", () => {
     expect(nonce).not.toBe("wrong-nonce");
   });
 
+  it("returns 502 when GitHub token exchange returns 200 with an error field", async () => {
+    const { state, nonce } = await createLoginOauthState("test-session-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("access_token")) {
+          return new Response(JSON.stringify({ error: "bad_verification_code" }), {
+            status: 200,
+          });
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ detail: "GitHub OAuth failed" });
+  });
+
   it("returns 502 when GitHub token exchange fails", async () => {
     const { state, nonce } = await createLoginOauthState("test-session-secret");
     vi.stubGlobal(
