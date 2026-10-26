@@ -11,8 +11,8 @@
   "scripts": {
     "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build:frontend && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution && npm run nodrift",
     "dev": "npm run build:frontend && wrangler dev",
-    "build:frontend": "node scripts/sync-public-fonts.mjs && NODE_ENV=production vite build --config frontend/vite.config.ts --mode production && node scripts/finish-frontend-dist.mjs",
-    "build:frontend:mock-preview": "node scripts/sync-public-fonts.mjs && NODE_ENV=production vite build --config frontend/vite.config.ts --mode mock-preview && FRONTEND_DIST=frontend/dist-preview node scripts/finish-frontend-dist.mjs",
+    "build:frontend": "node scripts/build-frontend.mjs production",
+    "build:frontend:mock-preview": "node scripts/build-frontend.mjs mock-preview",
     "build": "npm run build:frontend",
     "test:worker": "npm run build:frontend && vitest run --config vitest.worker.config.ts",
     "format": "prettier --write .",

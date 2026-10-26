@@ -8,6 +8,7 @@ export default tseslint.config(
       "node_modules/",
       "dist/",
       "frontend/dist/",
+      "frontend/dist-preview/",
       "coverage/",
       "test-results/",
       "design/app/ui-polish/reference/**",
