@@ -24,13 +24,10 @@ const integrationTitle = chromiumReady
 
 describe("capture-preview-screenshots (integration)", () => {
   it("skips integration only when Chromium is missing and CI is unset", () => {
-    const hasChromium = playwrightChromiumInstalled();
-    expect(shouldSkipCapturePreviewIntegrationTest("true")).toBe(false);
-    expect(shouldSkipCapturePreviewIntegrationTest("1")).toBe(false);
-    expect(shouldSkipCapturePreviewIntegrationTest("")).toBe(!hasChromium);
-    expect(shouldSkipCapturePreviewIntegrationTest(undefined)).toBe(
-      !hasChromium && !process.env.CI,
-    );
+    expect(shouldSkipCapturePreviewIntegrationTest("true", true)).toBe(false);
+    expect(shouldSkipCapturePreviewIntegrationTest("true", false)).toBe(false);
+    expect(shouldSkipCapturePreviewIntegrationTest(undefined, true)).toBe(false);
+    expect(shouldSkipCapturePreviewIntegrationTest(undefined, false)).toBe(true);
   });
 
   it.skipIf(shouldSkipCapturePreviewIntegrationTest())(

@@ -38,11 +38,18 @@ describe("ci-test-summary (unit)", () => {
       const workerJunitPath = path.join(tmp, "worker-junit.xml");
       writeFileSync(
         junitPath,
-        '<?xml version="1.0"?><testsuites tests="10" failures="0" errors="0"></testsuites>',
+        `<?xml version="1.0"?>
+<testsuites name="vitest tests" tests="10" failures="0" errors="0" time="1">
+  <testsuite name="launchpad" tests="6" failures="0" errors="0" skipped="0" time="1"></testsuite>
+  <testsuite name="frontend" tests="4" failures="0" errors="0" skipped="0" time="1"></testsuite>
+</testsuites>`,
       );
       writeFileSync(
         workerJunitPath,
-        '<?xml version="1.0"?><testsuites tests="3" failures="0" errors="0"></testsuites>',
+        `<?xml version="1.0"?>
+<testsuites name="vitest tests" tests="3" failures="0" errors="0" time="1">
+  <testsuite name="worker" tests="3" failures="0" errors="0" skipped="0" time="1"></testsuite>
+</testsuites>`,
       );
       const body = runSummary({
         INSTALL_OUTCOME: "success",
@@ -72,11 +79,19 @@ describe("ci-test-summary (unit)", () => {
       const workerJunitPath = path.join(tmp, "worker-junit.xml");
       writeFileSync(
         junitPath,
-        '<?xml version="1.0"?><testsuites tests="10" failures="0" errors="0" skipped="2"></testsuites>',
+        `<?xml version="1.0"?>
+<testsuites name="vitest tests" tests="375" failures="0" errors="0" time="1">
+  <testsuite name="launchpad" tests="100" failures="0" errors="0" skipped="3" time="1"></testsuite>
+  <testsuite name="frontend" tests="275" failures="0" errors="0" skipped="1" time="1"></testsuite>
+</testsuites>`,
       );
       writeFileSync(
         workerJunitPath,
-        '<?xml version="1.0"?><testsuites tests="5" failures="1" errors="0" skipped="1"></testsuites>',
+        `<?xml version="1.0"?>
+<testsuites name="vitest tests" tests="5" failures="1" errors="0" time="1">
+  <testsuite name="worker-a" tests="2" failures="0" errors="0" skipped="1" time="1"></testsuite>
+  <testsuite name="worker-b" tests="3" failures="1" errors="0" skipped="0" time="1"></testsuite>
+</testsuites>`,
       );
       const body = runSummary({
         INSTALL_OUTCOME: "success",
@@ -87,7 +102,7 @@ describe("ci-test-summary (unit)", () => {
         UNIT_JUNIT_PATH: junitPath,
         WORKER_JUNIT_PATH: workerJunitPath,
       });
-      expect(body).toContain("**Vitest (unit)**: 8 passed, 2 skipped");
+      expect(body).toContain("**Vitest (unit)**: 371 passed, 4 skipped");
       expect(body).toContain(
         "**Vitest (Worker, vitest-pool-workers)**: 3 passed, 1 skipped (1 failed)",
       );
