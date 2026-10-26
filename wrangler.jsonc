@@ -53,4 +53,7 @@
       "index_name": "quorum-embeddings",
     },
   ],
+  "triggers": {
+    "crons": ["0 4 * * *"],
+  },
 }
