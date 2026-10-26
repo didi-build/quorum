@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMockPreviewStaticServer } from "./lib/mock-preview-static-server.mjs";
 import {
+  expectedPreviewScreenshotCount,
+  PREVIEW_SCREENSHOT_CAPTURE_SOURCE_FILE,
   PREVIEW_SCREENSHOT_COLOR_SCHEMES,
   PREVIEW_SCREENSHOT_ROUTES,
   PREVIEW_SCREENSHOT_VIEWPORTS,
@@ -17,6 +19,9 @@ const outDir = process.env.PREVIEW_SCREENSHOTS_DIR
   ? path.resolve(process.env.PREVIEW_SCREENSHOTS_DIR)
   : path.join(root, "preview-screenshots");
 
+/** @type {'deployed' | 'local-static-server'} */
+let captureSource = "local-static-server";
+
 function normalizeBaseUrl(raw) {
   if (!raw) {
     return null;
@@ -26,6 +31,14 @@ function normalizeBaseUrl(raw) {
     return null;
   }
   return trimmed;
+}
+
+function writeCaptureSource() {
+  fs.writeFileSync(
+    path.join(outDir, PREVIEW_SCREENSHOT_CAPTURE_SOURCE_FILE),
+    `${captureSource}\n`,
+    "utf8",
+  );
 }
 
 function isPreviewProbeReady(response) {
@@ -56,7 +69,40 @@ async function waitForServer(origin) {
   throw new Error(`Timed out waiting for preview server at ${origin}`);
 }
 
-async function captureScreenshots(routeOrigin, outDir) {
+/**
+ * @param {import('@playwright/test').Page} page
+ * @param {PreviewScreenshotRoute} route
+ */
+async function waitForRouteReady(page, route) {
+  switch (route.name) {
+    case "landing":
+      await page
+        .getByRole("heading", { name: /Three seats debate/i })
+        .waitFor({ timeout: 30_000 });
+      return;
+    case "sign-in":
+      await page
+        .getByRole("heading", { name: "Sign in to Quorum" })
+        .waitFor({ timeout: 30_000 });
+      return;
+    case "chat":
+      await page
+        .getByRole("navigation", { name: "Sections" })
+        .getByRole("link", { name: "Chat" })
+        .waitFor({ timeout: 30_000 });
+      return;
+    case "connections":
+      await page
+        .getByRole("navigation", { name: "Sections" })
+        .getByRole("link", { name: "Connections" })
+        .waitFor({ timeout: 30_000 });
+      return;
+    default:
+      throw new Error(`Unknown preview screenshot route: ${route.name}`);
+  }
+}
+
+async function captureScreenshots(routeOrigin) {
   const browser = await chromium.launch();
   try {
     for (const route of PREVIEW_SCREENSHOT_ROUTES) {
@@ -65,15 +111,18 @@ async function captureScreenshots(routeOrigin, outDir) {
           const context = await browser.newContext({
             viewport: { width: viewport.width, height: viewport.height },
             colorScheme,
+            reducedMotion: "reduce",
           });
           const page = await context.newPage();
+          await page.emulateMedia({ reducedMotion: "reduce" });
           const target = new URL(route.path, `${routeOrigin}/`).toString();
           await page.goto(target, { waitUntil: "networkidle", timeout: 60_000 });
-          await page.waitForSelector(route.readySelector, { timeout: 30_000 });
+          await waitForRouteReady(page, route);
           const fileName = `${route.name}-${viewport.name}-${colorScheme}.png`;
           await page.screenshot({
             path: path.join(outDir, fileName),
             fullPage: true,
+            animations: "disabled",
           });
           await context.close();
         }
@@ -81,6 +130,16 @@ async function captureScreenshots(routeOrigin, outDir) {
     }
   } finally {
     await browser.close();
+  }
+}
+
+function assertExpectedScreenshotCount() {
+  const expected = expectedPreviewScreenshotCount();
+  const count = fs.readdirSync(outDir).filter((name) => name.endsWith(".png")).length;
+  if (count !== expected) {
+    throw new Error(
+      `Expected ${expected} preview screenshots, found ${count} in ${outDir}`,
+    );
   }
 }
 
@@ -102,6 +161,7 @@ async function main() {
   const startLocalServer = async () => {
     localServer = await startMockPreviewStaticServer({ distRoot });
     routeOrigin = localServer.baseUrl;
+    captureSource = "local-static-server";
     process.stderr.write(
       `capture-preview-screenshots: using local static server at ${routeOrigin}\n`,
     );
@@ -109,13 +169,16 @@ async function main() {
 
   const runCapture = async () => {
     await waitForServer(routeOrigin);
-    await captureScreenshots(routeOrigin, outDir);
+    await captureScreenshots(routeOrigin);
+    assertExpectedScreenshotCount();
+    writeCaptureSource();
   };
 
   if (!routeOrigin) {
     await startLocalServer();
     await runCapture();
   } else {
+    captureSource = "deployed";
     process.stderr.write(
       `capture-preview-screenshots: using deployed preview worker origin ${routeOrigin}\n`,
     );
@@ -140,7 +203,7 @@ async function main() {
 
   const count = fs.readdirSync(outDir).filter((name) => name.endsWith(".png")).length;
   process.stderr.write(
-    `capture-preview-screenshots: wrote ${count} PNG files to ${outDir}\n`,
+    `capture-preview-screenshots: wrote ${count} PNG files to ${outDir} (source=${captureSource})\n`,
   );
 }
 

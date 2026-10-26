@@ -42,6 +42,8 @@ describe("preview.yml workflow structure (unit)", () => {
     expect(screenshots).toContain("npx playwright install --with-deps chromium");
     expect(screenshots).toContain("name: quorum-mock-preview-screenshots");
     expect(screenshots).toContain("npm ci --ignore-scripts");
+    expect(screenshots).toContain("if-no-files-found: error");
+    expect(screenshots).toContain("Verify screenshot count");
   });
 
   it("keeps Cloudflare preview secrets out of the screenshots job", () => {
@@ -80,12 +82,12 @@ jobs:
     expect(screenshots).toContain("needs.build.result == 'success'");
   });
 
-  it("posts the sticky comment when deploy or screenshots produced output", () => {
+  it("posts the sticky comment when deploy succeeds regardless of screenshots", () => {
     const comment = extractJobBlock(workflow, "comment");
-    expect(comment).toContain("always()");
     expect(comment).toContain("!cancelled()");
-    expect(comment).toContain("needs.deploy.outputs.preview_url != ''");
-    expect(comment).toContain("needs.screenshots.result == 'success'");
+    expect(comment).toContain("needs.deploy.result == 'success'");
+    expect(comment).toContain('SCREENSHOTS_RESULT" = "success"');
+    expect(comment).not.toContain("always()");
   });
 
   it("keeps same-repo fork guard on screenshots", () => {

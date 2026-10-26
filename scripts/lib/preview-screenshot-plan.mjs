@@ -1,26 +1,24 @@
-/** @typedef {{ name: string, path: string, readySelector: string }} PreviewScreenshotRoute */
+/** @typedef {{ name: string, path: string }} PreviewScreenshotRoute */
+
+export const PREVIEW_SCREENSHOT_CAPTURE_SOURCE_FILE = "capture-source.txt";
 
 /** Routes captured in preview CI (landing, sign-in, chat, connections). */
 export const PREVIEW_SCREENSHOT_ROUTES = [
   {
     name: "landing",
     path: "/",
-    readySelector: "h1",
   },
   {
     name: "sign-in",
     path: "/app/?quorum_preview_screen=sign-in",
-    readySelector: "h1",
   },
   {
     name: "chat",
     path: "/app/",
-    readySelector: 'nav[aria-label="Sections"] a[href$="/app/"]',
   },
   {
     name: "connections",
     path: "/app/connections",
-    readySelector: 'nav[aria-label="Sections"] a[href$="/connections"]',
   },
 ];
 
