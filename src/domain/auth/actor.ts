@@ -2,9 +2,25 @@ import type { D1Database } from "@cloudflare/workers-types";
 import type { QuorumConfig } from "../../config/types.js";
 import type { ActorContext } from "../schemas/actor.js";
 import { actorContext } from "../schemas/actor.js";
+import { isGithubIdAllowed } from "./allowlist.js";
 import { validateApiKey } from "./api-key.js";
 import { parseCookieHeader } from "./cookies.js";
 import { resolveActorFromSessionToken } from "./browser-session.js";
+
+async function sessionUserAllowlisted(
+  db: D1Database,
+  config: QuorumConfig,
+  userId: string,
+): Promise<boolean> {
+  const user = await db
+    .prepare("SELECT github_id FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ github_id: number }>();
+  if (!user) {
+    return false;
+  }
+  return isGithubIdAllowed(config, user.github_id);
+}
 
 export function websocketOriginAllowed(
   config: QuorumConfig,
@@ -36,6 +52,10 @@ export async function resolveWebSocketActor(
   if (sessionToken) {
     const sessionActor = await resolveActorFromSessionToken(db, sessionToken);
     if (sessionActor !== null) {
+      const allowed = await sessionUserAllowlisted(db, config, sessionActor.userId);
+      if (!allowed) {
+        return [null, true];
+      }
       return [sessionActor, true];
     }
   }

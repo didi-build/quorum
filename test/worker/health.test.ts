@@ -129,7 +129,7 @@ describe("Worker static assets (integration, vitest-pool-workers)", () => {
     };
     const brokenEnv = workerEnvWithSecrets({
       ...env,
-      DB: brokenDb as D1Database,
+      DB: brokenDb as unknown as D1Database,
     });
     const request = new Request("http://example.com/ready");
     const ctx = createExecutionContext();

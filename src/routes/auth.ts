@@ -1,11 +1,15 @@
 import type { QuorumConfig } from "../config/types.js";
 import { resolveActor } from "../domain/auth/actor.js";
 import { isGithubIdAllowed } from "../domain/auth/allowlist.js";
+import { closeChatWebSocketsForSession } from "../domain/auth/chat-ws-registry.js";
 import {
   clearAuthDisplayCookieHeader,
+  clearOAuthLoginNonceCookieHeader,
   clearSessionCookieHeader,
+  OAUTH_LOGIN_NONCE_COOKIE_NAME,
   parseCookieHeader,
   setAuthDisplayCookieHeader,
+  setOAuthLoginNonceCookieHeader,
   setSessionCookieHeader,
 } from "../domain/auth/cookies.js";
 import {
@@ -22,6 +26,7 @@ import {
 import {
   exchangeGithubUserCode,
   fetchGithubUser,
+  GithubTokenExchangeError,
   githubUserAuthorizeUrl,
 } from "../domain/oauth/github-user.js";
 import type { Env } from "../env.js";
@@ -50,8 +55,10 @@ export async function handleAuthRoute(
     if (!config.githubAppOauthClientId || !config.githubAppOauthClientSecret) {
       return jsonDetail("GitHub login is not configured", 503);
     }
-    const state = await createLoginOauthState(config.sessionSecret);
-    return redirectWithCookies(githubUserAuthorizeUrl(config, state), []);
+    const { state, nonce } = await createLoginOauthState(config.sessionSecret);
+    return redirectWithCookies(githubUserAuthorizeUrl(config, state), [
+      setOAuthLoginNonceCookieHeader(nonce),
+    ]);
   }
 
   if (pathname === "/auth/github/callback" && method === "GET") {
@@ -62,13 +69,22 @@ export async function handleAuthRoute(
       return jsonDetail("Invalid or expired OAuth state", 400);
     }
 
+    const callbackCookies = parseCookieHeader(request.headers.get("Cookie"));
+    const nonceCookie = callbackCookies.get(OAUTH_LOGIN_NONCE_COOKIE_NAME);
+
+    let stateNonce: string;
     try {
-      await verifyLoginOauthState(config.sessionSecret, state);
+      stateNonce = await verifyLoginOauthState(config.sessionSecret, state);
     } catch {
       return jsonDetail("Invalid or expired OAuth state", 400);
     }
 
+    if (!nonceCookie || nonceCookie !== stateNonce) {
+      return jsonDetail("Invalid or expired OAuth state", 400);
+    }
+
     const appUrl = config.appBaseUrl.replace(/\/+$/, "");
+    const clearLoginNonce = clearOAuthLoginNonceCookieHeader();
     try {
       const accessToken = await exchangeGithubUserCode(config, code);
       const userPayload = await fetchGithubUser(accessToken);
@@ -79,6 +95,7 @@ export async function handleAuthRoute(
         const signed = await createAuthDisplayValue(config.sessionSecret, login);
         return redirectWithCookies(`${appUrl}/app/not-allowed`, [
           setAuthDisplayCookieHeader(config, signed, AUTH_DISPLAY_MAX_AGE_SECONDS),
+          clearLoginNonce,
         ]);
       }
 
@@ -87,9 +104,13 @@ export async function handleAuthRoute(
       return redirectWithCookies(`${appUrl}/app/`, [
         setSessionCookieHeader(config, rawToken),
         clearAuthDisplayCookieHeader(config),
+        clearLoginNonce,
       ]);
-    } catch {
+    } catch (error) {
       console.error(JSON.stringify({ event: "github_oauth_callback_failed" }));
+      if (error instanceof GithubTokenExchangeError) {
+        return jsonDetail("GitHub OAuth failed", 502);
+      }
       return jsonDetail("GitHub OAuth failed", 500);
     }
   }
@@ -126,6 +147,7 @@ export async function handleAuthRoute(
     const cookies = parseCookieHeader(request.headers.get("Cookie"));
     const rawToken = cookies.get(config.sessionCookieName);
     if (rawToken) {
+      await closeChatWebSocketsForSession(rawToken);
       await revokeBrowserSession(env.DB, rawToken);
     }
     const headers = new Headers();

@@ -127,9 +127,11 @@ export default {
         const config = configOrError;
         await ensureBootstrapApiKey(env.DB, config);
 
-        const actor = await resolveActor(env.DB, config, request);
-        if (actor === null) {
-          return notAuthenticatedResponse();
+        if (pathname !== "/chat/ws") {
+          const actor = await resolveActor(env.DB, config, request);
+          if (actor === null) {
+            return notAuthenticatedResponse();
+          }
         }
 
         const protectedResponse = await handleProtectedApi(

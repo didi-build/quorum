@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLoginOauthState } from "../../src/domain/auth/signing.js";
 import worker from "../../src/index";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
+import { oauthLoginNonceCookieHeader } from "./oauth-callback-cookies.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 
@@ -28,7 +29,7 @@ describe("GitHub OAuth callback (worker integration)", () => {
   });
 
   it("allowlisted user gets session cookie and redirect to /app/", async () => {
-    const state = await createLoginOauthState("test-session-secret");
+    const { state, nonce } = await createLoginOauthState("test-session-secret");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -49,7 +50,9 @@ describe("GitHub OAuth callback (worker integration)", () => {
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
-      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`),
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
       testEnv(),
       ctx,
     );
@@ -65,7 +68,7 @@ describe("GitHub OAuth callback (worker integration)", () => {
   });
 
   it("non-allowlisted user gets display cookie and redirect to not-allowed", async () => {
-    const state = await createLoginOauthState("test-session-secret");
+    const { state, nonce } = await createLoginOauthState("test-session-secret");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -86,7 +89,9 @@ describe("GitHub OAuth callback (worker integration)", () => {
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
-      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`),
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
       testEnv(),
       ctx,
     );
@@ -108,5 +113,63 @@ describe("GitHub OAuth callback (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(400);
+  });
+
+  it("rejects callback when OAuth nonce cookie is missing or mismatched", async () => {
+    const { state, nonce } = await createLoginOauthState("test-session-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ access_token: "tok" }), { status: 200 }),
+      ),
+    );
+
+    const ctx = createExecutionContext();
+    const missing = await worker.fetch(
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(missing.status).toBe(400);
+
+    const ctx2 = createExecutionContext();
+    const mismatched = await worker.fetch(
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader("wrong-nonce") },
+      }),
+      testEnv(),
+      ctx2,
+    );
+    await waitOnExecutionContext(ctx2);
+    expect(mismatched.status).toBe(400);
+    expect(nonce).not.toBe("wrong-nonce");
+  });
+
+  it("returns 502 when GitHub token exchange fails", async () => {
+    const { state, nonce } = await createLoginOauthState("test-session-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("access_token")) {
+          return new Response("bad", { status: 400 });
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ detail: "GitHub OAuth failed" });
   });
 });

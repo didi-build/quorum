@@ -1,5 +1,12 @@
 import type { QuorumConfig } from "../../config/types.js";
 
+export class GithubTokenExchangeError extends Error {
+  constructor(message = "GitHub token exchange failed") {
+    super(message);
+    this.name = "GithubTokenExchangeError";
+  }
+}
+
 const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
@@ -43,7 +50,7 @@ export async function exchangeGithubUserCode(
   });
 
   if (!response.ok) {
-    throw new Error("GitHub token exchange failed");
+    throw new GithubTokenExchangeError();
   }
 
   const payload = (await response.json()) as { access_token?: string };

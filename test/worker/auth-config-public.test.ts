@@ -39,7 +39,10 @@ describe("public auth routes and config (worker integration)", () => {
     });
     expect(effectiveAppEnv(prodEnv)).toBe("production");
     const { createLoginOauthState } = await import("../../src/domain/auth/signing.js");
-    const state = await createLoginOauthState(prodEnv.SESSION_SECRET as string);
+    const { state, nonce } = await createLoginOauthState(
+      prodEnv.SESSION_SECRET as string,
+    );
+    const { oauthLoginNonceCookieHeader } = await import("./oauth-callback-cookies.js");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -58,7 +61,9 @@ describe("public auth routes and config (worker integration)", () => {
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
-      new Request(`http://test/auth/github/callback?code=c&state=${state}`),
+      new Request(`http://test/auth/github/callback?code=c&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
       prodEnv,
       ctx,
     );

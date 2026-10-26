@@ -11,8 +11,8 @@ const SESSION_SECRET = "test-session-secret";
 
 describe("auth signing (unit)", () => {
   it("round-trips login OAuth state", async () => {
-    const state = await createLoginOauthState(SESSION_SECRET);
-    await verifyLoginOauthState(SESSION_SECRET, state);
+    const { state, nonce } = await createLoginOauthState(SESSION_SECRET);
+    expect(await verifyLoginOauthState(SESSION_SECRET, state)).toBe(nonce);
   });
 
   it("round-trips auth display value", async () => {

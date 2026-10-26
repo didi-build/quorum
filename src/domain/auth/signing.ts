@@ -54,25 +54,31 @@ export async function verifySignedPayload(
   }
 }
 
+export type LoginOauthState = {
+  state: string;
+  nonce: string;
+};
+
 export async function createLoginOauthState(
   sessionSecret: string,
   ttlSeconds = 600,
-): Promise<string> {
+): Promise<LoginOauthState> {
   const nonce = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(16)));
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
-  return signPayload(sessionSecret, `login:${nonce}:${expiresAt}`);
+  const state = await signPayload(sessionSecret, `login:${nonce}:${expiresAt}`);
+  return { state, nonce };
 }
 
 export async function verifyLoginOauthState(
   sessionSecret: string,
   state: string,
-): Promise<void> {
+): Promise<string> {
   const payload = await verifySignedPayload(sessionSecret, state);
   const parts = payload.split(":");
   if (parts.length !== 3) {
     throw new SignedValueError("Malformed login OAuth state");
   }
-  const [kind, , expiresAtStr] = parts;
+  const [kind, nonce, expiresAtStr] = parts;
   if (kind !== "login") {
     throw new SignedValueError("Unexpected login OAuth state kind");
   }
@@ -80,6 +86,7 @@ export async function verifyLoginOauthState(
   if (!Number.isFinite(expiresAt) || expiresAt < Math.floor(Date.now() / 1000)) {
     throw new SignedValueError("Expired login OAuth state");
   }
+  return nonce;
 }
 
 export async function createAuthDisplayValue(

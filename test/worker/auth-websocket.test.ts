@@ -2,6 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config/index.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
+import { resetChatWebSocketRegistry } from "../../src/domain/auth/chat-ws-registry.js";
 import {
   createBrowserSession,
   hashSessionToken,
@@ -16,7 +17,7 @@ const testEnv = () =>
   workerEnvWithSecrets({
     ...env,
     ...withTestConfigEnv({
-      AUTH_ALLOWED_GITHUB_IDS: "1",
+      AUTH_ALLOWED_GITHUB_IDS: "1,999002,999003,999004,999007,999010",
       APP_BASE_URL: "http://test",
       WS_ALLOWED_ORIGINS: "http://test",
     }),
@@ -25,6 +26,7 @@ const testEnv = () =>
 describe("chat WebSocket auth (worker integration)", () => {
   beforeEach(() => {
     resetBootstrapApiKeyGuard();
+    resetChatWebSocketRegistry();
   });
 
   it("accepts session cookie with allowed Origin", async () => {
@@ -182,6 +184,21 @@ describe("chat WebSocket auth (worker integration)", () => {
       new TextEncoder().encode(frame.echo as string).byteLength,
     ).toBeLessThanOrEqual(CHAT_WS_PROBE_ECHO_MAX_BYTES);
     expect(frame.echo).toBe("a".repeat(CHAT_WS_PROBE_ECHO_MAX_BYTES - 3));
+  });
+
+  it("returns 403 for disallowed Origin before session auth lookup", async () => {
+    const cfg = loadConfig(testEnv());
+    const request = new Request("http://test/chat/ws", {
+      headers: {
+        Upgrade: "websocket",
+        Origin: "http://evil.example",
+        Cookie: `${cfg.sessionCookieName}=not-a-real-session-token`,
+      },
+    });
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, testEnv(), ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(403);
   });
 
   it("accepts API key without Origin", async () => {
