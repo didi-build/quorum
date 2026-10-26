@@ -1,5 +1,6 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearOAuthLoginNonceCookieHeader } from "../../src/domain/auth/cookies.js";
 import { createLoginOauthState } from "../../src/domain/auth/signing.js";
 import worker from "../../src/index";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
@@ -26,6 +27,7 @@ describe("GitHub OAuth callback (worker integration)", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("allowlisted user gets session cookie and redirect to /app/", async () => {
@@ -62,6 +64,8 @@ describe("GitHub OAuth callback (worker integration)", () => {
     expect(response.headers.get("Location")).toBe("http://test/app/");
     const cookies = response.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith("quorum_session="))).toBe(true);
+    expect(cookies).toContain(clearOAuthLoginNonceCookieHeader());
+    expect(cookies.some((c) => c === clearOAuthLoginNonceCookieHeader())).toBe(true);
     expect(cookies.some((c) => c.includes("HttpOnly"))).toBe(true);
     expect(cookies.some((c) => c.includes("Secure"))).toBe(true);
     expect(cookies.some((c) => c.includes("SameSite=Lax"))).toBe(true);
@@ -102,9 +106,10 @@ describe("GitHub OAuth callback (worker integration)", () => {
     const cookies = response.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith("quorum_session="))).toBe(false);
     expect(cookies.some((c) => c.startsWith("quorum_auth_display="))).toBe(true);
+    expect(cookies).toContain(clearOAuthLoginNonceCookieHeader());
   });
 
-  it("rejects invalid OAuth state", async () => {
+  it("rejects invalid OAuth state and clears the nonce cookie", async () => {
     const ctx = createExecutionContext();
     const response = await worker.fetch(
       new Request("http://test/auth/github/callback?code=test-code&state=not-valid"),
@@ -113,38 +118,49 @@ describe("GitHub OAuth callback (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(400);
+    expect(response.headers.getSetCookie()).toContain(
+      clearOAuthLoginNonceCookieHeader(),
+    );
   });
 
-  it("rejects callback when OAuth nonce cookie is missing or mismatched", async () => {
-    const { state, nonce } = await createLoginOauthState("test-session-secret");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(JSON.stringify({ access_token: "tok" }), { status: 200 }),
-      ),
-    );
+  it("rejects callback when OAuth nonce cookie is missing", async () => {
+    const { state } = await createLoginOauthState("test-session-secret");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
 
     const ctx = createExecutionContext();
-    const missing = await worker.fetch(
+    const response = await worker.fetch(
       new Request(`http://test/auth/github/callback?code=test-code&state=${state}`),
       testEnv(),
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect(missing.status).toBe(400);
+    expect(response.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(response.headers.getSetCookie()).toContain(
+      clearOAuthLoginNonceCookieHeader(),
+    );
+  });
 
-    const ctx2 = createExecutionContext();
-    const mismatched = await worker.fetch(
+  it("rejects callback when OAuth nonce cookie is mismatched without calling GitHub", async () => {
+    const { state } = await createLoginOauthState("test-session-secret");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
       new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
         headers: { Cookie: oauthLoginNonceCookieHeader("wrong-nonce") },
       }),
       testEnv(),
-      ctx2,
+      ctx,
     );
-    await waitOnExecutionContext(ctx2);
-    expect(mismatched.status).toBe(400);
-    expect(nonce).not.toBe("wrong-nonce");
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(response.headers.getSetCookie()).toContain(
+      clearOAuthLoginNonceCookieHeader(),
+    );
   });
 
   it("returns 502 when GitHub token exchange returns 200 with an error field", async () => {
@@ -173,6 +189,9 @@ describe("GitHub OAuth callback (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ detail: "GitHub OAuth failed" });
+    expect(response.headers.getSetCookie()).toContain(
+      clearOAuthLoginNonceCookieHeader(),
+    );
   });
 
   it("returns 502 when GitHub token exchange fails", async () => {
@@ -199,5 +218,47 @@ describe("GitHub OAuth callback (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ detail: "GitHub OAuth failed" });
+    expect(response.headers.getSetCookie()).toContain(
+      clearOAuthLoginNonceCookieHeader(),
+    );
+  });
+
+  it("returns 500 when GitHub user fetch fails and logs only the callback event", async () => {
+    const { state, nonce } = await createLoginOauthState("test-session-secret");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("access_token")) {
+          return new Response(JSON.stringify({ access_token: "github-access-token" }), {
+            status: 200,
+          });
+        }
+        if (url.includes("api.github.com/user")) {
+          return new Response("unauthorized", { status: 401 });
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ detail: "GitHub OAuth failed" });
+    expect(response.headers.getSetCookie()).toContain(
+      clearOAuthLoginNonceCookieHeader(),
+    );
+    expect(errorSpy).toHaveBeenCalledOnce();
+    expect(errorSpy.mock.calls[0]?.[0]).toBe(
+      JSON.stringify({ event: "github_oauth_callback_failed" }),
+    );
   });
 });

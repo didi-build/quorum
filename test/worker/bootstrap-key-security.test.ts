@@ -91,6 +91,13 @@ describe("default bootstrap key rejected outside development (worker integration
     });
     expect(effectiveAppEnv(bindings)).toBe("production");
 
+    const staleHash = await hashApiKey(DEV_BOOTSTRAP);
+    await env.DB.prepare(
+      "INSERT INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
+    )
+      .bind(crypto.randomUUID(), staleHash)
+      .run();
+
     const ctx = createExecutionContext();
     const response = await worker.fetch(
       new Request("http://test/sources", {
@@ -109,6 +116,13 @@ describe("default bootstrap key rejected outside development (worker integration
       ...withTestConfigEnv(),
     });
     expect(effectiveAppEnv(bindings)).toBe("production");
+
+    const staleHash = await hashApiKey(DEV_BOOTSTRAP);
+    await env.DB.prepare(
+      "INSERT INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
+    )
+      .bind(crypto.randomUUID(), staleHash)
+      .run();
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(

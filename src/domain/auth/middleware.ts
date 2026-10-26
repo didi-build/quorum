@@ -28,8 +28,20 @@ export function normalizePath(pathname: string): string {
   return pathname.replace(/\/+$/, "") || "/";
 }
 
+function isDenyByDefaultApiPrefix(path: string): boolean {
+  return (
+    path === "/api" ||
+    path.startsWith("/api/") ||
+    path === "/council" ||
+    path.startsWith("/council/")
+  );
+}
+
 export function isApiPath(pathname: string): boolean {
   const path = normalizePath(pathname);
+  if (isDenyByDefaultApiPrefix(path)) {
+    return true;
+  }
   return API_PREFIXES.some(
     (prefix) => path === prefix || path.startsWith(`${prefix}/`),
   );

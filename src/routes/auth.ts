@@ -30,9 +30,33 @@ import {
   githubUserAuthorizeUrl,
 } from "../domain/oauth/github-user.js";
 import type { Env } from "../env.js";
+import { sha256Hex, timingSafeEqualHex } from "../lib/crypto.js";
 import { jsonDetail } from "../http/api-error.js";
 
 const AUTH_DISPLAY_MAX_AGE_SECONDS = 300;
+
+async function oauthLoginNoncesMatch(
+  cookieNonce: string,
+  stateNonce: string,
+): Promise<boolean> {
+  const [cookieHash, stateHash] = await Promise.all([
+    sha256Hex(cookieNonce),
+    sha256Hex(stateNonce),
+  ]);
+  return timingSafeEqualHex(cookieHash, stateHash);
+}
+
+function oauthCallbackJsonResponse(detail: string, status: number): Response {
+  const headers = new Headers();
+  headers.append("Set-Cookie", clearOAuthLoginNonceCookieHeader());
+  return Response.json({ detail }, { status, headers });
+}
+
+function oauthCallbackGithubFailed(status: number): Response {
+  const headers = new Headers();
+  headers.append("Set-Cookie", clearOAuthLoginNonceCookieHeader());
+  return Response.json({ detail: "GitHub OAuth failed" }, { status, headers });
+}
 
 function redirectWithCookies(url: string, cookies: string[]): Response {
   const headers = new Headers();
@@ -66,7 +90,7 @@ export async function handleAuthRoute(
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
     if (!code || !state) {
-      return jsonDetail("Invalid or expired OAuth state", 400);
+      return oauthCallbackJsonResponse("Invalid or expired OAuth state", 400);
     }
 
     const callbackCookies = parseCookieHeader(request.headers.get("Cookie"));
@@ -76,11 +100,11 @@ export async function handleAuthRoute(
     try {
       stateNonce = await verifyLoginOauthState(config.sessionSecret, state);
     } catch {
-      return jsonDetail("Invalid or expired OAuth state", 400);
+      return oauthCallbackJsonResponse("Invalid or expired OAuth state", 400);
     }
 
-    if (!nonceCookie || nonceCookie !== stateNonce) {
-      return jsonDetail("Invalid or expired OAuth state", 400);
+    if (!nonceCookie || !(await oauthLoginNoncesMatch(nonceCookie, stateNonce))) {
+      return oauthCallbackJsonResponse("Invalid or expired OAuth state", 400);
     }
 
     const appUrl = config.appBaseUrl.replace(/\/+$/, "");
@@ -109,9 +133,9 @@ export async function handleAuthRoute(
     } catch (error) {
       console.error(JSON.stringify({ event: "github_oauth_callback_failed" }));
       if (error instanceof GithubTokenExchangeError) {
-        return jsonDetail("GitHub OAuth failed", 502);
+        return oauthCallbackGithubFailed(502);
       }
-      return jsonDetail("GitHub OAuth failed", 500);
+      return oauthCallbackGithubFailed(500);
     }
   }
 

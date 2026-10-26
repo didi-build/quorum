@@ -70,10 +70,6 @@ async function handleProtectedApi(
   pathname: string,
   config: QuorumConfig,
 ): Promise<Response | null> {
-  if (pathname === "/chat/ws") {
-    return handleChatWebSocket(request, env, config);
-  }
-
   const authResponse = await handleAuthRoute(request, env, config, pathname);
   if (authResponse !== null) {
     return authResponse;
@@ -119,6 +115,15 @@ export default {
         }
       }
 
+      if (pathname === "/chat/ws") {
+        const configOrError = loadConfigOr503(env);
+        if (configOrError instanceof Response) {
+          return configOrError;
+        }
+        await ensureBootstrapApiKey(env.DB, configOrError);
+        return await handleChatWebSocket(request, env, configOrError);
+      }
+
       if (requiresAuthentication(pathname)) {
         const configOrError = loadConfigOr503(env);
         if (configOrError instanceof Response) {
@@ -127,11 +132,9 @@ export default {
         const config = configOrError;
         await ensureBootstrapApiKey(env.DB, config);
 
-        if (pathname !== "/chat/ws") {
-          const actor = await resolveActor(env.DB, config, request);
-          if (actor === null) {
-            return notAuthenticatedResponse();
-          }
+        const actor = await resolveActor(env.DB, config, request);
+        if (actor === null) {
+          return notAuthenticatedResponse();
         }
 
         const protectedResponse = await handleProtectedApi(
