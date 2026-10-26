@@ -15,7 +15,7 @@ import { ConfigError } from "./errors.js";
 const DEFAULT_USER_ID = "00000000-0000-4000-8000-000000000001";
 
 /** Upper bound for browser session cookie TTL (days). */
-export const MAX_SESSION_TTL_DAYS = 400;
+export const MAX_SESSION_TTL_DAYS = 90;
 
 export type ConfigEnv = Record<string, unknown>;
 

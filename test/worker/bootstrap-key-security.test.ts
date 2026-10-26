@@ -33,8 +33,7 @@ describe("default bootstrap key rejected outside development (worker integration
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect([401, 503]).toContain(response.status);
-    expect(response.status).not.toBe(200);
+    expect(response.status).toBe(401);
   });
 
   it("returns 503 for /sources when BOOTSTRAP_API_KEY is missing", async () => {
@@ -82,7 +81,7 @@ describe("default bootstrap key rejected outside development (worker integration
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect([401, 503]).toContain(response.status);
+    expect(response.status).toBe(401);
   });
 
   it("rejects dev-api-key-change-me on /sources when APP_ENV is unset (fail closed)", async () => {
