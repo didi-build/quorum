@@ -79,7 +79,7 @@ jobs:
     name: mock-preview screenshots
     needs: [build, deploy]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.build.result == 'success' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -122,13 +122,9 @@ jobs:
           fi
           echo "source=$(tr -d '\n' < "$source_file")" >> "$GITHUB_OUTPUT"
       - name: Verify screenshot count
-        run: |
-          set -euo pipefail
-          count="$(find preview-screenshots -maxdepth 1 -name '*.png' | wc -l | tr -d ' ')"
-          if [ "$count" -ne 16 ]; then
-            echo "Expected 16 PNG screenshots, found $count"
-            exit 1
-          fi
+        env:
+          PREVIEW_SCREENSHOTS_DIR: preview-screenshots
+        run: node scripts/verify-preview-screenshot-count.mjs
       - name: Upload UI screenshots
         id: upload-screenshots
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
@@ -173,7 +169,7 @@ jobs:
             if [ -n "$PREVIEW_URL" ]; then
               echo "**Preview URL:** $PREVIEW_URL"
               echo ''
-              echo 'Opens the app at `/app/` (root redirects to `/app/` on the preview Worker). Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.'
+              echo 'Opens the app at `/app/` (`dist-preview` uses static `_redirects` from `/` to `/app/`). Built with `mock-preview` mode (no API, no auth). Re-push to refresh this deployment.'
               echo ''
             else
               echo '_Preview deploy was skipped (missing Cloudflare preview credentials or Worker bootstrap)._'
@@ -183,11 +179,11 @@ jobs:
             echo ''
             if [ "$SCREENSHOTS_RESULT" = "success" ]; then
               if [ -n "$SCREENSHOT_ARTIFACT_URL" ]; then
-                echo "**Artifact:** Download \`quorum-mock-preview-screenshots\` from [$SCREENSHOT_ARTIFACT_URL]($SCREENSHOT_ARTIFACT_URL) (landing, sign-in, chat, connections at 390px and 1280px, light and dark)."
+                echo "**Artifact:** Download \`quorum-mock-preview-screenshots\` from [$SCREENSHOT_ARTIFACT_URL]($SCREENSHOT_ARTIFACT_URL) (landing from repo \`landing/\`, sign-in, chat, connections at 390px and 1280px, light and dark)."
               fi
               if [ "$CAPTURE_SOURCE" = "local-static-server" ]; then
                 echo ''
-                echo '_Screenshots were captured from the local mock-preview static server fallback (not the live workers.dev deploy)._'
+                echo '_App screenshots used the local mock-preview static server fallback (honours \`_redirects\` / \`_headers\`); landing PNGs always come from repo \`landing/\`._'
               fi
             else
               echo "_UI screenshots failed or were skipped for this run (job result: \`$SCREENSHOTS_RESULT\`)._"

@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import {
+  matchPreviewRedirect,
+  readPreviewStaticMeta,
+  withPreviewStaticHeaders,
+} from "./mock-preview-static-meta.mjs";
 
 /** Mirrors preview/spa-routing.ts for local mock-preview dist serving. */
 function isAppSpaPath(pathname) {
@@ -66,74 +71,114 @@ function contentType(filePath) {
 /**
  * @param {import('node:http').IncomingMessage} request
  * @param {string} distRoot
+ * @param {{ meta?: ReturnType<typeof readPreviewStaticMeta> }} [options]
  */
-export function handleMockPreviewStaticRequest(request, distRoot) {
+export function handleMockPreviewStaticRequest(request, distRoot, options = {}) {
   const host = request.headers.host ?? "127.0.0.1";
   const url = new URL(request.url ?? "/", `http://${host}`);
+  const meta = options.meta ?? readPreviewStaticMeta(distRoot);
+
+  const finish = (response) => withPreviewStaticHeaders(response, meta.globalHeaders);
+
+  if (url.pathname === "/_redirects" || url.pathname === "/_headers") {
+    return finish({ status: 404, headers: {}, body: "Not Found" });
+  }
+
+  const redirect = matchPreviewRedirect(url.pathname, url.origin, meta.redirects);
+  if (redirect) {
+    return finish({
+      status: redirect.status,
+      headers: { Location: redirect.location },
+      body: null,
+    });
+  }
 
   if (url.pathname === "/" || url.pathname === "") {
     const landingPath = path.join(distRoot, "index.html");
     if (fileExists(landingPath)) {
-      return {
+      return finish({
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" },
         body: readFile(landingPath),
-      };
+      });
     }
-    return {
+    return finish({
       status: 302,
       headers: { Location: new URL("/app/", url.origin).toString() },
       body: null,
-    };
+    });
+  }
+
+  if (url.pathname === "/app" || url.pathname === "/app/") {
+    const shellPath = path.join(distRoot, "app", "index.html");
+    if (fileExists(shellPath)) {
+      return finish({
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+        body: readFile(shellPath),
+      });
+    }
   }
 
   const directPath = resolveDistFile(distRoot, url.pathname);
   if (directPath && fileExists(directPath)) {
-    return {
+    const baseName = path.basename(directPath);
+    if (baseName === "_redirects" || baseName === "_headers") {
+      return finish({ status: 404, headers: {}, body: "Not Found" });
+    }
+    return finish({
       status: 200,
       headers: { "Content-Type": contentType(directPath) },
       body: readFile(directPath),
-    };
+    });
   }
 
   const assetStatus = directPath && !fileExists(directPath) ? 404 : 403;
   if (shouldServeAppShell(url, request, assetStatus)) {
     const shellPath = path.join(distRoot, "app", "index.html");
     if (!fileExists(shellPath)) {
-      return { status: 500, headers: {}, body: "Missing app shell" };
+      return finish({ status: 500, headers: {}, body: "Missing app shell" });
     }
-    return {
+    return finish({
       status: 200,
       headers: { "Content-Type": "text/html; charset=utf-8" },
       body: readFile(shellPath),
-    };
+    });
   }
 
-  return { status: assetStatus, headers: {}, body: `${assetStatus}` };
+  return finish({ status: assetStatus, headers: {}, body: `${assetStatus}` });
 }
 
 /**
- * @param {{ distRoot: string, host?: string, port?: number }} options
+ * @param {import('node:http').IncomingMessage} request
+ * @param {string} landingRoot
  */
+export function handleLandingStaticRequest(request, landingRoot) {
+  const host = request.headers.host ?? "127.0.0.1";
+  const url = new URL(request.url ?? "/", `http://${host}`);
+  if (url.pathname === "/health") {
+    return {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: Buffer.from('{"status":"ok"}'),
+    };
+  }
+  return handleMockPreviewStaticRequest(request, landingRoot, {
+    meta: { redirects: [], globalHeaders: {} },
+  });
+}
+
 /**
  * Serves the marketing landing page from repo `landing/` (index.html + style.css).
  * @param {{ root: string, host?: string, port?: number }} options
  */
 export function startLandingStaticServer(options) {
-  return startMockPreviewStaticServer({
-    distRoot: options.root,
-    host: options.host,
-    port: options.port,
-  });
-}
-
-export function startMockPreviewStaticServer(options) {
-  const distRoot = path.resolve(options.distRoot);
+  const landingRoot = path.resolve(options.root);
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 0;
 
   const server = http.createServer((req, res) => {
-    const result = handleMockPreviewStaticRequest(req, distRoot);
+    const result = handleLandingStaticRequest(req, landingRoot);
     res.writeHead(result.status, result.headers);
     if (result.body !== null && req.method !== "HEAD") {
       res.end(result.body);
@@ -142,6 +187,29 @@ export function startMockPreviewStaticServer(options) {
     }
   });
 
+  return startServerPromise(server, host, port);
+}
+
+export function startMockPreviewStaticServer(options) {
+  const distRoot = path.resolve(options.distRoot);
+  const host = options.host ?? "127.0.0.1";
+  const port = options.port ?? 0;
+  const meta = readPreviewStaticMeta(distRoot);
+
+  const server = http.createServer((req, res) => {
+    const result = handleMockPreviewStaticRequest(req, distRoot, { meta });
+    res.writeHead(result.status, result.headers);
+    if (result.body !== null && req.method !== "HEAD") {
+      res.end(result.body);
+    } else {
+      res.end();
+    }
+  });
+
+  return startServerPromise(server, host, port);
+}
+
+function startServerPromise(server, host, port) {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {

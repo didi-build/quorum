@@ -9,7 +9,7 @@ import {
 } from "../scripts/lib/preview-screenshot-plan.mjs";
 
 describe("preview screenshot plan (unit)", () => {
-  it("captures four routes at two widths in light and dark (16 images)", () => {
+  it("captures four routes at two widths in light and dark", () => {
     expect(PREVIEW_SCREENSHOT_ROUTES.map((route) => route.name)).toEqual([
       "landing",
       "sign-in",

@@ -77,6 +77,7 @@ describe("preview.yml workflow structure (unit)", () => {
     expect(screenshots).toContain("npm ci --ignore-scripts");
     expect(screenshots).toContain("if-no-files-found: error");
     expect(screenshots).toContain("Verify screenshot count");
+    expect(screenshots).toContain("node scripts/verify-preview-screenshot-count.mjs");
   });
 
   it("keeps Cloudflare preview secrets out of the screenshots job", () => {
@@ -160,9 +161,10 @@ jobs:
     expect(comment).toContain("body-file: preview-comment.md");
   });
 
-  it("runs screenshots when build succeeds even if deploy fails", () => {
+  it("runs screenshots when build succeeds and the workflow was not cancelled", () => {
     const screenshots = extractJobBlock(workflow, "screenshots");
-    expect(screenshots).toContain("always()");
+    expect(screenshots).toContain("!cancelled()");
+    expect(screenshots).not.toContain("always()");
     expect(screenshots).toContain("needs.build.result == 'success'");
   });
 

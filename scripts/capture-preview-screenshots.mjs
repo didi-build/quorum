@@ -125,7 +125,7 @@ async function captureScreenshots(landingOrigin, previewOrigin) {
           const page = await context.newPage();
           await page.emulateMedia({ reducedMotion: "reduce" });
           const target = new URL(route.path, `${routeOrigin}/`).toString();
-          await page.goto(target, { waitUntil: "networkidle", timeout: 60_000 });
+          await page.goto(target, { waitUntil: "load", timeout: 60_000 });
           await waitForRouteReady(page, route);
           const fileName = `${route.name}-${viewport.name}-${colorScheme}.png`;
           await page.screenshot({
