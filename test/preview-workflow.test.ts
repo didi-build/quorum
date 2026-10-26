@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 const workflowPath = join(process.cwd(), ".github/workflows/preview.yml");
 const workflow = readFileSync(workflowPath, "utf8");
 
-const PIN_RE = /uses:\s+([^@\s]+)@([0-9a-f]{40})\s+#\s*(v[^\s]+)/g;
+const USES_RE = /^\s*- uses:\s+(.+)$/gm;
+const PINNED_USES_RE = /^[^\s@]+\/[^\s@]+@[0-9a-f]{40}(\s+#\s*.+)?$/;
 
 function extractJobBlock(yaml: string, jobId: string): string {
   const marker = `  ${jobId}:`;
@@ -18,12 +19,18 @@ function extractJobBlock(yaml: string, jobId: string): string {
   return nextJob === -1 ? rest : rest.slice(0, nextJob);
 }
 
-function collectPins(text: string) {
-  const pins: { repo: string; pin: string; tag: string }[] = [];
-  for (const match of text.matchAll(PIN_RE)) {
-    pins.push({ repo: match[1], pin: match[2], tag: match[3] });
+/** @returns {string[]} every `uses:` target in the given workflow YAML fragment */
+export function collectActionUsesLines(text: string): string[] {
+  const uses: string[] = [];
+  for (const match of text.matchAll(USES_RE)) {
+    uses.push(match[1].trim());
   }
-  return pins;
+  return uses;
+}
+
+/** @returns {string[]} uses lines that are not pinned to a 40-character commit SHA */
+export function findUnpinnedActionUses(text: string): string[] {
+  return collectActionUsesLines(text).filter((line) => !PINNED_USES_RE.test(line));
 }
 
 describe("preview.yml workflow structure (unit)", () => {
@@ -44,22 +51,41 @@ describe("preview.yml workflow structure (unit)", () => {
     expect(screenshots).not.toContain("secrets.");
   });
 
-  it("pins every action in the screenshots and comment jobs", () => {
-    for (const jobId of ["screenshots", "comment"]) {
-      const block = extractJobBlock(workflow, jobId);
-      const pins = collectPins(block);
-      expect(pins.length).toBeGreaterThan(0);
-      for (const { pin } of pins) {
-        expect(pin).toMatch(/^[0-9a-f]{40}$/);
-      }
-    }
+  it("pins every action uses line in preview.yml", () => {
+    const unpinned = findUnpinnedActionUses(workflow);
+    expect(unpinned).toEqual([]);
   });
 
-  it("links screenshot artifacts from the sticky preview comment", () => {
+  it("fails pin validation when a uses line is not pinned to a commit SHA", () => {
+    const fixture = `
+jobs:
+  example:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+`;
+    expect(findUnpinnedActionUses(fixture)).toEqual(["actions/checkout@v4"]);
+  });
+
+  it("links screenshot artifact URL from upload-artifact in the sticky preview comment", () => {
     const comment = extractJobBlock(workflow, "comment");
-    expect(comment).toContain("quorum-mock-preview-screenshots");
-    expect(comment).toContain("WORKFLOW_RUN_URL");
+    expect(comment).toContain("needs.screenshots.outputs.artifact_url");
+    expect(comment).toContain("SCREENSHOT_ARTIFACT_URL");
     expect(comment).toContain("body-file: preview-comment.md");
+  });
+
+  it("runs screenshots when build succeeds even if deploy fails", () => {
+    const screenshots = extractJobBlock(workflow, "screenshots");
+    expect(screenshots).toContain("always()");
+    expect(screenshots).toContain("needs.build.result == 'success'");
+  });
+
+  it("posts the sticky comment when deploy or screenshots produced output", () => {
+    const comment = extractJobBlock(workflow, "comment");
+    expect(comment).toContain("always()");
+    expect(comment).toContain("!cancelled()");
+    expect(comment).toContain("needs.deploy.outputs.preview_url != ''");
+    expect(comment).toContain("needs.screenshots.result == 'success'");
   });
 
   it("keeps same-repo fork guard on screenshots", () => {
@@ -68,7 +94,7 @@ describe("preview.yml workflow structure (unit)", () => {
     );
     const screenshots = extractJobBlock(workflow, "screenshots");
     expect(screenshots).toContain(
-      "if: github.event.pull_request.head.repo.full_name == github.repository",
+      "github.event.pull_request.head.repo.full_name == github.repository",
     );
   });
 });

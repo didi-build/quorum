@@ -78,11 +78,16 @@ jobs:
   screenshots:
     name: mock-preview screenshots
     needs: [build, deploy]
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      artifact_url: ${{ steps.upload-screenshots.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -106,6 +111,7 @@ jobs:
           PREVIEW_SCREENSHOTS_DIR: preview-screenshots
         run: node scripts/capture-preview-screenshots.mjs
       - name: Upload UI screenshots
+        id: upload-screenshots
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
         with:
           name: quorum-mock-preview-screenshots
@@ -116,6 +122,8 @@ jobs:
     name: mock-preview comment
     needs: [deploy, screenshots]
     if: >-
+      always() &&
+      !cancelled() &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (needs.deploy.outputs.preview_url != '' || needs.screenshots.result == 'success')
     runs-on: ubuntu-latest
@@ -134,7 +142,7 @@ jobs:
         id: compose
         env:
           PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
-          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SCREENSHOT_ARTIFACT_URL: ${{ needs.screenshots.outputs.artifact_url }}
         run: |
           set -euo pipefail
           {
@@ -152,7 +160,11 @@ jobs:
             fi
             echo '## UI screenshots'
             echo ''
-            echo "**Artifact:** Download \`quorum-mock-preview-screenshots\` from [this workflow run]($WORKFLOW_RUN_URL) (landing, sign-in, chat, connections at 390px and 1280px, light and dark)."
+            if [ -n "$SCREENSHOT_ARTIFACT_URL" ]; then
+              echo "**Artifact:** Download \`quorum-mock-preview-screenshots\` from [$SCREENSHOT_ARTIFACT_URL]($SCREENSHOT_ARTIFACT_URL) (landing, sign-in, chat, connections at 390px and 1280px, light and dark)."
+            else
+              echo '_UI screenshots were not uploaded for this run._'
+            fi
           } > preview-comment.md
       - name: Update preview comment
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
