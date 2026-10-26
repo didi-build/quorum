@@ -1,16 +1,40 @@
+import { loadConfig } from "../config/index.js";
 import type { QuorumConfig } from "../config/types.js";
 import { registerChatWebSocket } from "../domain/auth/chat-ws-registry.js";
 import { resolveWebSocketActor, websocketOriginAllowed } from "../domain/auth/actor.js";
 import { parseCookieHeader } from "../domain/auth/cookies.js";
 import type { Env } from "../env.js";
-import { truncateUtf8ToMaxBytes } from "../lib/utf8.js";
+import {
+  attachChatWsInboundHandler,
+  deliverChatWsProbeEcho,
+} from "./chat-ws-inbound.js";
+import {
+  buildChatWsAuthRecheckRequest,
+  getChatWsClock,
+  type ChatWsAuthRecheck,
+} from "./chat-ws-recheck.js";
 
-/** Max bytes echoed from a single client text frame on the auth probe socket. */
-export const CHAT_WS_PROBE_ECHO_MAX_BYTES = 4096;
+export { CHAT_WS_PROBE_ECHO_MAX_BYTES } from "./chat-ws-inbound.js";
+
+async function recheckChatWsAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boolean> {
+  let config: QuorumConfig;
+  try {
+    config = loadConfig(env);
+  } catch {
+    return false;
+  }
+  const request = buildChatWsAuthRecheckRequest(config, auth);
+  try {
+    const [actor] = await resolveWebSocketActor(env.DB, config, request);
+    return actor !== null;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Minimal chat WebSocket endpoint for auth gating (full chat pipeline is a separate ticket).
- * Accepts authenticated clients and echoes a single auth probe frame.
+ * Accepts authenticated clients and echoes a single auth probe frame per inbound message.
  */
 export async function handleChatWebSocket(
   request: Request,
@@ -22,7 +46,7 @@ export async function handleChatWebSocket(
   }
 
   const cookies = parseCookieHeader(request.headers.get("Cookie"));
-  const sessionToken = cookies.get(config.sessionCookieName);
+  const sessionToken = cookies.get(config.sessionCookieName) ?? null;
   if (sessionToken && !websocketOriginAllowed(config, request.headers.get("Origin"))) {
     return new Response("Origin not allowed", { status: 403 });
   }
@@ -32,6 +56,12 @@ export async function handleChatWebSocket(
     return new Response("Not authenticated", { status: 401 });
   }
 
+  const apiKey = viaSession ? null : request.headers.get("X-API-Key");
+  const authRecheck: ChatWsAuthRecheck = {
+    sessionToken: viaSession ? sessionToken : null,
+    apiKey,
+  };
+
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair);
   server.accept();
@@ -40,12 +70,10 @@ export async function handleChatWebSocket(
     await registerChatWebSocket(sessionToken, server);
   }
 
-  server.addEventListener("message", (event) => {
-    if (typeof event.data !== "string") {
-      return;
-    }
-    const echo = truncateUtf8ToMaxBytes(event.data, CHAT_WS_PROBE_ECHO_MAX_BYTES);
-    server.send(JSON.stringify({ authenticated: true, echo }));
+  attachChatWsInboundHandler(server, env, authRecheck, {
+    clock: getChatWsClock(),
+    recheckAuth: recheckChatWsAuth,
+    deliverProbeEcho: deliverChatWsProbeEcho,
   });
 
   return new Response(null, { status: 101, webSocket: client });
