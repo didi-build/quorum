@@ -17,6 +17,8 @@ out/
 # Test & coverage
 coverage/
 test-results/
+playwright-report/
+preview-screenshots/
 
 # Environment (never commit secrets)
 .env

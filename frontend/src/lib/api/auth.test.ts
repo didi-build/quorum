@@ -16,6 +16,15 @@ describe("fetchAuthUser preview gate (unit)", () => {
       github_id: 9001,
     });
   });
+
+  it("returns null in mock-preview when quorum_preview_screen=sign-in", async () => {
+    vi.stubEnv("MODE", "mock-preview");
+    vi.stubGlobal("location", {
+      ...window.location,
+      search: "?quorum_preview_screen=sign-in",
+    });
+    await expect(fetchAuthUser()).resolves.toBeNull();
+  });
 });
 
 describe("auth API client (unit)", () => {
