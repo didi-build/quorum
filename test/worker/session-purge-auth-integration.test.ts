@@ -33,20 +33,32 @@ async function sessionCount(): Promise<number> {
   return row?.c ?? 0;
 }
 
-async function expectTimestampMatchesPurgeGlob(
-  column: "expires_at" | "revoked_at",
+async function readSessionColumn(
   sessionId: string,
-): Promise<void> {
+  column: "expires_at" | "revoked_at",
+): Promise<string | null> {
   const row = await env.DB.prepare(
     `SELECT ${column} AS value FROM sessions WHERE id = ?`,
   )
     .bind(sessionId)
     .first<{ value: string | null }>();
-  expect(row?.value).toBeTruthy();
+  return row?.value ?? null;
+}
+
+async function expectTimestampMatchesPurgeGlob(value: string | null): Promise<void> {
+  expect(value).toBeTruthy();
   const globRow = await env.DB.prepare(`SELECT 1 AS ok WHERE ? GLOB ?`)
-    .bind(row!.value, SESSION_TIMESTAMP_ISO_GLOB)
+    .bind(value, SESSION_TIMESTAMP_ISO_GLOB)
     .first<{ ok: number }>();
   expect(globRow?.ok).toBe(1);
+}
+
+async function expectTimestampFailsPurgeGlob(value: string | null): Promise<void> {
+  expect(value).toBeTruthy();
+  const globRow = await env.DB.prepare(`SELECT 1 AS ok WHERE ? GLOB ?`)
+    .bind(value, SESSION_TIMESTAMP_ISO_GLOB)
+    .first<{ ok: number }>();
+  expect(globRow?.ok).toBeUndefined();
 }
 
 describe("purgeExpiredSessions with auth-written sessions (DIDI-772 + DIDI-813)", () => {
@@ -59,16 +71,58 @@ describe("purgeExpiredSessions with auth-written sessions (DIDI-772 + DIDI-813)"
     const config = testConfig();
     const user = await getOrCreateUser(env.DB, 77204, "purge-glob");
     const { sessionId, rawToken } = await createBrowserSession(env.DB, config, user.id);
-    await expectTimestampMatchesPurgeGlob("expires_at", sessionId);
+    await expectTimestampMatchesPurgeGlob(
+      await readSessionColumn(sessionId, "expires_at"),
+    );
     await revokeBrowserSession(env.DB, rawToken);
-    await expectTimestampMatchesPurgeGlob("revoked_at", sessionId);
+    await expectTimestampMatchesPurgeGlob(
+      await readSessionColumn(sessionId, "revoked_at"),
+    );
+  });
+
+  it("does not purge when expires_at or revoked_at use six-digit fractional seconds", async () => {
+    const config = testConfig();
+    const user = await getOrCreateUser(env.DB, 77205, "purge-bad-ts");
+    const { sessionId, rawToken } = await createBrowserSession(env.DB, config, user.id);
+    const expiresAt = (await readSessionColumn(sessionId, "expires_at"))!.replace(
+      /\.\d{3}Z$/,
+      ".000000Z",
+    );
+    await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?")
+      .bind(expiresAt, sessionId)
+      .run();
+    await expectTimestampFailsPurgeGlob(expiresAt);
+
+    const result = await purgeExpiredSessions(env.DB, {
+      now: new Date(Date.parse(expiresAt) + MS_PER_DAY * 40),
+      log: () => {},
+    });
+    expect(result.totalDeleted).toBe(0);
+    expect(await sessionCount()).toBe(1);
+
+    await revokeBrowserSession(env.DB, rawToken);
+    const revokedAt = (await readSessionColumn(sessionId, "revoked_at"))!.replace(
+      /\.\d{3}Z$/,
+      ".000000Z",
+    );
+    await env.DB.prepare("UPDATE sessions SET revoked_at = ? WHERE id = ?")
+      .bind(revokedAt, sessionId)
+      .run();
+    await expectTimestampFailsPurgeGlob(revokedAt);
+    const second = await purgeExpiredSessions(env.DB, {
+      now: new Date(Date.parse(revokedAt) + MS_PER_DAY * 40),
+      log: () => {},
+    });
+    expect(second.totalDeleted).toBe(0);
   });
 
   it("deletes a session created by createBrowserSession when effective end is 30 days and 1 ms ago", async () => {
     const config = testConfig();
     const user = await getOrCreateUser(env.DB, 77201, "purge-auth");
     const { sessionId } = await createBrowserSession(env.DB, config, user.id);
-    await expectTimestampMatchesPurgeGlob("expires_at", sessionId);
+    await expectTimestampMatchesPurgeGlob(
+      await readSessionColumn(sessionId, "expires_at"),
+    );
 
     const effectiveEnd = new Date(NOW.getTime() - 30 * MS_PER_DAY - 1);
     await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?")
@@ -106,6 +160,24 @@ describe("purgeExpiredSessions with auth-written sessions (DIDI-772 + DIDI-813)"
     const effectiveEnd = new Date(NOW.getTime() - 30 * MS_PER_DAY);
     await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?")
       .bind(isoFrom(effectiveEnd), sessionId)
+      .run();
+
+    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+    expect(result.totalDeleted).toBe(0);
+    expect(await sessionCount()).toBe(1);
+  });
+
+  it("keeps a revoked session when revoked_at is exactly 30 days ago", async () => {
+    const config = testConfig();
+    const user = await getOrCreateUser(env.DB, 77206, "purge-revoked-keep");
+    const { sessionId } = await createBrowserSession(env.DB, config, user.id);
+
+    const revokedAt = new Date(NOW.getTime() - 30 * MS_PER_DAY);
+    const futureExpiry = new Date(NOW.getTime() + 365 * MS_PER_DAY);
+    await env.DB.prepare(
+      "UPDATE sessions SET revoked_at = ?, expires_at = ? WHERE id = ?",
+    )
+      .bind(isoFrom(revokedAt), isoFrom(futureExpiry), sessionId)
       .run();
 
     const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });

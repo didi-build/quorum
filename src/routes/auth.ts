@@ -89,7 +89,8 @@ export async function handleAuthRoute(
         clearAuthDisplayCookieHeader(config),
       ]);
     } catch {
-      return jsonDetail("Invalid or expired OAuth state", 400);
+      console.error(JSON.stringify({ event: "github_oauth_callback_failed" }));
+      return jsonDetail("GitHub OAuth failed", 500);
     }
   }
 
@@ -129,6 +130,7 @@ export async function handleAuthRoute(
     }
     const headers = new Headers();
     headers.append("Set-Cookie", clearSessionCookieHeader(config));
+    headers.append("Set-Cookie", clearAuthDisplayCookieHeader(config));
     return new Response(null, { status: 204, headers });
   }
 

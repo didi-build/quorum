@@ -81,28 +81,28 @@ d1_tables:
         whose: operational
         data: API key UUID
         purpose: primary key
-        retention: until key revoked or account deletion runbook
+        retention: until manual bootstrap rotation (delete D1 row per docs/privacy/retention.md) or account deletion runbook
       key_hash:
         whose: operational
         data: SHA-256 hash of API key material
         purpose: authenticate API clients without storing raw key
-        retention: until key revoked or account deletion runbook
+        retention: until manual bootstrap rotation (delete D1 row per docs/privacy/retention.md) or account deletion runbook
         notes: secret
       user_id:
         whose: user
         data: Optional scoped user UUID
         purpose: attribute API usage to an allowlisted user
-        retention: until key revoked or account deletion runbook
+        retention: until manual bootstrap rotation (delete D1 row per docs/privacy/retention.md) or account deletion runbook
       project_id:
         whose: operational
         data: Optional project UUID scope
         purpose: future multi-project isolation
-        retention: until key revoked or account deletion runbook
+        retention: until manual bootstrap rotation (delete D1 row per docs/privacy/retention.md) or account deletion runbook
       created_at:
         whose: operational
         data: API key creation timestamp (ISO 8601 UTC)
         purpose: audit
-        retention: until key revoked or account deletion runbook
+        retention: until manual bootstrap rotation (delete D1 row per docs/privacy/retention.md) or account deletion runbook
 
   connections:
     defaults:

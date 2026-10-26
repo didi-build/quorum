@@ -8,6 +8,7 @@ import {
 } from "../../src/domain/auth/browser-session.js";
 import { ensureBootstrapApiKey } from "../../src/domain/auth/api-key.js";
 import worker from "../../src/index";
+import { CHAT_WS_PROBE_ECHO_MAX_BYTES } from "../../src/routes/chat-ws.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 
@@ -132,6 +133,55 @@ describe("chat WebSocket auth (worker integration)", () => {
     const response = await worker.fetch(request, testEnv(), ctx);
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(403);
+  });
+
+  it("probe echo omits user_id and caps UTF-8 payload at 4096 bytes", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 999010, "echo-user")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const request = new Request("http://test/chat/ws", {
+      headers: {
+        Upgrade: "websocket",
+        Origin: "http://test",
+        Cookie: `${cfg.sessionCookieName}=${rawToken}`,
+      },
+    });
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, testEnv(), ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(101);
+    const ws = response.webSocket;
+    expect(ws).toBeDefined();
+    ws!.accept();
+
+    const overLimit = "a".repeat(CHAT_WS_PROBE_ECHO_MAX_BYTES - 3) + "😀extra";
+    const frame = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("websocket message timeout")),
+        5000,
+      );
+      ws!.addEventListener("message", (event) => {
+        clearTimeout(timer);
+        resolve(JSON.parse(String(event.data)) as Record<string, unknown>);
+      });
+      ws!.addEventListener("error", (event) => {
+        clearTimeout(timer);
+        reject(event);
+      });
+      ws!.send(overLimit);
+    });
+
+    expect(frame.authenticated).toBe(true);
+    expect(frame).not.toHaveProperty("user_id");
+    expect(typeof frame.echo).toBe("string");
+    expect(
+      new TextEncoder().encode(frame.echo as string).byteLength,
+    ).toBeLessThanOrEqual(CHAT_WS_PROBE_ECHO_MAX_BYTES);
+    expect(frame.echo).toBe("a".repeat(CHAT_WS_PROBE_ECHO_MAX_BYTES - 3));
   });
 
   it("accepts API key without Origin", async () => {

@@ -13,6 +13,6 @@ This note summarizes automated retention for personal data stored in Quorum. The
 
 ## API keys (`api_keys` table)
 
-There is no in-app revocation for machine API keys yet. To rotate the bootstrap key, set a new `BOOTSTRAP_API_KEY`, deploy, then manually delete the old `user_id IS NULL` row for the previous hash in D1 so the previous key cannot authenticate.
+There is no in-app revocation for machine API keys yet. To rotate the bootstrap key: set a new `BOOTSTRAP_API_KEY`, deploy, then in D1 delete the `api_keys` row where `user_id IS NULL` and `key_hash` is the SHA-256 hash of the previous bootstrap secret so the old key cannot authenticate.
 
 Account deletion and other stores follow `docs/runbooks/account-deletion.md` and per-column retention in the data map.

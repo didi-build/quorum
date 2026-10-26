@@ -1,13 +1,11 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import type { QuorumConfig } from "../../config/types.js";
+import { bytesToBase64Url, sha256Hex } from "../../lib/crypto.js";
 import { isoFrom, isoNow } from "../../lib/time.js";
 import { actorContext, type ActorContext } from "../schemas/actor.js";
 
 export async function hashSessionToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return sha256Hex(token);
 }
 
 export function sessionMaxAgeSeconds(config: QuorumConfig): number {
@@ -17,14 +15,6 @@ export function sessionMaxAgeSeconds(config: QuorumConfig): number {
 function randomTokenUrlSafe(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return bytesToBase64Url(bytes);
-}
-
-function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function addDaysIso(days: number): string {

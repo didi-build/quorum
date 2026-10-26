@@ -14,6 +14,9 @@ import { ConfigError } from "./errors.js";
 
 const DEFAULT_USER_ID = "00000000-0000-4000-8000-000000000001";
 
+/** Upper bound for browser session cookie TTL (days). */
+export const MAX_SESSION_TTL_DAYS = 400;
+
 export type ConfigEnv = Record<string, unknown>;
 
 function asConfigEnv(env: Env | ConfigEnv): ConfigEnv {
@@ -66,7 +69,7 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
   const wsAllowedOriginSet = parseWsAllowedOriginSet(wsAllowedOriginsRaw, appBaseUrl);
 
   const sessionTtlDays = envInt(configEnv, "SESSION_TTL_DAYS", 30);
-  if (sessionTtlDays <= 0) {
+  if (sessionTtlDays <= 0 || sessionTtlDays > MAX_SESSION_TTL_DAYS) {
     throw ConfigError.invalid("SESSION_TTL_DAYS");
   }
 

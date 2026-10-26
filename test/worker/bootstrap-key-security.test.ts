@@ -4,7 +4,11 @@ import { hashApiKey } from "../../src/domain/auth/api-key.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
 import worker from "../../src/index";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
-import { workerEnvWithSecrets } from "./test-env.js";
+import {
+  effectiveAppEnv,
+  workerEnvWithoutAppEnv,
+  workerEnvWithSecrets,
+} from "./test-env.js";
 
 const DEV_BOOTSTRAP = "dev-api-key-change-me";
 
@@ -14,15 +18,18 @@ describe("default bootstrap key rejected outside development (worker integration
   });
 
   it("does not authenticate dev-api-key-change-me on /sources when APP_ENV is production", async () => {
+    const bindings = workerEnvWithSecrets({
+      ...env,
+      ...withTestConfigEnv({ APP_ENV: "production" }),
+    });
+    expect(effectiveAppEnv(bindings)).toBe("production");
+
     const ctx = createExecutionContext();
     const response = await worker.fetch(
       new Request("http://test/sources", {
         headers: { "X-API-Key": DEV_BOOTSTRAP },
       }),
-      workerEnvWithSecrets({
-        ...env,
-        ...withTestConfigEnv({ APP_ENV: "production" }),
-      }),
+      bindings,
       ctx,
     );
     await waitOnExecutionContext(ctx);
@@ -36,6 +43,7 @@ describe("default bootstrap key rejected outside development (worker integration
       ...withTestConfigEnv({ APP_ENV: "production" }),
     });
     delete broken.BOOTSTRAP_API_KEY;
+
     const ctx = createExecutionContext();
     const response = await worker.fetch(
       new Request("http://test/sources", {
@@ -53,6 +61,8 @@ describe("default bootstrap key rejected outside development (worker integration
       ...env,
       ...withTestConfigEnv({ APP_ENV: "production" }),
     });
+    expect(effectiveAppEnv(prodEnv)).toBe("production");
+
     const staleHash = await hashApiKey(DEV_BOOTSTRAP);
     await env.DB.prepare(
       "INSERT INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
@@ -69,6 +79,47 @@ describe("default bootstrap key rejected outside development (worker integration
         },
       }),
       prodEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect([401, 503]).toContain(response.status);
+  });
+
+  it("rejects dev-api-key-change-me on /sources when APP_ENV is unset (fail closed)", async () => {
+    const bindings = workerEnvWithoutAppEnv({
+      ...env,
+      ...withTestConfigEnv(),
+    });
+    expect(effectiveAppEnv(bindings)).toBe("production");
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/sources", {
+        headers: { "X-API-Key": DEV_BOOTSTRAP },
+      }),
+      bindings,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect([401, 503]).toContain(response.status);
+  });
+
+  it("rejects dev-api-key-change-me on /chat/ws when APP_ENV is unset (fail closed)", async () => {
+    const bindings = workerEnvWithoutAppEnv({
+      ...env,
+      ...withTestConfigEnv(),
+    });
+    expect(effectiveAppEnv(bindings)).toBe("production");
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/chat/ws", {
+        headers: {
+          Upgrade: "websocket",
+          "X-API-Key": DEV_BOOTSTRAP,
+        },
+      }),
+      bindings,
       ctx,
     );
     await waitOnExecutionContext(ctx);

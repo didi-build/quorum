@@ -4,6 +4,10 @@ import { loadConfig } from "../../src/config/index.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
 import { createBrowserSession } from "../../src/domain/auth/browser-session.js";
 import {
+  clearAuthDisplayCookieHeader,
+  clearSessionCookieHeader,
+} from "../../src/domain/auth/cookies.js";
+import {
   createAuthDisplayValue,
   createLoginOauthState,
 } from "../../src/domain/auth/signing.js";
@@ -72,6 +76,8 @@ describe("auth routes (worker integration)", () => {
     const cfg = loadConfig(testEnv());
     const state = await createLoginOauthState(cfg.sessionSecret, 1);
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
@@ -82,8 +88,40 @@ describe("auth routes (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     vi.restoreAllMocks();
 
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(response.status).toBe(400);
     const cookies = response.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith(`${cfg.sessionCookieName}=`))).toBe(false);
+    expect(cookies.some((c) => c === clearSessionCookieHeader(cfg))).toBe(false);
+    expect(cookies.some((c) => c === clearAuthDisplayCookieHeader(cfg))).toBe(false);
+  });
+
+  it("POST /auth/logout clears session and display cookies with Secure", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 12345, "logout-user")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+    const signed = await createAuthDisplayValue(cfg.sessionSecret, "logout-user");
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/auth/logout", {
+        method: "POST",
+        headers: {
+          Cookie: `${cfg.sessionCookieName}=${rawToken}; ${cfg.authDisplayCookieName}=${signed}`,
+        },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(204);
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toContain(clearSessionCookieHeader(cfg));
+    expect(cookies).toContain(clearAuthDisplayCookieHeader(cfg));
+    expect(cookies.every((c) => c.includes("Secure"))).toBe(true);
   });
 });

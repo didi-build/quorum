@@ -4,12 +4,10 @@ import {
   DEV_VARS_EXAMPLE_PLACEHOLDERS,
   isDevelopmentAppEnv,
 } from "../../config/placeholder-secrets.js";
+import { sha256Hex } from "../../lib/crypto.js";
 
 export async function hashApiKey(key: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return sha256Hex(key);
 }
 
 /**

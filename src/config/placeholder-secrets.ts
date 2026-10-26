@@ -1,6 +1,4 @@
 import { ConfigError } from "./errors.js";
-import type { RequiredSecretKey } from "./required-secrets.js";
-
 /** Placeholder values from `.dev.vars.example` that must not be used outside development. */
 export const DEV_VARS_EXAMPLE_PLACEHOLDERS: Readonly<
   Record<string, readonly string[]>
@@ -55,8 +53,3 @@ export function rejectDevPlaceholderSecrets(
     }
   }
 }
-
-export type SecretValuesForPlaceholderCheck = Record<
-  RequiredSecretKey | "BOOTSTRAP_API_KEY",
-  string
->;

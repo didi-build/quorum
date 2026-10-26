@@ -2,7 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker from "../../src/index";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
-import { workerEnvWithSecrets } from "./test-env.js";
+import { effectiveAppEnv, workerEnvWithSecrets } from "./test-env.js";
 
 describe("public auth routes and config (worker integration)", () => {
   afterEach(() => {
@@ -31,8 +31,13 @@ describe("public auth routes and config (worker integration)", () => {
   it("sets Secure on session cookie in production config", async () => {
     const prodEnv = workerEnvWithSecrets({
       ...env,
-      ...withTestConfigEnv({ APP_ENV: "production" }),
+      ...withTestConfigEnv({
+        APP_ENV: "production",
+        AUTH_ALLOWED_GITHUB_IDS: "12345",
+        APP_BASE_URL: "http://test",
+      }),
     });
+    expect(effectiveAppEnv(prodEnv)).toBe("production");
     const { createLoginOauthState } = await import("../../src/domain/auth/signing.js");
     const state = await createLoginOauthState(prodEnv.SESSION_SECRET as string);
     vi.stubGlobal(
@@ -54,14 +59,7 @@ describe("public auth routes and config (worker integration)", () => {
     const ctx = createExecutionContext();
     const response = await worker.fetch(
       new Request(`http://test/auth/github/callback?code=c&state=${state}`),
-      workerEnvWithSecrets({
-        ...prodEnv,
-        ...withTestConfigEnv({
-          APP_ENV: "production",
-          AUTH_ALLOWED_GITHUB_IDS: "12345",
-          APP_BASE_URL: "http://test",
-        }),
-      }),
+      prodEnv,
       ctx,
     );
     await waitOnExecutionContext(ctx);
