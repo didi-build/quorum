@@ -1,6 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { purgeExpiredSessions } from "../../src/jobs/session-purge.js";
+import {
+  SESSION_PURGE_CANDIDATE_SELECT_SQL,
+  purgeExpiredSessions,
+  sessionPurgeCutoffIso,
+} from "../../src/jobs/session-purge.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000060";
 const NOW = new Date("2026-10-26T12:00:00.000Z");
@@ -217,6 +221,54 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
     expect(result.batches).toBe(1);
     expect(result.capped).toBe(true);
     expect(await sessionCount()).toBe(2);
+  });
+
+  it("skips 24-character malformed expires_at values and counts them", async () => {
+    await insertSession(
+      "00000000-0000-4000-8000-000000000074",
+      "2020-1X-26T12:00:00.000Z",
+      null,
+      "hash-24char-letter",
+    );
+    await insertSession(
+      "00000000-0000-4000-8000-000000000075",
+      "2020/10/26T12:00:00.000Z",
+      null,
+      "hash-24char-slash",
+    );
+    await insertSession(
+      "00000000-0000-4000-8000-000000000076",
+      daysBeforeNow(45),
+      null,
+      "hash-valid-control",
+    );
+
+    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+
+    expect(result.totalDeleted).toBe(1);
+    expect(result.malformedTimestampSkipped).toBe(2);
+    expect(await sessionCount()).toBe(2);
+  });
+
+  it("uses expires_at and revoked_at indexes in the purge candidate plan", async () => {
+    await insertSession(
+      "00000000-0000-4000-8000-000000000077",
+      daysBeforeNow(40),
+      daysBeforeNow(50),
+      "hash-explain",
+    );
+
+    const cutoffIso = sessionPurgeCutoffIso(NOW);
+    const plan = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN ${SESSION_PURGE_CANDIDATE_SELECT_SQL}`,
+    )
+      .bind(cutoffIso, cutoffIso, cutoffIso)
+      .all<{ detail: string }>();
+
+    const detailText = (plan.results ?? []).map((row) => row.detail).join("\n");
+    expect(detailText).toContain("ix_sessions_expires_at");
+    expect(detailText).toContain("ix_sessions_revoked_at");
+    expect(detailText).not.toMatch(/SCAN sessions/);
   });
 
   it("does not purge rows with non-ISO timestamp shapes", async () => {
