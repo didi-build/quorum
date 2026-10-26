@@ -18,10 +18,14 @@ function vitestLine(label, junitPath) {
   const tests = Number(xml.match(/tests="(\d+)"/)?.[1] ?? 0);
   const failures = Number(xml.match(/failures="(\d+)"/)?.[1] ?? 0);
   const errors = Number(xml.match(/errors="(\d+)"/)?.[1] ?? 0);
+  const skipped = Number(xml.match(/skipped="(\d+)"/)?.[1] ?? 0);
   const failed = failures + errors;
-  const passed = Math.max(0, tests - failed);
+  const passed = Math.max(0, tests - failed - skipped);
   const icon = failed === 0 ? "✅" : "❌";
-  return `${icon} **${label}**: ${passed}/${tests} passed (${failed} failed)`;
+  const result =
+    skipped > 0 ? `${passed} passed, ${skipped} skipped` : `${passed}/${tests} passed`;
+  const failedSuffix = failed > 0 ? ` (${failed} failed)` : "";
+  return `${icon} **${label}**: ${result}${failedSuffix}`;
 }
 
 function stepLine(label, outcome, detail) {

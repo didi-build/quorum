@@ -64,4 +64,35 @@ describe("ci-test-summary (unit)", () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("reports skipped tests separately instead of counting them as passed", () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "quorum-ci-summary-"));
+    try {
+      const junitPath = path.join(tmp, "junit.xml");
+      const workerJunitPath = path.join(tmp, "worker-junit.xml");
+      writeFileSync(
+        junitPath,
+        '<?xml version="1.0"?><testsuites tests="10" failures="0" errors="0" skipped="2"></testsuites>',
+      );
+      writeFileSync(
+        workerJunitPath,
+        '<?xml version="1.0"?><testsuites tests="5" failures="1" errors="0" skipped="1"></testsuites>',
+      );
+      const body = runSummary({
+        INSTALL_OUTCOME: "success",
+        CHECK_OUTCOME: "success",
+        NODRIFT_OUTCOME: "success",
+        WORKER_TESTS_OUTCOME: "success",
+        PR_HEAD_SHA: "0000000000000000",
+        UNIT_JUNIT_PATH: junitPath,
+        WORKER_JUNIT_PATH: workerJunitPath,
+      });
+      expect(body).toContain("**Vitest (unit)**: 8 passed, 2 skipped");
+      expect(body).toContain(
+        "**Vitest (Worker, vitest-pool-workers)**: 3 passed, 1 skipped (1 failed)",
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
