@@ -42,6 +42,18 @@ describe("resolveChatTransport", () => {
     );
   });
 
+  it("uses mock in mock-preview when VITE_CHAT_MOCK is unset", async () => {
+    vi.stubEnv("DEV", "");
+    vi.stubEnv("PROD", "true");
+    vi.stubEnv("MODE", "mock-preview");
+    vi.stubEnv("VITE_CHAT_MOCK", "");
+    const { MockChatTransport } = await import("./mock");
+    const { resolveChatTransport, setChatTransport } = await loadTransportIndex();
+    setChatTransport(null);
+    const transport = await resolveChatTransport();
+    expect(transport).toBeInstanceOf(MockChatTransport);
+  });
+
   it("uses live in PROD even when VITE_CHAT_MOCK is true", async () => {
     vi.stubEnv("DEV", "");
     vi.stubEnv("PROD", "true");

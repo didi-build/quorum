@@ -10,7 +10,10 @@ export async function resolveChatTransport(): Promise<ChatTransport> {
   }
   if (!transportPromise) {
     transportPromise = (async () => {
-      if (import.meta.env.DEV && import.meta.env.VITE_CHAT_MOCK !== "false") {
+      if (
+        (import.meta.env.DEV || import.meta.env.MODE === "mock-preview") &&
+        import.meta.env.VITE_CHAT_MOCK !== "false"
+      ) {
         const { createMockChatTransport } = await import("./mock");
         transport = createMockChatTransport();
       } else {
