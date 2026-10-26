@@ -6,11 +6,16 @@ import {
   optionalEnvString,
   requireEnvString,
 } from "./env-string.js";
+import { rejectDevPlaceholderSecrets, resolveAppEnv } from "./placeholder-secrets.js";
 import { parseAllowedGithubIds, parseWsAllowedOriginSet } from "./parse.js";
 import { REQUIRED_SECRET_KEYS } from "./required-secrets.js";
 import type { QuorumConfig } from "./types.js";
+import { ConfigError } from "./errors.js";
 
 const DEFAULT_USER_ID = "00000000-0000-4000-8000-000000000001";
+
+/** Upper bound for browser session cookie TTL (days). */
+export const MAX_SESSION_TTL_DAYS = 90;
 
 export type ConfigEnv = Record<string, unknown>;
 
@@ -28,6 +33,34 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
   const configEnv = asConfigEnv(env);
   requireSecrets(configEnv);
 
+  const appEnv = resolveAppEnv(optionalEnvString(configEnv, "APP_ENV"));
+
+  const tokenEncryptionKey = requireEnvString(configEnv, "TOKEN_ENCRYPTION_KEY");
+  const sessionSecret = requireEnvString(configEnv, "SESSION_SECRET");
+  const bootstrapApiKey = requireEnvString(configEnv, "BOOTSTRAP_API_KEY");
+  const voyageApiKey = requireEnvString(configEnv, "VOYAGE_API_KEY");
+  const anthropicApiKey = requireEnvString(configEnv, "ANTHROPIC_API_KEY");
+  const githubAppOauthClientSecret = requireEnvString(
+    configEnv,
+    "GITHUB_APP_OAUTH_CLIENT_SECRET",
+  );
+  const githubAppPrivateKeyBase64 = requireEnvString(
+    configEnv,
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+  );
+  const linearClientSecret = requireEnvString(configEnv, "LINEAR_CLIENT_SECRET");
+
+  rejectDevPlaceholderSecrets(appEnv, {
+    TOKEN_ENCRYPTION_KEY: tokenEncryptionKey,
+    SESSION_SECRET: sessionSecret,
+    BOOTSTRAP_API_KEY: bootstrapApiKey,
+    VOYAGE_API_KEY: voyageApiKey,
+    ANTHROPIC_API_KEY: anthropicApiKey,
+    GITHUB_APP_OAUTH_CLIENT_SECRET: githubAppOauthClientSecret,
+    GITHUB_APP_PRIVATE_KEY_BASE64: githubAppPrivateKeyBase64,
+    LINEAR_CLIENT_SECRET: linearClientSecret,
+  });
+
   const appBaseUrl = envString(configEnv, "APP_BASE_URL", "http://localhost:8787");
   const authAllowedGithubIdsRaw = envString(configEnv, "AUTH_ALLOWED_GITHUB_IDS", "");
   const wsAllowedOriginsRaw = envString(configEnv, "WS_ALLOWED_ORIGINS", "");
@@ -35,29 +68,31 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
   const allowedGithubIds = parseAllowedGithubIds(authAllowedGithubIdsRaw);
   const wsAllowedOriginSet = parseWsAllowedOriginSet(wsAllowedOriginsRaw, appBaseUrl);
 
+  const sessionTtlDays = envInt(configEnv, "SESSION_TTL_DAYS", 30);
+  if (sessionTtlDays <= 0 || sessionTtlDays > MAX_SESSION_TTL_DAYS) {
+    throw ConfigError.invalid("SESSION_TTL_DAYS");
+  }
+
   return {
-    appEnv: envString(configEnv, "APP_ENV", "development"),
+    appEnv,
     appBaseUrl,
     defaultUserId: envString(configEnv, "DEFAULT_USER_ID", DEFAULT_USER_ID),
 
-    tokenEncryptionKey: requireEnvString(configEnv, "TOKEN_ENCRYPTION_KEY"),
-    bootstrapApiKey: envString(configEnv, "BOOTSTRAP_API_KEY", "dev-api-key-change-me"),
+    tokenEncryptionKey,
+    bootstrapApiKey,
 
     githubAppOauthClientId:
       optionalEnvString(configEnv, "GITHUB_APP_OAUTH_CLIENT_ID") ?? "",
-    githubAppOauthClientSecret: requireEnvString(
-      configEnv,
-      "GITHUB_APP_OAUTH_CLIENT_SECRET",
-    ),
+    githubAppOauthClientSecret,
     githubAuthRedirectUri: envString(
       configEnv,
       "GITHUB_AUTH_REDIRECT_URI",
       "http://localhost:8787/auth/github/callback",
     ),
     authAllowedGithubIdsRaw,
-    sessionSecret: requireEnvString(configEnv, "SESSION_SECRET"),
+    sessionSecret,
     sessionCookieName: envString(configEnv, "SESSION_COOKIE_NAME", "quorum_session"),
-    sessionTtlDays: envInt(configEnv, "SESSION_TTL_DAYS", 30),
+    sessionTtlDays,
     authDisplayCookieName: envString(
       configEnv,
       "AUTH_DISPLAY_COOKIE_NAME",
@@ -67,13 +102,10 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
 
     githubAppId: optionalEnvString(configEnv, "GITHUB_APP_ID") ?? "",
     githubAppSlug: optionalEnvString(configEnv, "GITHUB_APP_SLUG") ?? "",
-    githubAppPrivateKeyBase64: requireEnvString(
-      configEnv,
-      "GITHUB_APP_PRIVATE_KEY_BASE64",
-    ),
+    githubAppPrivateKeyBase64,
 
     linearClientId: optionalEnvString(configEnv, "LINEAR_CLIENT_ID") ?? "",
-    linearClientSecret: requireEnvString(configEnv, "LINEAR_CLIENT_SECRET"),
+    linearClientSecret,
     linearRedirectUri: envString(
       configEnv,
       "LINEAR_REDIRECT_URI",
@@ -81,7 +113,7 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
     ),
     linearScopes: envString(configEnv, "LINEAR_SCOPES", "read write"),
 
-    voyageApiKey: requireEnvString(configEnv, "VOYAGE_API_KEY"),
+    voyageApiKey,
     voyageBaseUrl: optionalEnvString(configEnv, "VOYAGE_BASE_URL") ?? "",
     voyageModel: envString(configEnv, "VOYAGE_MODEL", "voyage-context-4"),
     embeddingDimensions: envInt(configEnv, "EMBEDDING_DIMENSIONS", 1024),
@@ -93,7 +125,7 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
     chunkTargetTokens: envInt(configEnv, "CHUNK_TARGET_TOKENS", 512),
     chunkOverlapTokens: envInt(configEnv, "CHUNK_OVERLAP_TOKENS", 50),
 
-    anthropicApiKey: requireEnvString(configEnv, "ANTHROPIC_API_KEY"),
+    anthropicApiKey,
     supervisorModel: envString(configEnv, "SUPERVISOR_MODEL", "claude-haiku-4-5"),
     retrievalAnswerModel: envString(
       configEnv,
