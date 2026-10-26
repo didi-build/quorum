@@ -11,6 +11,7 @@ import {
   requiresAuthentication,
 } from "./domain/auth/middleware.js";
 import type { Env } from "./env.js";
+import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
 import { handleChatWebSocket } from "./routes/chat-ws.js";
@@ -88,6 +89,14 @@ async function handleProtectedApi(
 }
 
 export default {
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    await purgeExpiredSessions(env.DB);
+  },
+
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);

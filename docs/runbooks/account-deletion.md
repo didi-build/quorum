@@ -13,6 +13,10 @@ Use this runbook when a user requests account deletion or when you must remove p
 - Revoke active sessions and API tokens tied to the account.
 - Removing a GitHub id from `AUTH_ALLOWED_GITHUB_IDS` blocks new sign-ins only; it does not end existing browser sessions. Revoke that user's `sessions` rows explicitly.
 
+### Browser session rows (`sessions` table)
+
+Auth rejects expired and revoked browser sessions on every authenticated request at auth time (in place). For retention, a daily Worker cron deletes `sessions` rows when the earlier of `expires_at` and `revoked_at` (ISO 8601 UTC) is more than **30 days** in the past. Rows persist until that job runs (production cron not deployed yet). See `docs/privacy/data-map.yml` (`sessions` table) and `docs/privacy/retention.md`.
+
 ## 3. Delete or anonymize by store
 
 Use `docs/privacy/data-map.yml` as the checklist of stores. For each row that holds this user's data, record what you did.
@@ -39,6 +43,7 @@ Use `docs/privacy/data-map.yml` as the checklist of stores. For each row that ho
 ## 7. Related links
 
 - `docs/privacy/data-map.yml`
+- `docs/privacy/retention.md`
 - `docs/privacy/subprocessors.yml`
 - Vendor deletion or data-processing tickets (if any)
 
