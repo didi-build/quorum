@@ -30,39 +30,40 @@ describe("capture-preview-screenshots (integration)", () => {
     expect(shouldSkipCapturePreviewIntegrationTest(undefined, false)).toBe(true);
   });
 
-  it.skipIf(shouldSkipCapturePreviewIntegrationTest())(
-    integrationTitle,
-    { timeout: 300_000 },
-    () => {
-      expect(chromiumReady, PLAYWRIGHT_CHROMIUM_CI_REQUIRED_MESSAGE).toBe(true);
+  it.skipIf(
+    shouldSkipCapturePreviewIntegrationTest(
+      process.env.CI,
+      playwrightChromiumInstalled(),
+    ),
+  )(integrationTitle, { timeout: 300_000 }, () => {
+    expect(chromiumReady, PLAYWRIGHT_CHROMIUM_CI_REQUIRED_MESSAGE).toBe(true);
 
-      execSync("npm run build:frontend:mock-preview", {
+    execSync("npm run build:frontend:mock-preview", {
+      cwd: root,
+      stdio: "pipe",
+      env: process.env,
+    });
+
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-preview-shots-"));
+    try {
+      execSync("node scripts/capture-preview-screenshots.mjs", {
         cwd: root,
         stdio: "pipe",
-        env: process.env,
+        env: (() => {
+          const env = { ...process.env, PREVIEW_SCREENSHOTS_DIR: outDir };
+          delete env.PREVIEW_BASE_URL;
+          return env;
+        })(),
       });
-
-      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-preview-shots-"));
-      try {
-        execSync("node scripts/capture-preview-screenshots.mjs", {
-          cwd: root,
-          stdio: "pipe",
-          env: (() => {
-            const env = { ...process.env, PREVIEW_SCREENSHOTS_DIR: outDir };
-            delete env.PREVIEW_BASE_URL;
-            return env;
-          })(),
-        });
-        const pngs = fs.readdirSync(outDir).filter((name) => name.endsWith(".png"));
-        expect(pngs).toHaveLength(expectedPreviewScreenshotCount());
-        expect(pngs).toContain("landing-390-light.png");
-        expect(pngs).toContain("connections-1280-dark.png");
-        expect(
-          fs.readFileSync(path.join(outDir, "capture-source.txt"), "utf8").trim(),
-        ).toBe("local-static-server");
-      } finally {
-        fs.rmSync(outDir, { recursive: true, force: true });
-      }
-    },
-  );
+      const pngs = fs.readdirSync(outDir).filter((name) => name.endsWith(".png"));
+      expect(pngs).toHaveLength(expectedPreviewScreenshotCount());
+      expect(pngs).toContain("landing-390-light.png");
+      expect(pngs).toContain("connections-1280-dark.png");
+      expect(
+        fs.readFileSync(path.join(outDir, "capture-source.txt"), "utf8").trim(),
+      ).toBe("local-static-server");
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  });
 });

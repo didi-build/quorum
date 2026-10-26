@@ -10,10 +10,10 @@ export function playwrightChromiumInstalled(): boolean {
   }
 }
 
-/** Skip the capture integration test only on local machines without Chromium; CI must install browsers and run it. */
+/** Skip the capture integration test only when CI is unset and Chromium is missing. */
 export function shouldSkipCapturePreviewIntegrationTest(
-  ci: NodeJS.ProcessEnv["CI"] = process.env.CI,
-  hasChromium: boolean = playwrightChromiumInstalled(),
+  ci: NodeJS.ProcessEnv["CI"],
+  hasChromium: boolean,
 ): boolean {
   return !hasChromium && !ci;
 }
