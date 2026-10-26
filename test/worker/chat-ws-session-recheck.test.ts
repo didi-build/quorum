@@ -12,6 +12,7 @@ import { resetChatWebSocketRegistry } from "../../src/domain/auth/chat-ws-regist
 import { createBrowserSession } from "../../src/domain/auth/browser-session.js";
 import worker from "../../src/index";
 import * as chatWsInbound from "../../src/routes/chat-ws-inbound.js";
+import { attachChatWsInboundHandler } from "../../src/routes/chat-ws-inbound.js";
 import {
   CHAT_WS_AUTH_INVALID_CLOSE_REASON,
   CHAT_WS_AUTH_INVALID_CLOSE_CODE,
@@ -245,8 +246,36 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     expect(closeEvent.code).toBe(CHAT_WS_AUTH_INVALID_CLOSE_CODE);
     expect(closeEvent.reason).toBe(CHAT_WS_AUTH_INVALID_CLOSE_REASON);
     await vi.waitFor(() => {
-      expect(deliverSpy).not.toHaveBeenCalledWith(ws, "should-not-echo");
+      expect(deliverSpy).not.toHaveBeenCalledWith(expect.anything(), "should-not-echo");
     });
+  });
+
+  it("closes with 1008 when recheckAuth throws during re-check", async () => {
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+    client.accept();
+
+    attachChatWsInboundHandler(
+      server,
+      testEnv(),
+      { sessionToken: "inbound-test-token", apiKey: null },
+      {
+        clock: { nowMs: () => Date.now() },
+        recheckAuth: async () => {
+          throw new Error("recheck auth threw");
+        },
+        deliverProbeEcho: chatWsInbound.deliverChatWsProbeEcho,
+      },
+    );
+
+    const closed = waitForClose(client);
+    vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
+    client.send("after-recheck-throw");
+
+    const closeEvent = await closed;
+    expect(closeEvent.code).toBe(CHAT_WS_AUTH_INVALID_CLOSE_CODE);
+    expect(closeEvent.reason).toBe(CHAT_WS_AUTH_INVALID_CLOSE_REASON);
   });
 
   it("closes with 1008 when loadConfig throws during re-check", async () => {
@@ -440,7 +469,37 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     expect((await closed).code).toBe(1008);
     await vi.waitFor(() => {
-      expect(deliverSpy).not.toHaveBeenCalledWith(ws, "must-not-echo");
+      expect(deliverSpy).not.toHaveBeenCalledWith(expect.anything(), "must-not-echo");
+    });
+  });
+
+  it("drops queued inbound frames when the socket closes", async () => {
+    const workerEnv = testEnv();
+    const cfg = loadConfig(workerEnv);
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 999026, "recheck-close-queue")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const deliverSpy = vi.spyOn(chatWsInbound, "deliverChatWsProbeEcho");
+    const ws = await openSessionChatWebSocket(workerEnv, rawToken);
+
+    await env.DB.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ?")
+      .bind(new Date().toISOString(), userId)
+      .run();
+
+    const closed = waitForClose(ws);
+    vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
+    ws.send("first-after-revoke");
+    ws.send("second-after-revoke");
+
+    expect((await closed).code).toBe(1008);
+    await vi.waitFor(() => {
+      expect(deliverSpy).not.toHaveBeenCalledWith(
+        expect.anything(),
+        "second-after-revoke",
+      );
     });
   });
 });

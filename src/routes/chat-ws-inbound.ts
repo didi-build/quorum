@@ -50,6 +50,11 @@ export function attachChatWsInboundHandler(
   const queue: string[] = [];
   let draining = false;
 
+  function markSocketClosedAndClearQueue(): void {
+    socketClosed = true;
+    queue.length = 0;
+  }
+
   async function runRecheckIfDue(nowMs: number): Promise<boolean> {
     if (!chatWsRecheckDue(lastRecheckAtMs, nowMs)) {
       return true;
@@ -59,7 +64,12 @@ export function attachChatWsInboundHandler(
     }
     recheckInFlight = (async () => {
       try {
-        const valid = await deps.recheckAuth(env, authRecheck);
+        let valid: boolean;
+        try {
+          valid = await deps.recheckAuth(env, authRecheck);
+        } catch {
+          return false;
+        }
         if (valid) {
           lastRecheckAtMs = nowMs;
         }
@@ -78,7 +88,7 @@ export function attachChatWsInboundHandler(
     const nowMs = deps.clock.nowMs();
     const stillValid = await runRecheckIfDue(nowMs);
     if (!stillValid) {
-      socketClosed = true;
+      markSocketClosedAndClearQueue();
       closeChatWsAuthInvalid(server);
       return;
     }
@@ -102,6 +112,10 @@ export function attachChatWsInboundHandler(
       }
     }
   }
+
+  server.addEventListener("close", () => {
+    markSocketClosedAndClearQueue();
+  });
 
   server.addEventListener("message", (event) => {
     void (async () => {
