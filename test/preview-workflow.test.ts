@@ -159,6 +159,8 @@ jobs:
     expect(comment).toContain("needs.screenshots.outputs.artifact_url");
     expect(comment).toContain("SCREENSHOT_ARTIFACT_URL");
     expect(comment).toContain("body-file: preview-comment.md");
+    expect(comment).toContain("honours `_redirects` / `_headers`");
+    expect(comment).not.toContain("honours \\`_redirects\\`");
   });
 
   it("runs screenshots when build succeeds and the workflow was not cancelled", () => {
