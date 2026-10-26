@@ -1,5 +1,12 @@
 import type { QuorumConfig } from "../../config/types.js";
 
+export class GithubTokenExchangeError extends Error {
+  constructor(message = "GitHub token exchange failed") {
+    super(message);
+    this.name = "GithubTokenExchangeError";
+  }
+}
+
 const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_URL = "https://api.github.com/user";
@@ -28,28 +35,46 @@ export async function exchangeGithubUserCode(
     throw new Error("GITHUB_APP_OAUTH_CLIENT_SECRET is not configured");
   }
 
-  const response = await fetch(GITHUB_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "User-Agent": GITHUB_HTTP_USER_AGENT,
-    },
-    body: new URLSearchParams({
-      client_id: config.githubAppOauthClientId,
-      client_secret: config.githubAppOauthClientSecret,
-      code,
-      redirect_uri: config.githubAuthRedirectUri,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error("GitHub token exchange failed");
+  let response: Response;
+  try {
+    response = await fetch(GITHUB_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "User-Agent": GITHUB_HTTP_USER_AGENT,
+      },
+      body: new URLSearchParams({
+        client_id: config.githubAppOauthClientId,
+        client_secret: config.githubAppOauthClientSecret,
+        code,
+        redirect_uri: config.githubAuthRedirectUri,
+      }),
+    });
+  } catch {
+    throw new GithubTokenExchangeError();
   }
 
-  const payload = (await response.json()) as { access_token?: string };
+  if (!response.ok) {
+    throw new GithubTokenExchangeError();
+  }
+
+  let payload: { access_token?: string; error?: string };
+  try {
+    payload = (await response.json()) as { access_token?: string; error?: string };
+  } catch {
+    throw new GithubTokenExchangeError();
+  }
+
+  if (typeof payload !== "object" || payload === null) {
+    throw new GithubTokenExchangeError();
+  }
+
+  if (typeof payload.error === "string" && payload.error.length > 0) {
+    throw new GithubTokenExchangeError();
+  }
   const accessToken = payload.access_token;
   if (typeof accessToken !== "string" || !accessToken) {
-    throw new Error("GitHub token exchange did not return an access token");
+    throw new GithubTokenExchangeError();
   }
   return accessToken;
 }

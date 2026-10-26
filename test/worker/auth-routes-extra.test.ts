@@ -74,14 +74,17 @@ describe("auth routes (worker integration)", () => {
 
   it("rejects expired login OAuth state without setting session cookie", async () => {
     const cfg = loadConfig(testEnv());
-    const state = await createLoginOauthState(cfg.sessionSecret, 1);
+    const { state, nonce } = await createLoginOauthState(cfg.sessionSecret, 1);
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
     const ctx = createExecutionContext();
+    const { oauthLoginNonceCookieHeader } = await import("./oauth-callback-cookies.js");
     const response = await worker.fetch(
-      new Request(`http://test/auth/github/callback?code=c&state=${state}`),
+      new Request(`http://test/auth/github/callback?code=c&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader(nonce) },
+      }),
       testEnv(),
       ctx,
     );

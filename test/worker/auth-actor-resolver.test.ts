@@ -14,7 +14,7 @@ const testEnv = () =>
   workerEnvWithSecrets({
     ...env,
     ...withTestConfigEnv({
-      AUTH_ALLOWED_GITHUB_IDS: "1",
+      AUTH_ALLOWED_GITHUB_IDS: "1,999001,999005,999006",
       BOOTSTRAP_API_KEY: "test-bootstrap-api-key",
     }),
   });
@@ -96,6 +96,20 @@ describe("resolveActor (worker integration)", () => {
   it("returns null without credentials", async () => {
     const cfg = loadConfig(testEnv());
     const request = new Request("http://example.com/sources");
+    expect(await resolveActor(env.DB, cfg, request)).toBeNull();
+  });
+
+  it("treats session as unauthenticated when user is no longer allowlisted", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 424242, "removed-from-allowlist")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const request = new Request("http://example.com/sources", {
+      headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+    });
     expect(await resolveActor(env.DB, cfg, request)).toBeNull();
   });
 });

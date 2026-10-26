@@ -91,6 +91,13 @@ describe("default bootstrap key rejected outside development (worker integration
     });
     expect(effectiveAppEnv(bindings)).toBe("production");
 
+    const staleHash = await hashApiKey(DEV_BOOTSTRAP);
+    await env.DB.prepare(
+      "INSERT INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
+    )
+      .bind(crypto.randomUUID(), staleHash)
+      .run();
+
     const ctx = createExecutionContext();
     const response = await worker.fetch(
       new Request("http://test/sources", {
@@ -100,7 +107,7 @@ describe("default bootstrap key rejected outside development (worker integration
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect([401, 503]).toContain(response.status);
+    expect(response.status).toBe(401);
   });
 
   it("rejects dev-api-key-change-me on /chat/ws when APP_ENV is unset (fail closed)", async () => {
@@ -109,6 +116,13 @@ describe("default bootstrap key rejected outside development (worker integration
       ...withTestConfigEnv(),
     });
     expect(effectiveAppEnv(bindings)).toBe("production");
+
+    const staleHash = await hashApiKey(DEV_BOOTSTRAP);
+    await env.DB.prepare(
+      "INSERT INTO api_keys (id, key_hash, user_id, project_id) VALUES (?, ?, NULL, NULL)",
+    )
+      .bind(crypto.randomUUID(), staleHash)
+      .run();
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
@@ -122,6 +136,6 @@ describe("default bootstrap key rejected outside development (worker integration
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect([401, 503]).toContain(response.status);
+    expect(response.status).toBe(401);
   });
 });

@@ -1,5 +1,7 @@
 import type { QuorumConfig } from "../config/types.js";
+import { registerChatWebSocket } from "../domain/auth/chat-ws-registry.js";
 import { resolveWebSocketActor, websocketOriginAllowed } from "../domain/auth/actor.js";
+import { parseCookieHeader } from "../domain/auth/cookies.js";
 import type { Env } from "../env.js";
 import { truncateUtf8ToMaxBytes } from "../lib/utf8.js";
 
@@ -19,18 +21,24 @@ export async function handleChatWebSocket(
     return new Response("Expected WebSocket", { status: 426 });
   }
 
+  const cookies = parseCookieHeader(request.headers.get("Cookie"));
+  const sessionToken = cookies.get(config.sessionCookieName);
+  if (sessionToken && !websocketOriginAllowed(config, request.headers.get("Origin"))) {
+    return new Response("Origin not allowed", { status: 403 });
+  }
+
   const [actor, viaSession] = await resolveWebSocketActor(env.DB, config, request);
   if (actor === null) {
     return new Response("Not authenticated", { status: 401 });
   }
 
-  if (viaSession && !websocketOriginAllowed(config, request.headers.get("Origin"))) {
-    return new Response("Origin not allowed", { status: 403 });
-  }
-
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair);
   server.accept();
+
+  if (viaSession && sessionToken) {
+    await registerChatWebSocket(sessionToken, server);
+  }
 
   server.addEventListener("message", (event) => {
     if (typeof event.data !== "string") {

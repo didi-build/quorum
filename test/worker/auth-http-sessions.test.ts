@@ -2,6 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config/index.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
+import { resetChatWebSocketRegistry } from "../../src/domain/auth/chat-ws-registry.js";
 import {
   createBrowserSession,
   hashSessionToken,
@@ -14,6 +15,7 @@ const testEnv = () =>
   workerEnvWithSecrets({
     ...env,
     ...withTestConfigEnv({
+      AUTH_ALLOWED_GITHUB_IDS: "1,999010,999011,999012",
       APP_BASE_URL: "http://test",
       WS_ALLOWED_ORIGINS: "http://test",
     }),
@@ -22,6 +24,7 @@ const testEnv = () =>
 describe("HTTP session auth (worker integration)", () => {
   beforeEach(() => {
     resetBootstrapApiKeyGuard();
+    resetChatWebSocketRegistry();
   });
 
   it("returns 401 for /auth/me with expired session cookie", async () => {
@@ -72,6 +75,49 @@ describe("HTTP session auth (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(401);
+  });
+
+  it("POST /auth/logout closes open chat WebSockets for the session", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 1, "ws-logout-user")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const wsRequest = new Request("http://test/chat/ws", {
+      headers: {
+        Upgrade: "websocket",
+        Origin: "http://test",
+        Cookie: `${cfg.sessionCookieName}=${rawToken}`,
+      },
+    });
+    const wsCtx = createExecutionContext();
+    const wsResponse = await worker.fetch(wsRequest, testEnv(), wsCtx);
+    await waitOnExecutionContext(wsCtx);
+    expect(wsResponse.status).toBe(101);
+    const ws = wsResponse.webSocket;
+    expect(ws).toBeDefined();
+    ws!.accept();
+
+    const closed = new Promise<number>((resolve) => {
+      ws!.addEventListener("close", (event) => {
+        resolve(event.code);
+      });
+    });
+
+    const logoutCtx = createExecutionContext();
+    const logoutResponse = await worker.fetch(
+      new Request("http://test/auth/logout", {
+        method: "POST",
+        headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+      }),
+      testEnv(),
+      logoutCtx,
+    );
+    await waitOnExecutionContext(logoutCtx);
+    expect(logoutResponse.status).toBe(204);
+    expect(await closed).toBe(1000);
   });
 
   it("POST /auth/logout revokes the session row", async () => {

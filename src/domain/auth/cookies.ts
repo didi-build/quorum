@@ -1,6 +1,21 @@
 import type { QuorumConfig } from "../../config/types.js";
 import { sessionMaxAgeSeconds } from "./browser-session.js";
 
+/** Short-lived cookie binding OAuth login state to the initiating browser (`__Host-` prefix). */
+export const OAUTH_LOGIN_NONCE_COOKIE_NAME = "__Host-quorum_oauth_login_nonce";
+
+const OAUTH_LOGIN_NONCE_MAX_AGE_SECONDS = 600;
+
+function oauthLoginNonceCookieAttributes(maxAgeSeconds: number): string {
+  return [
+    "Path=/",
+    "Secure",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAgeSeconds}`,
+  ].join("; ");
+}
+
 export function parseCookieHeader(cookieHeader: string | null): Map<string, string> {
   const cookies = new Map<string, string>();
   if (!cookieHeader) {
@@ -65,4 +80,12 @@ export function clearAuthDisplayCookieHeader(config: QuorumConfig): string {
     "SameSite=Lax",
     "Max-Age=0",
   ].join("; ");
+}
+
+export function setOAuthLoginNonceCookieHeader(nonce: string): string {
+  return `${OAUTH_LOGIN_NONCE_COOKIE_NAME}=${nonce}; ${oauthLoginNonceCookieAttributes(OAUTH_LOGIN_NONCE_MAX_AGE_SECONDS)}`;
+}
+
+export function clearOAuthLoginNonceCookieHeader(): string {
+  return `${OAUTH_LOGIN_NONCE_COOKIE_NAME}=; ${oauthLoginNonceCookieAttributes(0)}`;
 }

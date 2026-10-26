@@ -229,11 +229,11 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
 
   it.each(SESSION_ISO_SEGMENT_MALFORMS)(
     "skips 24-char malformed expires_at ($segment) and counts it",
-    async ({ expiresAt }, index) => {
+    async ({ segment, expiresAt }: { segment: string; expiresAt: string }) => {
       expect(expiresAt.length).toBe(SESSION_ISO_SEGMENT_MALFORM_LENGTH);
 
-      const sessionId = `00000000-0000-4000-8000-${(0x70 + index).toString(16).padStart(12, "0")}`;
-      await insertSession(sessionId, expiresAt, null, `hash-segment-${index}`);
+      const sessionId = crypto.randomUUID();
+      await insertSession(sessionId, expiresAt, null, `hash-segment-${segment}`);
 
       const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
 
@@ -258,7 +258,9 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
       .bind(cutoffIso, cutoffIso, cutoffIso)
       .all<{ detail: string }>();
 
-    const detailText = (plan.results ?? []).map((row) => row.detail).join("\n");
+    const detailText = (plan.results ?? [])
+      .map((row: { detail: string }) => row.detail)
+      .join("\n");
     expect(detailText).toContain("ix_sessions_expires_at");
     expect(detailText).toContain("ix_sessions_revoked_at");
     expect(detailText).not.toMatch(/SCAN sessions/);
