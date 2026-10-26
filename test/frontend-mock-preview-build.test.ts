@@ -12,6 +12,11 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sentinel = "quorum-mock-preview-sentinel-v1";
 const transportLabel = "quorum-mock-preview-transport-v1";
+/** Fixture copy bundled only when chat mock transport is included. */
+const chatMockMarker =
+  "Quorum runs on Cloudflare Workers with D1 for relational data and Vectorize for embeddings.";
+/** Connection id from sources mock fixtures. */
+const connectionsMockMarker = "conn-github";
 
 function readAllJsUnder(dir: string): string {
   return listJsFilePathsUnder(dir)
@@ -86,6 +91,8 @@ describe("frontend mock-preview build (integration)", () => {
       const productionBundle = readAllJsUnder(productionDist);
       expect(productionBundle).not.toContain(sentinel);
       expect(productionBundle).not.toContain(transportLabel);
+      expect(productionBundle).not.toContain(chatMockMarker);
+      expect(productionBundle).not.toContain(connectionsMockMarker);
       expect(distHasServiceWorker(productionDist)).toBe(true);
       assertNoMockArtifactsInProductionDist(productionDist);
 
@@ -93,6 +100,8 @@ describe("frontend mock-preview build (integration)", () => {
       const previewBundle = readAllJsUnder(previewDist);
       expect(previewBundle).toContain(sentinel);
       expect(previewBundle).toContain(transportLabel);
+      expect(previewBundle).toContain(chatMockMarker);
+      expect(previewBundle).toContain(connectionsMockMarker);
       expect(distHasServiceWorker(previewDist)).toBe(false);
 
       fs.rmSync(tmp, { recursive: true, force: true });

@@ -23,4 +23,14 @@ describe("resolveSourcesMockMode", () => {
       resolveSourcesMockMode({ DEV: true, PROD: false, VITE_SOURCES_MOCK: "true" }),
     ).toBe("mock");
   });
+
+  it("uses mock in mock-preview even when PROD is true", () => {
+    expect(
+      resolveSourcesMockMode({
+        DEV: false,
+        PROD: true,
+        MODE: "mock-preview",
+      }),
+    ).toBe("mock");
+  });
 });
