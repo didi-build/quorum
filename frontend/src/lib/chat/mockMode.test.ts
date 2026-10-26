@@ -22,8 +22,17 @@ describe("isChatMockMode", () => {
   });
 
   it("is false in dev when VITE_CHAT_MOCK is false", async () => {
+    vi.stubEnv("DEV", "true");
     vi.stubEnv("MODE", "development");
     vi.stubEnv("VITE_CHAT_MOCK", "false");
+    const { isChatMockMode } = await import("./mockMode");
+    expect(isChatMockMode()).toBe(false);
+  });
+
+  it("is false outside dev and mock-preview even when VITE_CHAT_MOCK is unset", async () => {
+    vi.stubEnv("DEV", "");
+    vi.stubEnv("PROD", "");
+    vi.stubEnv("MODE", "development");
     const { isChatMockMode } = await import("./mockMode");
     expect(isChatMockMode()).toBe(false);
   });

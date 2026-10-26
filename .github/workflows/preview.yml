@@ -78,10 +78,7 @@ jobs:
   screenshots:
     name: mock-preview screenshots
     needs: [build, deploy]
-    if: >-
-      !cancelled() &&
-      needs.build.result == 'success' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -137,10 +134,7 @@ jobs:
   comment:
     name: mock-preview comment
     needs: [deploy, screenshots]
-    if: >-
-      !cancelled() &&
-      needs.deploy.result == 'success' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -183,7 +177,7 @@ jobs:
               fi
               if [ "$CAPTURE_SOURCE" = "local-static-server" ]; then
                 echo ''
-                echo '_App screenshots used the local mock-preview static server fallback (honours \`_redirects\` / \`_headers\`); landing PNGs always come from repo \`landing/\`._'
+                echo '_App screenshots used the local mock-preview static server fallback (honours `_redirects` / `_headers`); landing PNGs always come from repo `landing/`._'
               fi
             else
               echo "_UI screenshots failed or were skipped for this run (job result: \`$SCREENSHOTS_RESULT\`)._"

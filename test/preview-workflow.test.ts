@@ -163,14 +163,18 @@ jobs:
 
   it("runs screenshots when build succeeds and the workflow was not cancelled", () => {
     const screenshots = extractJobBlock(workflow, "screenshots");
-    expect(screenshots).toContain("!cancelled()");
+    expect(screenshots).toContain(
+      "${{ !cancelled() && needs.build.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}",
+    );
     expect(screenshots).not.toContain("always()");
     expect(screenshots).toContain("needs.build.result == 'success'");
   });
 
   it("posts the sticky comment when deploy succeeds regardless of screenshots", () => {
     const comment = extractJobBlock(workflow, "comment");
-    expect(comment).toContain("!cancelled()");
+    expect(comment).toContain(
+      "${{ !cancelled() && needs.deploy.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}",
+    );
     expect(comment).toContain("needs.deploy.result == 'success'");
     expect(comment).toContain('SCREENSHOTS_RESULT" = "success"');
     expect(comment).not.toContain("always()");

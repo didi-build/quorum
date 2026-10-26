@@ -10,5 +10,15 @@ export function playwrightChromiumInstalled(): boolean {
   }
 }
 
+/** Skip the capture integration test only on local machines without Chromium; CI must install browsers and run it. */
+export function shouldSkipCapturePreviewIntegrationTest(
+  ci: NodeJS.ProcessEnv["CI"] = process.env.CI,
+): boolean {
+  return !playwrightChromiumInstalled() && !ci;
+}
+
 export const PLAYWRIGHT_CHROMIUM_INTEGRATION_SKIP_REASON =
-  "Playwright Chromium is not installed in this environment; end-to-end capture runs in preview.yml screenshots job";
+  "Playwright Chromium is not installed locally; run npx playwright install chromium or rely on preview.yml screenshots in CI";
+
+export const PLAYWRIGHT_CHROMIUM_CI_REQUIRED_MESSAGE =
+  "Playwright Chromium must be installed in CI (npx playwright install --with-deps chromium in .github/workflows/ci.yml)";

@@ -6,20 +6,34 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { expectedPreviewScreenshotCount } from "../scripts/lib/preview-screenshot-plan.mjs";
 import {
+  PLAYWRIGHT_CHROMIUM_CI_REQUIRED_MESSAGE,
   PLAYWRIGHT_CHROMIUM_INTEGRATION_SKIP_REASON,
   playwrightChromiumInstalled,
+  shouldSkipCapturePreviewIntegrationTest,
 } from "./fixtures/playwright-chromium.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const chromiumReady = playwrightChromiumInstalled();
+const inCi = Boolean(process.env.CI);
+
+const integrationTitle = chromiumReady
+  ? "writes the expected PNG set from dist-preview and repo landing"
+  : inCi
+    ? "requires Playwright Chromium when CI is set"
+    : PLAYWRIGHT_CHROMIUM_INTEGRATION_SKIP_REASON;
 
 describe("capture-preview-screenshots (integration)", () => {
-  it.skipIf(!chromiumReady)(
-    chromiumReady
-      ? "writes the expected PNG set from dist-preview and repo landing"
-      : PLAYWRIGHT_CHROMIUM_INTEGRATION_SKIP_REASON,
+  it("does not skip when CI is set even if Chromium is missing", () => {
+    expect(shouldSkipCapturePreviewIntegrationTest("true")).toBe(false);
+    expect(shouldSkipCapturePreviewIntegrationTest("1")).toBe(false);
+  });
+
+  it.skipIf(shouldSkipCapturePreviewIntegrationTest())(
+    integrationTitle,
     { timeout: 300_000 },
     () => {
+      expect(chromiumReady, PLAYWRIGHT_CHROMIUM_CI_REQUIRED_MESSAGE).toBe(true);
+
       execSync("npm run build:frontend:mock-preview", {
         cwd: root,
         stdio: "pipe",
@@ -47,13 +61,6 @@ describe("capture-preview-screenshots (integration)", () => {
       } finally {
         fs.rmSync(outDir, { recursive: true, force: true });
       }
-    },
-  );
-
-  it.skipIf(chromiumReady)(
-    "defers end-to-end capture to preview.yml when Chromium is not installed",
-    () => {
-      expect(chromiumReady).toBe(false);
     },
   );
 });

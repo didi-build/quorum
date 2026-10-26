@@ -60,11 +60,10 @@ describe("preview spa-routing", () => {
 });
 
 describe("preview worker", () => {
-  it("redirects / to /app/", async () => {
+  it("relies on static _redirects for / and does not redirect in the Worker", async () => {
     const env = { ASSETS: mockAssets({}) };
     const response = await worker.fetch(new Request("https://preview.example/"), env);
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("https://preview.example/app/");
+    expect(response.status).toBe(404);
     expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 

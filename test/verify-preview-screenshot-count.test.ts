@@ -14,11 +14,16 @@ describe("verify-preview-screenshot-count", () => {
     for (let index = 0; index < expectedPreviewScreenshotCount(); index += 1) {
       fs.writeFileSync(path.join(tmp, `shot-${index}.png`), "x");
     }
-    execFileSync("node", ["scripts/verify-preview-screenshot-count.mjs"], {
-      cwd: root,
-      env: { ...process.env, PREVIEW_SCREENSHOTS_DIR: tmp },
-      stdio: "pipe",
-    });
+    const stdout = execFileSync(
+      "node",
+      ["scripts/verify-preview-screenshot-count.mjs"],
+      {
+        cwd: root,
+        env: { ...process.env, PREVIEW_SCREENSHOTS_DIR: tmp },
+        encoding: "utf8",
+      },
+    );
+    expect(stdout).toContain("verify-preview-screenshot-count: ok");
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 

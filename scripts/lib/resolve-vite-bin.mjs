@@ -1,15 +1,11 @@
 import { readFileSync } from "node:fs";
-import { createRequire, findPackageJSON } from "node:module";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const require = createRequire(import.meta.url);
 
 function resolveVitePackageJson() {
-  const fromFind = findPackageJSON("vite", import.meta.url);
-  if (fromFind) {
-    return fromFind;
-  }
-  return path.join(path.dirname(require.resolve("vite")), "package.json");
+  return require.resolve("vite/package.json");
 }
 
 /**

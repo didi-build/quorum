@@ -22,12 +22,6 @@ export default {
   async fetch(request: Request, env: PreviewEnv): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/" || url.pathname === "") {
-      return withNoIndex(
-        Response.redirect(new URL("/app/", url.origin).toString(), 302),
-      );
-    }
-
     const assetResponse = await env.ASSETS.fetch(request);
 
     if (shouldServeAppShell(url, request, assetResponse)) {

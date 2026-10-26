@@ -21,4 +21,4 @@ if (count !== expected) {
   process.exit(1);
 }
 
-console.error(`verify-preview-screenshot-count: ok (${count} PNG files)`);
+console.log(`verify-preview-screenshot-count: ok (${count} PNG files)`);
