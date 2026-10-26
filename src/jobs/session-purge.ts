@@ -10,6 +10,7 @@ export const SESSION_PURGE_MAX_BATCHES = 500;
 /**
  * D1 rejects one monolithic digit-class GLOB for the full timestamp; validate with literals
  * plus segment digit-class GLOBs for canonical 3-digit-ms UTC ISO (`toISOString()` shape).
+ * Only call with hardcoded column names (for example `expires_at`), never user input.
  */
 export function sessionTimestampIsoSqlMatch(column: string): string {
   return `(

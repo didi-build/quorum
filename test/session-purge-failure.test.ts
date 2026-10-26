@@ -6,7 +6,6 @@ describe("purgeExpiredSessions batch failure (unit)", () => {
     const failingDb = {
       prepare: () => ({
         bind: () => ({
-          first: async () => ({ c: 0 }),
           run: async () => {
             throw new Error("D1 batch failed");
           },

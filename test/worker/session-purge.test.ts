@@ -264,6 +264,21 @@ describe("purgeExpiredSessions (integration, vitest-pool-workers)", () => {
     expect(detailText).not.toMatch(/SCAN sessions/);
   });
 
+  it("skips expires_at longer than 24 characters and counts it", async () => {
+    await insertSession(
+      "00000000-0000-4000-8000-000000000078",
+      "2020-01-15T12:30:45.678Zx",
+      null,
+      "hash-25char",
+    );
+
+    const result = await purgeExpiredSessions(env.DB, { now: NOW, log: () => {} });
+
+    expect(result.totalDeleted).toBe(0);
+    expect(result.malformedTimestampSkipped).toBe(1);
+    expect(await sessionCount()).toBe(1);
+  });
+
   it("does not purge rows with non-ISO timestamp shapes", async () => {
     await insertSession(
       "00000000-0000-4000-8000-000000000069",
