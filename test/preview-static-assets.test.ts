@@ -1,4 +1,5 @@
 import { execFileSync, execSync, spawn, type ChildProcess } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,46 @@ import {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const wranglerBin = path.join(root, "node_modules/wrangler/bin/wrangler.js");
+const wranglerStateDir = path.join(root, ".wrangler", "state");
+
+type WranglerStateSnapshot = {
+  exists: boolean;
+  files: Record<string, { mtimeMs: number; sha256: string }>;
+};
+
+function snapshotWranglerState(dir: string): WranglerStateSnapshot {
+  if (!fs.existsSync(dir)) {
+    return { exists: false, files: {} };
+  }
+  const files: WranglerStateSnapshot["files"] = {};
+  const walk = (relativeDir: string): void => {
+    const absoluteDir = relativeDir ? path.join(dir, relativeDir) : dir;
+    for (const name of fs.readdirSync(absoluteDir)) {
+      const relativePath = relativeDir ? `${relativeDir}/${name}` : name;
+      const absolutePath = path.join(dir, relativePath);
+      const stat = fs.statSync(absolutePath);
+      if (stat.isDirectory()) {
+        walk(relativePath);
+        continue;
+      }
+      const contents = fs.readFileSync(absolutePath);
+      files[relativePath] = {
+        mtimeMs: stat.mtimeMs,
+        sha256: crypto.createHash("sha256").update(contents).digest("hex"),
+      };
+    }
+  };
+  walk("");
+  return { exists: true, files };
+}
+
+function expectWranglerStateUnchanged(
+  before: WranglerStateSnapshot,
+  after: WranglerStateSnapshot,
+): void {
+  expect(after.exists).toBe(before.exists);
+  expect(after.files).toEqual(before.files);
+}
 
 function runMockPreviewBuild(distDir: string): void {
   execSync("node scripts/sync-public-fonts.mjs", { cwd: root, stdio: "pipe" });
@@ -98,15 +139,35 @@ function killTree(child: ChildProcess, force = false): void {
   }
 }
 
-async function stopWranglerDev(child: ChildProcess): Promise<void> {
+type StopWranglerDevResult = {
+  elapsedMs: number;
+  forced: boolean;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+};
+
+async function stopWranglerDev(child: ChildProcess): Promise<StopWranglerDevResult> {
+  const started = Date.now();
   if (child.exitCode !== null || child.signalCode !== null) {
-    return;
+    return {
+      elapsedMs: Date.now() - started,
+      forced: false,
+      exitCode: child.exitCode,
+      signalCode: child.signalCode,
+    };
   }
   if (!child.pid) {
-    return;
+    return {
+      elapsedMs: Date.now() - started,
+      forced: false,
+      exitCode: null,
+      signalCode: null,
+    };
   }
+  let forced = false;
   await new Promise<void>((resolve) => {
     const killTimer = setTimeout(() => {
+      forced = true;
       killTree(child, true);
       resolve();
     }, 10_000);
@@ -116,13 +177,54 @@ async function stopWranglerDev(child: ChildProcess): Promise<void> {
     });
     killTree(child);
   });
+  return {
+    elapsedMs: Date.now() - started,
+    forced,
+    exitCode: child.exitCode,
+    signalCode: child.signalCode,
+  };
 }
+
+function assertGracefulWranglerStop(result: StopWranglerDevResult): void {
+  expect(result.forced).toBe(false);
+  const exited = result.exitCode !== null || result.signalCode !== null;
+  expect(exited).toBe(true);
+  expect(result.elapsedMs < 10_000 || result.signalCode === "SIGTERM").toBe(true);
+}
+
+describe("stopWranglerDev teardown", () => {
+  it("returns immediately when the child already exited", async () => {
+    const child = {
+      exitCode: 0,
+      signalCode: null,
+      pid: 42_424,
+    } as ChildProcess;
+    const result = await stopWranglerDev(child);
+    expect(result.elapsedMs).toBeLessThan(500);
+    expect(result.exitCode).toBe(0);
+    expect(result.signalCode).toBeNull();
+    expect(result.forced).toBe(false);
+  });
+
+  it("returns immediately when the child already has a signal", async () => {
+    const child = {
+      exitCode: null,
+      signalCode: "SIGKILL",
+      pid: 42_425,
+    } as ChildProcess;
+    const result = await stopWranglerDev(child);
+    expect(result.elapsedMs).toBeLessThan(500);
+    expect(result.signalCode).toBe("SIGKILL");
+    expect(result.forced).toBe(false);
+  });
+});
 
 describe("mock-preview dist-preview static layout", () => {
   it(
     "omits root landing, emits _redirects and _headers, and serves them via wrangler dev",
     { timeout: 120_000 },
     async () => {
+      const wranglerStateBefore = snapshotWranglerState(wranglerStateDir);
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-preview-static-"));
       const previewDist = path.join(tmp, "dist-preview");
       fs.mkdirSync(previewDist, { recursive: true });
@@ -146,7 +248,6 @@ describe("mock-preview dist-preview static layout", () => {
       try {
         await waitForServer(`http://127.0.0.1:${port}/`);
         expect(fs.existsSync(wranglerPersist)).toBe(true);
-        expect(fs.existsSync(path.join(root, ".wrangler", "state"))).toBe(false);
 
         const rootResponse = await fetch(`http://127.0.0.1:${port}/`, {
           redirect: "manual",
@@ -161,7 +262,12 @@ describe("mock-preview dist-preview static layout", () => {
         expect(appResponse.status).toBe(200);
         expect(appResponse.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
       } finally {
-        await stopWranglerDev(wrangler);
+        const stopResult = await stopWranglerDev(wrangler);
+        assertGracefulWranglerStop(stopResult);
+        expectWranglerStateUnchanged(
+          wranglerStateBefore,
+          snapshotWranglerState(wranglerStateDir),
+        );
         fs.rmSync(tmp, { recursive: true, force: true });
       }
     },
