@@ -15,6 +15,20 @@ async function loadOauthStateModule() {
   return import("../src/domain/oauth/state.js");
 }
 
+async function consumeSingleUseStates(
+  createOauthStateFn: typeof createOauthState,
+  verifyOauthStateFn: typeof verifyOauthState,
+  specs: { ttlSeconds: number }[],
+): Promise<string[]> {
+  const states: string[] = [];
+  for (const spec of specs) {
+    const { state } = await createOauthStateFn(TOKEN_KEY, USER_ID, spec.ttlSeconds);
+    await verifyOauthStateFn(TOKEN_KEY, state, { singleUse: true });
+    states.push(state);
+  }
+  return states;
+}
+
 describe("provider OAuth state (unit)", () => {
   it("creates and verifies OAuth state", async () => {
     const { state } = await createOauthState(TOKEN_KEY, USER_ID);
@@ -83,29 +97,35 @@ describe("provider OAuth state (unit)", () => {
 
   it("purgeConsumedOauthStates drops expired consumed entries from the tracking list", async () => {
     const {
-      createOauthState,
-      verifyOauthState,
+      createOauthState: createState,
+      verifyOauthState: verifyState,
       OAuthStateError: StateError,
     } = await loadOauthStateModule();
     const shortTtlSeconds = 30;
-    const longTtlSeconds = 3600;
+    const keeperTtlSeconds = 36_000;
+    const refillTtlSeconds = 3600;
     const startMs = 1_700_000_100_000;
     vi.spyOn(Date, "now").mockReturnValue(startMs);
 
-    for (let index = 0; index < CONSUMED_OAUTH_STATES_MAX; index += 1) {
-      const { state } = await createOauthState(TOKEN_KEY, USER_ID, shortTtlSeconds);
-      await verifyOauthState(TOKEN_KEY, state, { singleUse: true });
-    }
+    const [keeperState] = await consumeSingleUseStates(createState, verifyState, [
+      { ttlSeconds: keeperTtlSeconds },
+    ]);
+    await consumeSingleUseStates(
+      createState,
+      verifyState,
+      Array.from({ length: CONSUMED_OAUTH_STATES_MAX - 1 }, () => ({
+        ttlSeconds: shortTtlSeconds,
+      })),
+    );
 
     const afterExpiryMs = startMs + (shortTtlSeconds + 5) * 1000;
     vi.spyOn(Date, "now").mockReturnValue(afterExpiryMs);
 
-    const { state: purgeProbe } = await createOauthState(
+    const { state: purgeProbe } = await createState(
       TOKEN_KEY,
       USER_ID,
-      longTtlSeconds,
+      refillTtlSeconds,
     );
-
     let purgeDeletes = 0;
     const mapDelete = Map.prototype.delete;
     const deleteSpy = vi.spyOn(Map.prototype, "delete").mockImplementation(function (
@@ -115,54 +135,87 @@ describe("provider OAuth state (unit)", () => {
       purgeDeletes += 1;
       return mapDelete.call(this, key);
     });
-
-    await verifyOauthState(TOKEN_KEY, purgeProbe, { singleUse: false });
+    await verifyState(TOKEN_KEY, purgeProbe, { singleUse: false });
     deleteSpy.mockRestore();
+    expect(purgeDeletes).toBe(CONSUMED_OAUTH_STATES_MAX - 1);
 
-    expect(purgeDeletes).toBe(CONSUMED_OAUTH_STATES_MAX);
-
-    const { state: freshConsumed } = await createOauthState(
-      TOKEN_KEY,
-      USER_ID,
-      longTtlSeconds,
-    );
-    await verifyOauthState(TOKEN_KEY, freshConsumed, { singleUse: true });
     await expect(
-      verifyOauthState(TOKEN_KEY, freshConsumed, { singleUse: true }),
+      verifyState(TOKEN_KEY, keeperState, { singleUse: true }),
     ).rejects.toThrow(StateError);
 
-    vi.restoreAllMocks();
-  });
+    const refillStates = await consumeSingleUseStates(
+      createState,
+      verifyState,
+      Array.from({ length: CONSUMED_OAUTH_STATES_MAX - 1 }, (_, index) => ({
+        ttlSeconds: refillTtlSeconds + index,
+      })),
+    );
 
-  it("evicts the oldest consumed OAuth state at CONSUMED_OAUTH_STATES_MAX", async () => {
-    const {
-      createOauthState,
-      verifyOauthState,
-      OAuthStateError: StateError,
-    } = await loadOauthStateModule();
-    const ttlSeconds = 3600;
-    const startMs = 1_700_000_200_000;
-    vi.spyOn(Date, "now").mockReturnValue(startMs);
-
-    const consumedStates: string[] = [];
-    for (let index = 0; index < CONSUMED_OAUTH_STATES_MAX + 1; index += 1) {
-      const { state } = await createOauthState(TOKEN_KEY, USER_ID, ttlSeconds);
-      await verifyOauthState(TOKEN_KEY, state, { singleUse: true });
-      consumedStates.push(state);
-    }
-
-    const oldest = consumedStates[0];
-    const newest = consumedStates[CONSUMED_OAUTH_STATES_MAX];
+    const { state: overflow } = await createState(
+      TOKEN_KEY,
+      USER_ID,
+      refillTtlSeconds + CONSUMED_OAUTH_STATES_MAX,
+    );
+    await verifyState(TOKEN_KEY, overflow, { singleUse: true });
 
     await expect(
-      verifyOauthState(TOKEN_KEY, oldest, { singleUse: true }),
+      verifyState(TOKEN_KEY, refillStates[1], { singleUse: true }),
+    ).rejects.toThrow(StateError);
+    await expect(
+      verifyState(TOKEN_KEY, refillStates[0], { singleUse: true }),
     ).resolves.toEqual({
       userId: USER_ID,
       stateNonce: expect.any(String),
     });
     await expect(
-      verifyOauthState(TOKEN_KEY, newest, { singleUse: true }),
+      verifyState(TOKEN_KEY, keeperState, { singleUse: true }),
     ).rejects.toThrow(StateError);
+
+    vi.restoreAllMocks();
+  });
+
+  it("evicts the soonest-expiring consumed OAuth state at CONSUMED_OAUTH_STATES_MAX", async () => {
+    const {
+      createOauthState: createState,
+      verifyOauthState: verifyState,
+      OAuthStateError: StateError,
+    } = await loadOauthStateModule();
+    const startMs = 1_700_000_200_000;
+    vi.spyOn(Date, "now").mockReturnValue(startMs);
+
+    const longStates = await consumeSingleUseStates(
+      createState,
+      verifyState,
+      Array.from({ length: CONSUMED_OAUTH_STATES_MAX - 1 }, () => ({
+        ttlSeconds: 7200,
+      })),
+    );
+
+    const soonestStates = await consumeSingleUseStates(createState, verifyState, [
+      { ttlSeconds: 60 },
+    ]);
+    const soonest = soonestStates[0];
+
+    const newestStates = await consumeSingleUseStates(createState, verifyState, [
+      { ttlSeconds: 7200 },
+    ]);
+    const newest = newestStates[0];
+
+    await expect(
+      verifyState(TOKEN_KEY, longStates[0], { singleUse: true }),
+    ).rejects.toThrow(StateError);
+    await expect(
+      verifyState(TOKEN_KEY, longStates[1], { singleUse: true }),
+    ).rejects.toThrow(StateError);
+    await expect(verifyState(TOKEN_KEY, newest, { singleUse: true })).rejects.toThrow(
+      StateError,
+    );
+    await expect(verifyState(TOKEN_KEY, soonest, { singleUse: true })).resolves.toEqual(
+      {
+        userId: USER_ID,
+        stateNonce: expect.any(String),
+      },
+    );
 
     vi.restoreAllMocks();
   });
