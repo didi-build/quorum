@@ -38,9 +38,8 @@ export function encodeGithubRepoFullName(repoFullName: string): string {
 function shouldSkipPath(path: string): boolean {
   return (
     path.startsWith(".git/") ||
-    path.includes("node_modules/") ||
-    path.includes("/.venv/") ||
-    path.startsWith(".venv/")
+    path.includes("/node_modules/") ||
+    path.includes("/.venv/")
   );
 }
 

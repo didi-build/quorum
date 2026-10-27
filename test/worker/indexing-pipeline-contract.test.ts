@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FetchedDocument } from "../../src/domain/ingestion/adapters/types.js";
 import { clearSourceIndex } from "../../src/domain/ingestion/clear-source-index.js";
+import { chunkText } from "../../src/domain/ingestion/chunking.js";
 import {
   indexKnowledgeSource,
   upsertVectors,
@@ -14,6 +15,25 @@ const CONNECTION_ID = "00000000-0000-4000-8000-000000000020";
 const SOURCE_ID = "00000000-0000-4000-8000-000000000030";
 
 const config = loadConfig(workerEnvWithSecrets(env));
+
+function mockVoyageFetch(dim = config.embeddingDimensions) {
+  return vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      inputs?: string[][];
+    };
+    const groups = body.inputs ?? [];
+    const data = groups.map((group, docIndex) => ({
+      index: docIndex,
+      data: group.map((_, chunkIndex) => ({
+        index: chunkIndex,
+        embedding: Array.from({ length: dim }, () => 0.1),
+      })),
+    }));
+    return new Response(JSON.stringify({ data, model: config.voyageModel }), {
+      status: 200,
+    });
+  });
+}
 
 async function clearData(): Promise<void> {
   await env.DB.prepare("DELETE FROM chunks").run();
@@ -51,7 +71,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     await clearData();
   });
 
-  it("sets indexing status before fetch and clears only after a successful fetch", async () => {
+  it("sets indexing status before fetch and clears only after a successful embed", async () => {
     await seedGithubSource();
     await env.DB.prepare(
       `INSERT INTO chunks (
@@ -62,11 +82,14 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       .run();
 
     let statusDuringFetch: string | null = null;
-    let clearBeforeFetch = false;
+    let clearBeforeEmbed = false;
+    let embedCompleted = false;
 
     const documents: FetchedDocument[] = [
       { document_id: "README.md", content: "# Hi\n\nNew content." },
     ];
+
+    const voyageFetch = mockVoyageFetch();
 
     await indexKnowledgeSource(
       env.DB,
@@ -87,9 +110,14 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
             files_processed: documents.length,
           };
         },
+        voyageFetch: async (...args) => {
+          const response = await voyageFetch(...args);
+          embedCompleted = true;
+          return response;
+        },
         clearSourceIndex: async (db, vectorize, sourceId, options) => {
-          if (!statusDuringFetch) {
-            clearBeforeFetch = true;
+          if (!embedCompleted) {
+            clearBeforeEmbed = true;
           }
           await clearSourceIndex(db, vectorize, sourceId, {
             ...options,
@@ -101,7 +129,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     );
 
     expect(statusDuringFetch).toBe("indexing");
-    expect(clearBeforeFetch).toBe(false);
+    expect(clearBeforeEmbed).toBe(false);
 
     const oldChunk = await env.DB.prepare(
       `SELECT id FROM chunks WHERE knowledge_source_id = ? AND document_id = 'old.md'`,
@@ -132,10 +160,11 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
           has_more: false,
           files_processed: 1,
         }),
+        voyageFetch: mockVoyageFetch(),
         clearSourceIndex: async () => {
           throw new Error("vector delete failed");
         },
-        voyageFetch: vi.fn(async () => new Response("unused", { status: 500 })),
+        upsertChunkVectors: async () => {},
       },
     );
 
@@ -154,29 +183,104 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(chunk).not.toBeNull();
   });
 
+  it("leaves prior chunks intact when Voyage fails on a fresh re-index", async () => {
+    await seedGithubSource("ready");
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'keep.md', 0, 'stay', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "hello world" }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch: vi.fn(async () => new Response("fail", { status: 500 })),
+      },
+    );
+
+    const source = await env.DB.prepare(
+      `SELECT status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string }>();
+    expect(source?.status).toBe("error");
+
+    const chunk = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'keep.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(chunk?.content).toBe("stay");
+  });
+
+  it("clears stale chunks on a fresh run when the first batch has no chunks but more files remain", async () => {
+    await seedGithubSource("ready");
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'stale.md', 0, 'old-index', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: true,
+          files_processed: 50,
+        }),
+        clearSourceIndex: async (db, vectorize, sourceId, options) => {
+          await clearSourceIndex(db, vectorize, sourceId, {
+            ...options,
+            deleteChunkVectors: async () => {},
+          });
+        },
+      },
+    );
+
+    expect(result.done).toBe(false);
+    expect(result.continuation).toEqual({
+      source_id: SOURCE_ID,
+      github_files_processed: 50,
+    });
+
+    const stale = await env.DB.prepare(
+      `SELECT id FROM chunks WHERE knowledge_source_id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first();
+    expect(stale).toBeNull();
+  });
+
   it("is idempotent when a continuation message is redelivered", async () => {
     await seedGithubSource("indexing");
 
-    const voyageFetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body ?? "{}")) as {
-        inputs?: string[][];
-      };
-      const groups = body.inputs ?? [];
-      const data = groups.map((group, docIndex) => ({
-        index: docIndex,
-        data: group.map((_, chunkIndex) => ({
-          index: chunkIndex,
-          embedding: Array.from({ length: config.embeddingDimensions }, () => 0.1),
-        })),
-      }));
-      return new Response(JSON.stringify({ data, model: config.voyageModel }), {
-        status: 200,
-      });
-    });
+    const voyageFetch = mockVoyageFetch();
 
     const documents: FetchedDocument[] = [
       { document_id: "README.md", content: "# Title\n\nHello again." },
     ];
+
+    const expectedChunks = chunkText(
+      documents[0].document_id,
+      documents[0].content,
+      config,
+    ).length;
 
     const run = async () =>
       indexKnowledgeSource(
@@ -204,11 +308,18 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     await run();
     await expect(run()).resolves.toMatchObject({ done: true });
 
+    const source = await env.DB.prepare(
+      `SELECT status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string }>();
+    expect(source?.status).toBe("ready");
+
     const count = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM chunks WHERE knowledge_source_id = ?`,
     )
       .bind(SOURCE_ID)
       .first<{ c: number }>();
-    expect(count?.c).toBeGreaterThan(0);
+    expect(count?.c).toBe(expectedChunks);
   });
 });

@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fetchGithubRepoDocuments } from "../src/domain/ingestion/adapters/github.js";
-import {
-  GITHUB_MAX_FILE_BYTES,
-  GITHUB_MAX_INDEX_FILES_PER_RUN,
-} from "../src/domain/ingestion/constants.js";
+import { GITHUB_MAX_FILE_BYTES } from "../src/domain/ingestion/constants.js";
 import { loadConfig } from "../src/config/load-config.js";
 import { withTestConfigEnv } from "./fixtures/config-env.js";
 
@@ -15,7 +12,7 @@ function makeTreeBlob(path: string, sha: string, size: number) {
 
 describe("fetchGithubRepoDocuments caps", () => {
   it("stops at the file count cap and reports continuation", async () => {
-    const blobs = Array.from({ length: GITHUB_MAX_INDEX_FILES_PER_RUN + 40 }, (_, i) =>
+    const blobs = Array.from({ length: 150 + 40 }, (_, i) =>
       makeTreeBlob(`file-${i}.md`, `sha-${i}`, 10),
     );
 
@@ -60,9 +57,9 @@ describe("fetchGithubRepoDocuments caps", () => {
       tokenOptions,
     );
 
-    expect(first.documents).toHaveLength(GITHUB_MAX_INDEX_FILES_PER_RUN);
+    expect(first.documents).toHaveLength(150);
     expect(first.has_more).toBe(true);
-    expect(first.files_processed).toBe(GITHUB_MAX_INDEX_FILES_PER_RUN);
+    expect(first.files_processed).toBe(150);
 
     const second = await fetchGithubRepoDocuments(config, "12345", "owner/repo", {
       ...tokenOptions,
@@ -71,7 +68,7 @@ describe("fetchGithubRepoDocuments caps", () => {
 
     expect(second.documents).toHaveLength(40);
     expect(second.has_more).toBe(false);
-    expect(second.files_processed).toBe(GITHUB_MAX_INDEX_FILES_PER_RUN + 40);
+    expect(second.files_processed).toBe(190);
   });
 
   it("skips blobs larger than the byte cap", async () => {

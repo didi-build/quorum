@@ -257,32 +257,44 @@ export async function indexKnowledgeSource(
       return { done: true, continuation: null };
     }
 
-    if (flatChunks.length > 0) {
+    if (flatChunks.length === 0 && githubHasMore) {
       if (isFreshRun) {
         await clearIndex(db, vectorize, sourceId);
       }
-
-      const embeddings = await embedChunksFlat(config, flatChunks, voyageFetch);
-      const vectorRows: Array<{
-        chunk_rowid: number;
-        document_id: string;
-        chunk_index: number;
-        embedding: number[];
-      }> = [];
-
-      for (let i = 0; i < flatChunks.length; i++) {
-        const chunk = flatChunks[i];
-        const chunkRowid = await upsertChunkRow(db, sourceId, chunk);
-        vectorRows.push({
-          chunk_rowid: chunkRowid,
-          document_id: chunk.document_id,
-          chunk_index: chunk.chunk_index,
-          embedding: embeddings[i],
-        });
-      }
-
-      await upsertVectorsImpl(vectorize, sourceId, vectorRows);
+      return {
+        done: false,
+        continuation: {
+          source_id: sourceId,
+          github_files_processed: githubFilesProcessed,
+        },
+      };
     }
+
+    const embeddings = await embedChunksFlat(config, flatChunks, voyageFetch);
+
+    if (isFreshRun) {
+      await clearIndex(db, vectorize, sourceId);
+    }
+
+    const vectorRows: Array<{
+      chunk_rowid: number;
+      document_id: string;
+      chunk_index: number;
+      embedding: number[];
+    }> = [];
+
+    for (let i = 0; i < flatChunks.length; i++) {
+      const chunk = flatChunks[i];
+      const chunkRowid = await upsertChunkRow(db, sourceId, chunk);
+      vectorRows.push({
+        chunk_rowid: chunkRowid,
+        document_id: chunk.document_id,
+        chunk_index: chunk.chunk_index,
+        embedding: embeddings[i],
+      });
+    }
+
+    await upsertVectorsImpl(vectorize, sourceId, vectorRows);
 
     if (githubHasMore) {
       return {

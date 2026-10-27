@@ -19,6 +19,20 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
+describe("encodeGithubRepoFullName", () => {
+  it("rejects malformed repository names", () => {
+    expect(() => encodeGithubRepoFullName("not-a-repo")).toThrow(
+      "Invalid GitHub repository full name",
+    );
+    expect(() => encodeGithubRepoFullName("owner/")).toThrow(
+      "Invalid GitHub repository full name",
+    );
+    expect(() => encodeGithubRepoFullName("/repo")).toThrow(
+      "Invalid GitHub repository full name",
+    );
+  });
+});
+
 describe("fetchGithubRepoDocuments extras", () => {
   it("encodes owner and repo in API paths", async () => {
     const repoFullName = "acme corp/quorum.app";
@@ -100,7 +114,7 @@ describe("fetchGithubRepoDocuments extras", () => {
               },
               {
                 type: "blob",
-                path: "node_modules/pkg/index.js",
+                path: "src/node_modules/pkg/index.js",
                 sha: "skip-sha",
                 size: 10,
               },

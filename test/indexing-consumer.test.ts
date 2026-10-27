@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { ConfigError } from "../src/config/errors.js";
+import * as loadConfigModule from "../src/config/load-config.js";
 import * as pipeline from "../src/domain/ingestion/pipeline.js";
 import { GENERIC_INDEXING_FAILURE_MESSAGE } from "../src/domain/ingestion/errors.js";
 import { handleIndexingQueueBatch } from "../src/jobs/indexing-consumer.js";
@@ -96,6 +98,72 @@ describe("handleIndexingQueueBatch", () => {
       github_files_processed: 150,
     });
     expect(message.ack).toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it("acks on final attempt when config load fails", async () => {
+    const sourceId = "00000000-0000-4000-8000-000000000077";
+    const env = {
+      DB: {} as D1Database,
+      VECTORIZE: {} as VectorizeIndex,
+      INDEXING_QUEUE: { send: vi.fn() },
+    } as unknown as import("../src/env.js").Env;
+
+    vi.spyOn(loadConfigModule, "loadConfig").mockImplementation(() => {
+      throw ConfigError.invalid("VOYAGE_API_KEY");
+    });
+    const markError = vi
+      .spyOn(pipeline, "markKnowledgeSourceIndexingError")
+      .mockResolvedValue(undefined);
+
+    const finalMessage = mockMessage(
+      { source_id: sourceId },
+      INDEXING_QUEUE_MAX_RETRIES + 1,
+    );
+    await handleIndexingQueueBatch(
+      { messages: [finalMessage] } as unknown as MessageBatch<{ source_id: string }>,
+      env,
+    );
+
+    expect(finalMessage.ack).toHaveBeenCalled();
+    expect(finalMessage.retry).not.toHaveBeenCalled();
+    expect(markError).toHaveBeenCalledWith(
+      env.DB,
+      sourceId,
+      GENERIC_INDEXING_FAILURE_MESSAGE,
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("still acks on final attempt when marking error throws", async () => {
+    const sourceId = "00000000-0000-4000-8000-000000000066";
+    const env = {
+      ...withTestConfigEnv(),
+      DB: {} as D1Database,
+      VECTORIZE: {} as VectorizeIndex,
+      INDEXING_QUEUE: { send: vi.fn() },
+    } as unknown as import("../src/env.js").Env;
+
+    vi.spyOn(pipeline, "indexKnowledgeSource").mockRejectedValue(
+      new Error("unexpected"),
+    );
+    vi.spyOn(pipeline, "markKnowledgeSourceIndexingError").mockRejectedValue(
+      new Error("d1 unavailable"),
+    );
+
+    const finalMessage = mockMessage(
+      { source_id: sourceId },
+      INDEXING_QUEUE_MAX_RETRIES + 1,
+    );
+    await handleIndexingQueueBatch(
+      { messages: [finalMessage] } as unknown as MessageBatch<{ source_id: string }>,
+      env,
+    );
+
+    expect(finalMessage.ack).toHaveBeenCalled();
+    expect(finalMessage.retry).not.toHaveBeenCalled();
 
     vi.restoreAllMocks();
   });

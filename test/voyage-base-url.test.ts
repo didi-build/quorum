@@ -19,6 +19,15 @@ describe("resolveVoyageBaseUrl", () => {
     );
   });
 
+  it("normalizes host-only https://api.voyageai.com to /v1", () => {
+    expect(resolveVoyageBaseUrl("https://api.voyageai.com")).toBe(
+      "https://api.voyageai.com/v1",
+    );
+    expect(resolveVoyageBaseUrl("https://api.voyageai.com")).not.toBe(
+      "https://api.voyageai.com",
+    );
+  });
+
   it("rejects non-voyage hosts and non-https", () => {
     expect(() => resolveVoyageBaseUrl("https://evil.example/v1")).toThrow(ConfigError);
     expect(() => resolveVoyageBaseUrl("http://api.voyageai.com/v1")).toThrow(
@@ -32,5 +41,12 @@ describe("loadConfig voyage base", () => {
     expect(() =>
       loadConfig(withTestConfigEnv({ VOYAGE_BASE_URL: "https://attacker.test/v1" })),
     ).toThrow(ConfigError);
+  });
+
+  it("normalizes VOYAGE_BASE_URL without a path to /v1", () => {
+    const config = loadConfig(
+      withTestConfigEnv({ VOYAGE_BASE_URL: "https://api.voyageai.com" }),
+    );
+    expect(config.voyageBaseUrl).toBe("https://api.voyageai.com/v1");
   });
 });
