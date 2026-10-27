@@ -1,6 +1,7 @@
 import { ConfigError } from "./config/errors.js";
 import { loadConfig } from "./config/load-config.js";
 import type { QuorumConfig } from "./config/types.js";
+import type { ActorContext } from "./domain/schemas/actor.js";
 import { ensureBootstrapApiKey } from "./domain/auth/api-key.js";
 import { resolveActor } from "./domain/auth/actor.js";
 import {
@@ -14,6 +15,8 @@ import type { Env } from "./env.js";
 import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
+import { handleConnectionsRoute } from "./routes/connections.js";
+import { handleOauthRoute } from "./routes/oauth.js";
 import { handleChatWebSocket } from "./routes/chat-ws.js";
 import { handleHealth, handleReady } from "./routes/health.js";
 
@@ -69,10 +72,27 @@ async function handleProtectedApi(
   env: Env,
   pathname: string,
   config: QuorumConfig,
+  actor: ActorContext,
 ): Promise<Response | null> {
   const authResponse = await handleAuthRoute(request, env, config, pathname);
   if (authResponse !== null) {
     return authResponse;
+  }
+
+  const oauthResponse = await handleOauthRoute(request, env, config, pathname, actor);
+  if (oauthResponse !== null) {
+    return oauthResponse;
+  }
+
+  const connectionsResponse = await handleConnectionsRoute(
+    request,
+    env,
+    config,
+    pathname,
+    actor,
+  );
+  if (connectionsResponse !== null) {
+    return connectionsResponse;
   }
 
   if (isApiPath(pathname)) {
@@ -113,6 +133,16 @@ export default {
         if (publicAuth !== null) {
           return publicAuth;
         }
+        const publicOauth = await handleOauthRoute(
+          request,
+          env,
+          configOrError,
+          pathname,
+          null,
+        );
+        if (publicOauth !== null) {
+          return publicOauth;
+        }
       }
 
       if (pathname === "/chat/ws") {
@@ -142,6 +172,7 @@ export default {
           env,
           pathname,
           config,
+          actor,
         );
         if (protectedResponse !== null) {
           return protectedResponse;
