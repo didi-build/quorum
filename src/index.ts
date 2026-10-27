@@ -12,7 +12,9 @@ import {
   requiresAuthentication,
 } from "./domain/auth/middleware.js";
 import type { Env } from "./env.js";
+import { handleIndexingQueueBatch } from "./jobs/indexing-consumer.js";
 import { purgeExpiredSessions } from "./jobs/session-purge.js";
+import type { IndexingQueueMessage } from "./domain/ingestion/indexing-message.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
 import { handleChatWebSocket } from "./routes/chat-ws.js";
@@ -103,6 +105,14 @@ async function handleProtectedApi(
 }
 
 export default {
+  async queue(
+    batch: MessageBatch<IndexingQueueMessage>,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    await handleIndexingQueueBatch(batch, env);
+  },
+
   async scheduled(
     _controller: ScheduledController,
     env: Env,

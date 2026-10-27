@@ -74,6 +74,7 @@
     "wrangler": "4.152.0"
   },
   "dependencies": {
+    "js-tiktoken": "1.0.21",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   }

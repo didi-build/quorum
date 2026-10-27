@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DeleteChunkVectors } from "../../src/domain/ingestion/delete-vectors.js";
+import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
 import { deleteKnowledgeSource } from "../../src/domain/knowledge-sources/delete.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000010";
@@ -78,7 +79,9 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
       .first<{ count: number }>();
     expect(ftsBefore?.count).toBe(1);
 
-    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID);
+    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
+      deleteChunkVectors: async () => {},
+    });
 
     const sourceRow = await env.DB.prepare(
       `SELECT id FROM knowledge_sources WHERE id = ?`,
@@ -103,9 +106,9 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
     expect(ftsAfter?.count).toBe(0);
   });
 
-  it("passes chunk ids to the vector helper before the D1 delete", async () => {
-    const chunkId = await seedKnowledgeSourceWithChunk();
-    const chunkIdStr = String(chunkId);
+  it("passes namespaced vector ids to the vector helper before the D1 delete", async () => {
+    await seedKnowledgeSourceWithChunk();
+    const vectorId = await chunkVectorId(SOURCE_ID, "doc.md", 0);
     let vectorChunkIds: string[] | undefined;
     let sourceExistedDuringVectors = false;
 
@@ -121,7 +124,7 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
       deleteChunkVectors: trackVectors,
     });
 
-    expect(vectorChunkIds).toEqual([chunkIdStr]);
+    expect(vectorChunkIds).toEqual([vectorId]);
     expect(sourceExistedDuringVectors).toBe(true);
   });
 
@@ -154,9 +157,13 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
   it("resolves when deleting twice or when the source id is missing", async () => {
     await seedKnowledgeSourceWithChunk();
 
-    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID);
+    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
+      deleteChunkVectors: async () => {},
+    });
     await expect(
-      deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID),
+      deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
+        deleteChunkVectors: async () => {},
+      }),
     ).resolves.toBeUndefined();
 
     await expect(
@@ -164,6 +171,7 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
         env.DB,
         env.VECTORIZE,
         "00000000-0000-4000-8000-000000009999",
+        { deleteChunkVectors: async () => {} },
       ),
     ).resolves.toBeUndefined();
   });

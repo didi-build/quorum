@@ -251,8 +251,8 @@ d1_tables:
     columns:
       id:
         whose: operational
-        data: Chunk integer primary key (stringified for Vectorize vector id)
-        purpose: primary key and Vectorize deleteByIds target
+        data: Chunk integer primary key (stored in Vectorize metadata as chunk_rowid, not as the vector id)
+        purpose: D1 row identity and FTS5 rowid; Vectorize uses a separate 64-char SHA-256 hex id derived from knowledge_source_id, document_id, and chunk_index
         retention: until parent knowledge source deleted
       knowledge_source_id:
         whose: operational
