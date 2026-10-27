@@ -102,4 +102,122 @@ describe("createHttpSourcesApi", () => {
     const api = createHttpSourcesApi();
     await expect(api.deleteSource("src-1")).resolves.toBeUndefined();
   });
+
+  it("unwraps GET /connections { connections } into Connection[]", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              connections: [
+                {
+                  id: "conn-1",
+                  user_id: "user-1",
+                  provider: "github",
+                  external_account_id: "99",
+                  external_account_name: "didi-build",
+                  created_at: "2026-01-01T00:00:00Z",
+                  updated_at: "2026-01-01T00:00:00Z",
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      ),
+    );
+    const api = createHttpSourcesApi();
+    const list = await api.listConnections();
+    expect(list).toEqual([
+      {
+        id: "conn-1",
+        provider: "github",
+        connected: true,
+        account_label: "didi-build",
+      },
+    ]);
+  });
+
+  it("rejects bare array for GET /connections", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify([{ id: "conn-1", provider: "github" }]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+    const api = createHttpSourcesApi();
+    await expect(api.listConnections()).rejects.toBeInstanceOf(SourcesApiError);
+  });
+
+  it("unwraps available-sources { provider, items } into AvailableSourceItem[]", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              provider: "github",
+              items: [
+                {
+                  source_type: "github_repo",
+                  external_ref: "org/repo",
+                  name: "org/repo",
+                  private: true,
+                  updated_at: null,
+                  key: null,
+                  already_added: false,
+                  source_id: null,
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      ),
+    );
+    const api = createHttpSourcesApi();
+    const list = await api.listAvailableSources("conn-1", "github");
+    expect(list).toEqual([
+      {
+        name: "org/repo",
+        external_ref: "org/repo",
+        private: true,
+        key: "",
+        already_added: false,
+      },
+    ]);
+  });
+
+  it("rejects bare array for available-sources", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify([{ name: "org/repo", external_ref: "org/repo" }]),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      ),
+    );
+    const api = createHttpSourcesApi();
+    await expect(api.listAvailableSources("conn-1", "github")).rejects.toBeInstanceOf(
+      SourcesApiError,
+    );
+  });
 });
