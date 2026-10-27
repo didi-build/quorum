@@ -10,6 +10,7 @@ import {
 } from "../oauth/github-app.js";
 
 export const GITHUB_REPOS_PER_PAGE = 100;
+export const LINEAR_TEAMS_PAGE_SIZE = 50;
 
 export const GITHUB_ACCESS_LOST_DETAIL =
   "GitHub installation access was revoked or is no longer available. Reconnect GitHub.";
@@ -19,6 +20,14 @@ export const PROVIDER_RATE_LIMIT_DETAIL =
   "Provider rate limit exceeded. Try again shortly.";
 export const PROVIDER_ERROR_DETAIL =
   "Failed to fetch available sources from the provider.";
+
+/** Linear returned HTTP 401; caller may refresh OAuth tokens and retry once. */
+export class LinearHttpUnauthorizedError extends Error {
+  constructor() {
+    super("Linear HTTP 401");
+    this.name = "LinearHttpUnauthorizedError";
+  }
+}
 
 export class ProviderRequestError extends Error {
   readonly statusCode: number;
@@ -39,6 +48,15 @@ const LINEAR_AUTH_GRAPHQL_CODES = new Set([
   "INVALID_SCOPE",
   "UNAUTHENTICATED",
 ]);
+
+const LINEAR_TEAMS_QUERY = `
+query Teams($after: String, $first: Int!) {
+  teams(first: $first, after: $after) {
+    pageInfo { hasNextPage endCursor }
+    nodes { id name key }
+  }
+}
+`;
 
 export function mapGithubTokenExchangeHttpStatus(
   statusCode: number,
@@ -103,6 +121,23 @@ export function githubRepoPayloadToItem(
     private: Boolean(repo.private),
     updated_at: parseGithubUpdatedAt(repo.updated_at),
     key: null,
+    already_added: false,
+    source_id: null,
+  };
+}
+
+export function linearTeamPayloadToItem(team: {
+  id: string;
+  name: string;
+  key?: string | null;
+}): AvailableSourceItem {
+  return {
+    source_type: "linear",
+    external_ref: String(team.id),
+    name: String(team.name),
+    private: false,
+    updated_at: null,
+    key: team.key != null ? String(team.key) : String(team.id),
     already_added: false,
     source_id: null,
   };
@@ -214,4 +249,75 @@ export async function fetchGithubInstallationRepositories(
   }
 
   return mergeGithubRepositoryPages(pages);
+}
+
+export async function fetchLinearTeams(
+  accessToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AvailableSourceItem[]> {
+  const items: AvailableSourceItem[] = [];
+  let after: string | null = null;
+
+  try {
+    while (true) {
+      const response = await fetchImpl("https://api.linear.app/graphql", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: LINEAR_TEAMS_QUERY,
+          variables: { after, first: LINEAR_TEAMS_PAGE_SIZE },
+        }),
+      });
+
+      if (response.status === 401) {
+        throw new LinearHttpUnauthorizedError();
+      }
+      if (response.status >= 400) {
+        throw mapLinearHttpStatus(response.status);
+      }
+
+      const payload = (await response.json()) as {
+        errors?: Array<Record<string, unknown>>;
+        data?: {
+          teams?: {
+            nodes?: Array<{ id: string; name: string; key?: string | null }>;
+            pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+          };
+        };
+      };
+
+      const errors = payload.errors ?? [];
+      if (errors.length > 0) {
+        throw mapLinearGraphqlErrors(errors);
+      }
+
+      const teamsData = payload.data?.teams;
+      if (!teamsData) {
+        throw new ProviderRequestError(502, PROVIDER_ERROR_DETAIL);
+      }
+
+      for (const team of teamsData.nodes ?? []) {
+        items.push(linearTeamPayloadToItem(team));
+      }
+
+      const pageInfo = teamsData.pageInfo;
+      if (!pageInfo?.hasNextPage) {
+        break;
+      }
+      after = pageInfo.endCursor ?? null;
+    }
+  } catch (error) {
+    if (
+      error instanceof ProviderRequestError ||
+      error instanceof LinearHttpUnauthorizedError
+    ) {
+      throw error;
+    }
+    throw new ProviderRequestError(502, PROVIDER_ERROR_DETAIL);
+  }
+
+  return items;
 }

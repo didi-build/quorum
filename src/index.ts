@@ -1,6 +1,7 @@
 import { ConfigError } from "./config/errors.js";
 import { loadConfig } from "./config/load-config.js";
 import type { QuorumConfig } from "./config/types.js";
+import type { ActorContext } from "./domain/schemas/actor.js";
 import { ensureBootstrapApiKey } from "./domain/auth/api-key.js";
 import { resolveActor } from "./domain/auth/actor.js";
 import {
@@ -10,7 +11,6 @@ import {
   notAuthenticatedResponse,
   requiresAuthentication,
 } from "./domain/auth/middleware.js";
-import type { ActorContext } from "./domain/schemas/actor.js";
 import type { Env } from "./env.js";
 import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";

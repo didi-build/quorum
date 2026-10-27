@@ -151,6 +151,8 @@ describe("ConnectionsView", () => {
     await waitFor(() =>
       expect(screen.getByText("Added 2 sources. Indexing has started.")).toBeTruthy(),
     );
-    expect(screen.getAllByText("Waiting to start").length).toBeGreaterThanOrEqual(2);
+    await waitFor(() =>
+      expect(screen.getAllByText("Waiting to start").length).toBeGreaterThanOrEqual(2),
+    );
   });
 });

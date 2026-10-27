@@ -102,7 +102,7 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
   it("GET /oauth/github/callback rejects invalid installation_id before state or GitHub", async () => {
     const bindings = await testEnvWithGithubApp();
     const cfg = loadConfig(bindings);
-    const state = await createOauthState(cfg.tokenEncryptionKey, DEFAULT_USER_ID);
+    const { state } = await createOauthState(cfg.tokenEncryptionKey, DEFAULT_USER_ID);
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -197,7 +197,7 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
   it("GET /oauth/github/callback upserts connection and redirects to connections UI", async () => {
     const bindings = await testEnvWithGithubApp();
     const cfg = loadConfig(bindings);
-    const state = await createOauthState(cfg.tokenEncryptionKey, DEFAULT_USER_ID);
+    const { state } = await createOauthState(cfg.tokenEncryptionKey, DEFAULT_USER_ID);
 
     vi.stubGlobal(
       "fetch",

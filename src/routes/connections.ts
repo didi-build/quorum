@@ -7,10 +7,16 @@ import {
 } from "../domain/db/connections.js";
 import {
   fetchGithubInstallationRepositories,
+  LINEAR_ACCESS_LOST_DETAIL,
   loadExistingSourcesByRef,
   markAlreadyAdded,
   ProviderRequestError,
 } from "../domain/connections/available-sources.js";
+import {
+  fetchLinearTeamsForConnection,
+  LinearAccessError,
+  LinearReconnectRequiredError,
+} from "../domain/oauth/linear.js";
 import { can_access } from "../domain/permissions.js";
 import type { ActorContext } from "../domain/schemas/actor.js";
 import type { Env } from "../env.js";
@@ -80,7 +86,25 @@ export async function handleConnectionsRoute(
           403,
         );
       }
-      return jsonDetail("Linear OAuth is not configured", 503);
+      const existing = await loadExistingSourcesByRef(env.DB, connectionId, actor);
+      try {
+        const items = await fetchLinearTeamsForConnection(env.DB, config, connection);
+        return Response.json({
+          provider: "linear",
+          items: markAlreadyAdded(items, existing),
+        });
+      } catch (error) {
+        if (
+          error instanceof LinearReconnectRequiredError ||
+          error instanceof LinearAccessError
+        ) {
+          return jsonDetail(LINEAR_ACCESS_LOST_DETAIL, 403);
+        }
+        if (error instanceof ProviderRequestError) {
+          return jsonDetail(error.detail, error.statusCode);
+        }
+        throw error;
+      }
     }
 
     return jsonDetail("Unsupported connection provider", 502);
