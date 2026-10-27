@@ -10,12 +10,15 @@ import {
   notAuthenticatedResponse,
   requiresAuthentication,
 } from "./domain/auth/middleware.js";
+import type { ActorContext } from "./domain/schemas/actor.js";
 import type { Env } from "./env.js";
 import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
 import { handleChatWebSocket } from "./routes/chat-ws.js";
+import { handleConnectionsRoute } from "./routes/connections.js";
 import { handleHealth, handleReady } from "./routes/health.js";
+import { handleOAuthRoute } from "./routes/oauth.js";
 
 export type { Env } from "./env.js";
 
@@ -69,7 +72,24 @@ async function handleProtectedApi(
   env: Env,
   pathname: string,
   config: QuorumConfig,
+  actor: ActorContext,
 ): Promise<Response | null> {
+  const oauthResponse = await handleOAuthRoute(request, env, config, pathname, actor);
+  if (oauthResponse !== null) {
+    return oauthResponse;
+  }
+
+  const connectionsResponse = await handleConnectionsRoute(
+    request,
+    env,
+    config,
+    pathname,
+    actor,
+  );
+  if (connectionsResponse !== null) {
+    return connectionsResponse;
+  }
+
   const authResponse = await handleAuthRoute(request, env, config, pathname);
   if (authResponse !== null) {
     return authResponse;
@@ -109,6 +129,17 @@ export default {
           return configOrError;
         }
         await ensureBootstrapApiKey(env.DB, configOrError);
+        const publicOAuth = await handleOAuthRoute(
+          request,
+          env,
+          configOrError,
+          pathname,
+          null,
+        );
+        if (publicOAuth !== null) {
+          return publicOAuth;
+        }
+
         const publicAuth = await handleAuthRoute(request, env, configOrError, pathname);
         if (publicAuth !== null) {
           return publicAuth;
@@ -142,6 +173,7 @@ export default {
           env,
           pathname,
           config,
+          actor,
         );
         if (protectedResponse !== null) {
           return protectedResponse;
