@@ -115,6 +115,10 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
       { label: "non-numeric", installationQuery: "new-inst" },
       { label: "zero", installationQuery: "0" },
       { label: "leading zero", installationQuery: "012345" },
+      { label: "slash only digits", installationQuery: "1%2F2" },
+      { label: "traversal digits", installationQuery: "12%2F..%2F34" },
+      { label: "dot decimal", installationQuery: "1.2" },
+      { label: "double dot", installationQuery: "1..2" },
     ];
 
     for (const { label, installationQuery } of cases) {
@@ -142,6 +146,35 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
     }
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("GET /oauth/github/callback returns installation-id error before forged state is checked", async () => {
+    const bindings = await testEnvWithGithubApp();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(
+        "http://test/oauth/github/callback?installation_id=1%2F..%2Fhook&state=forged-state-token",
+      ),
+      bindings,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { detail: string }).detail).toBe(
+      GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const row = await env.DB.prepare(
+      "SELECT id FROM connections WHERE user_id = ? AND provider = 'github'",
+    )
+      .bind(DEFAULT_USER_ID)
+      .first();
+    expect(row).toBeNull();
   });
 
   it("GET /oauth/github/callback rejects forged state", async () => {

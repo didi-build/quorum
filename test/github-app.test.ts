@@ -215,7 +215,18 @@ describe("github-app (unit)", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const invalidIds = ["", "0", "01", "abc", "1/../../hook/config", "1?x=1"];
+    const invalidIds = [
+      "",
+      "0",
+      "01",
+      "abc",
+      "1/../../hook/config",
+      "1?x=1",
+      "1/2",
+      "12/../34",
+      "1.2",
+      "1..2",
+    ];
 
     for (const installationId of invalidIds) {
       await expect(fetchInstallation(config, installationId)).rejects.toMatchObject({
