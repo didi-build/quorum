@@ -3,6 +3,9 @@ import { sessionMaxAgeSeconds } from "./browser-session.js";
 
 /** Short-lived cookie binding OAuth login state to the initiating browser (`__Host-` prefix). */
 export const OAUTH_LOGIN_NONCE_COOKIE_NAME = "__Host-quorum_oauth_login_nonce";
+/** Binds provider connection OAuth state to the initiating browser session. */
+export const OAUTH_CONNECTION_NONCE_COOKIE_NAME =
+  "__Host-quorum_oauth_connection_nonce";
 
 const OAUTH_LOGIN_NONCE_MAX_AGE_SECONDS = 600;
 
@@ -88,4 +91,12 @@ export function setOAuthLoginNonceCookieHeader(nonce: string): string {
 
 export function clearOAuthLoginNonceCookieHeader(): string {
   return `${OAUTH_LOGIN_NONCE_COOKIE_NAME}=; ${oauthLoginNonceCookieAttributes(0)}`;
+}
+
+export function setOAuthConnectionNonceCookieHeader(nonce: string): string {
+  return `${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=${nonce}; ${oauthLoginNonceCookieAttributes(OAUTH_LOGIN_NONCE_MAX_AGE_SECONDS)}`;
+}
+
+export function clearOAuthConnectionNonceCookieHeader(): string {
+  return `${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=; ${oauthLoginNonceCookieAttributes(0)}`;
 }

@@ -89,10 +89,89 @@ function parseList<T>(data: unknown, status: number): T[] {
   return expectJsonArray<T>(data, status);
 }
 
+interface ConnectionReadApi {
+  id: string;
+  provider: Connection["provider"];
+  external_account_name: string;
+}
+
+interface AvailableSourceItemApi {
+  name: string;
+  external_ref: string;
+  private?: boolean | null;
+  key?: string | null;
+  already_added?: boolean;
+}
+
+function mapConnectionRead(row: unknown, status: number): Connection {
+  if (!row || typeof row !== "object") {
+    throw new SourcesApiError(status, "Invalid connection object");
+  }
+  const record = row as ConnectionReadApi;
+  if (
+    typeof record.id !== "string" ||
+    (record.provider !== "github" && record.provider !== "linear")
+  ) {
+    throw new SourcesApiError(status, "Invalid connection object");
+  }
+  const accountLabel =
+    typeof record.external_account_name === "string"
+      ? record.external_account_name
+      : null;
+  return {
+    id: record.id,
+    provider: record.provider,
+    connected: true,
+    account_label: accountLabel,
+  };
+}
+
+function parseConnectionsList(data: unknown, status: number): Connection[] {
+  if (!data || typeof data !== "object" || !("connections" in data)) {
+    throw new SourcesApiError(status, "Expected connections list response");
+  }
+  const connections = (data as { connections: unknown }).connections;
+  if (!Array.isArray(connections)) {
+    throw new SourcesApiError(status, "Expected connections list response");
+  }
+  return connections.map((row) => mapConnectionRead(row, status));
+}
+
+function mapAvailableSourceItem(row: unknown, status: number): AvailableSourceItem {
+  if (!row || typeof row !== "object") {
+    throw new SourcesApiError(status, "Invalid available source object");
+  }
+  const record = row as AvailableSourceItemApi;
+  if (typeof record.name !== "string" || typeof record.external_ref !== "string") {
+    throw new SourcesApiError(status, "Invalid available source object");
+  }
+  return {
+    name: record.name,
+    external_ref: record.external_ref,
+    private: Boolean(record.private),
+    key: typeof record.key === "string" ? record.key : "",
+    already_added: Boolean(record.already_added),
+  };
+}
+
+function parseAvailableSourcesList(
+  data: unknown,
+  status: number,
+): AvailableSourceItem[] {
+  if (!data || typeof data !== "object" || !("items" in data)) {
+    throw new SourcesApiError(status, "Expected available sources response");
+  }
+  const items = (data as { items: unknown }).items;
+  if (!Array.isArray(items)) {
+    throw new SourcesApiError(status, "Expected available sources response");
+  }
+  return items.map((row) => mapAvailableSourceItem(row, status));
+}
+
 export function createHttpSourcesApi(): SourcesApi {
   return {
     listConnections: () =>
-      request<Connection[]>("/connections", {}, undefined, parseList<Connection>),
+      request<Connection[]>("/connections", {}, undefined, parseConnectionsList),
     listSources: () =>
       request<KnowledgeSource[]>("/sources", {}, undefined, parseList<KnowledgeSource>),
     refreshSource: (id) =>
@@ -117,7 +196,7 @@ export function createHttpSourcesApi(): SourcesApi {
         `/connections/${encodeURIComponent(connectionId)}/available-sources`,
         {},
         provider,
-        parseList<AvailableSourceItem>,
+        parseAvailableSourcesList,
       ),
     createSources: (items) =>
       request<KnowledgeSource[]>(

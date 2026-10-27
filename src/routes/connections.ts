@@ -1,42 +1,26 @@
 import type { QuorumConfig } from "../config/types.js";
-import { can_access } from "../domain/permissions.js";
-import type { ActorContext } from "../domain/schemas/actor.js";
-import { connectionRowToApiItem } from "../domain/connections/connection-api.js";
 import {
-  availableItemToApiPayload,
-  githubAvailableSourcesNotReady,
+  connectionRowToRead,
+  deleteConnectionById,
+  getConnectionById,
+  listConnectionsByUserId,
+} from "../domain/db/connections.js";
+import {
+  fetchGithubInstallationRepositories,
+  LINEAR_ACCESS_LOST_DETAIL,
   loadExistingSourcesByRef,
   markAlreadyAdded,
   ProviderRequestError,
-  unsupportedProvider,
 } from "../domain/connections/available-sources.js";
-import type { ConnectionRow } from "../domain/connections/types.js";
 import {
   fetchLinearTeamsForConnection,
-  getConnectionById,
   LinearAccessError,
+  LinearReconnectRequiredError,
 } from "../domain/oauth/linear.js";
+import { can_access } from "../domain/permissions.js";
+import type { ActorContext } from "../domain/schemas/actor.js";
 import type { Env } from "../env.js";
 import { jsonDetail } from "../http/api-error.js";
-
-async function listConnectionsForActor(
-  db: Env["DB"],
-  actor: ActorContext,
-): Promise<ConnectionRow[]> {
-  const result = await db
-    .prepare(
-      `SELECT
-        id, user_id, provider, access_token_ciphertext, refresh_token_ciphertext,
-        token_expires_at, installation_id, external_account_id, external_account_name,
-        created_at, updated_at
-      FROM connections`,
-    )
-    .all<ConnectionRow>();
-
-  return (result.results ?? []).filter((row) =>
-    can_access(actor.userId, actor.projectId, row.user_id, null),
-  );
-}
 
 function connectionNotFound(): Response {
   return jsonDetail("Connection not found", 404);
@@ -52,8 +36,11 @@ export async function handleConnectionsRoute(
   const method = request.method;
 
   if (pathname === "/connections" && method === "GET") {
-    const rows = await listConnectionsForActor(env.DB, actor);
-    return Response.json(rows.map(connectionRowToApiItem));
+    const rows = await listConnectionsByUserId(env.DB, actor.userId);
+    const connections = rows
+      .filter((row) => can_access(actor.userId, actor.projectId, row.user_id, null))
+      .map(connectionRowToRead);
+    return Response.json({ connections });
   }
 
   const availableMatch = /^\/connections\/([^/]+)\/available-sources$/.exec(pathname);
@@ -67,43 +54,79 @@ export async function handleConnectionsRoute(
       return connectionNotFound();
     }
 
-    const existing = await loadExistingSourcesByRef(env.DB, connectionId, actor);
-
-    try {
-      if (connection.provider === "github") {
-        if (!connection.installation_id) {
-          return jsonDetail(
-            "GitHub connection is missing an installation. Reconnect GitHub.",
-            403,
-          );
-        }
-        throw githubAvailableSourcesNotReady();
+    if (connection.provider === "github") {
+      if (!connection.installation_id) {
+        return jsonDetail(
+          "GitHub connection is missing an installation. Reconnect GitHub.",
+          403,
+        );
       }
-
-      if (connection.provider === "linear") {
-        if (!connection.access_token_ciphertext) {
-          return jsonDetail(
-            "Linear connection is missing an access token. Reconnect Linear.",
-            403,
-          );
+      const existing = await loadExistingSourcesByRef(env.DB, connectionId, actor);
+      try {
+        const items = await fetchGithubInstallationRepositories(
+          config,
+          connection.installation_id,
+        );
+        return Response.json({
+          provider: "github",
+          items: markAlreadyAdded(items, existing),
+        });
+      } catch (error) {
+        if (error instanceof ProviderRequestError) {
+          return jsonDetail(error.detail, error.statusCode);
         }
-        const items = await fetchLinearTeamsForConnection(env.DB, config, connection);
-        const marked = markAlreadyAdded(items, existing);
-        return Response.json(marked.map(availableItemToApiPayload));
+        throw error;
       }
+    }
 
-      throw unsupportedProvider(connection.provider);
-    } catch (error) {
-      if (error instanceof LinearAccessError) {
+    if (connection.provider === "linear") {
+      if (!connection.access_token_ciphertext) {
         return jsonDetail(
           "Linear connection is missing an access token. Reconnect Linear.",
           403,
         );
       }
-      if (error instanceof ProviderRequestError) {
-        return jsonDetail(error.detail, error.statusCode);
+      const existing = await loadExistingSourcesByRef(env.DB, connectionId, actor);
+      try {
+        const items = await fetchLinearTeamsForConnection(env.DB, config, connection);
+        return Response.json({
+          provider: "linear",
+          items: markAlreadyAdded(items, existing),
+        });
+      } catch (error) {
+        if (
+          error instanceof LinearReconnectRequiredError ||
+          error instanceof LinearAccessError
+        ) {
+          return jsonDetail(LINEAR_ACCESS_LOST_DETAIL, 403);
+        }
+        if (error instanceof ProviderRequestError) {
+          return jsonDetail(error.detail, error.statusCode);
+        }
+        throw error;
       }
-      throw error;
+    }
+
+    return jsonDetail("Unsupported connection provider", 502);
+  }
+
+  const connectionMatch = /^\/connections\/([^/]+)$/.exec(pathname);
+  if (connectionMatch) {
+    const connectionId = connectionMatch[1];
+    const connection = await getConnectionById(env.DB, connectionId);
+    if (
+      connection === null ||
+      !can_access(actor.userId, actor.projectId, connection.user_id, null)
+    ) {
+      return connectionNotFound();
+    }
+
+    if (method === "GET") {
+      return Response.json(connectionRowToRead(connection));
+    }
+    if (method === "DELETE") {
+      await deleteConnectionById(env.DB, connectionId);
+      return new Response(null, { status: 204 });
     }
   }
 

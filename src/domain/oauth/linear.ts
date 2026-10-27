@@ -7,12 +7,12 @@ import {
 } from "../../lib/token-crypto.js";
 import {
   fetchLinearTeams,
+  LINEAR_ACCESS_LOST_DETAIL,
   LinearHttpUnauthorizedError,
 } from "../connections/available-sources.js";
-import type {
-  AvailableSourceItemInternal,
-  ConnectionRow,
-} from "../connections/types.js";
+import type { ConnectionRow } from "../db/connections.js";
+import { getConnectionById } from "../db/connections.js";
+import type { AvailableSourceItem } from "../schemas/available-sources.js";
 
 export class LinearTokenExchangeError extends Error {
   constructor(message = "Linear token exchange failed") {
@@ -25,6 +25,16 @@ export class LinearAccessError extends Error {
   constructor(message = "Linear connection is missing access token") {
     super(message);
     this.name = "LinearAccessError";
+  }
+}
+
+export class LinearReconnectRequiredError extends Error {
+  readonly detail: string;
+
+  constructor(detail = LINEAR_ACCESS_LOST_DETAIL) {
+    super(detail);
+    this.name = "LinearReconnectRequiredError";
+    this.detail = detail;
   }
 }
 
@@ -133,7 +143,7 @@ function displayNameFromUser(user: { name?: string; email?: string }): string {
   return user.name || user.email || "linear-user";
 }
 
-function tokenExpiresAtFromResponse(token: LinearTokenResponse): string | null {
+export function tokenExpiresAtFromResponse(token: LinearTokenResponse): string | null {
   if (typeof token.expires_in !== "number" || !Number.isFinite(token.expires_in)) {
     return null;
   }
@@ -147,15 +157,6 @@ export async function upsertLinearConnection(
   token: LinearTokenResponse,
   userInfo: { id: string; name?: string; email?: string },
 ): Promise<ConnectionRow> {
-  const accessCiphertext = await encryptToken(
-    config.tokenEncryptionKey,
-    token.access_token,
-  );
-  const refreshPlain = token.refresh_token;
-  const refreshCiphertext =
-    typeof refreshPlain === "string" && refreshPlain
-      ? await encryptToken(config.tokenEncryptionKey, refreshPlain)
-      : null;
   const expiresAt = tokenExpiresAtFromResponse(token);
   const displayName = displayNameFromUser(userInfo);
   const now = new Date().toISOString();
@@ -166,6 +167,18 @@ export async function upsertLinearConnection(
     )
     .bind(userId)
     .first<{ id: string }>();
+
+  const connectionId = existing?.id ?? crypto.randomUUID();
+  const accessCiphertext = await encryptToken(
+    config.tokenEncryptionKey,
+    connectionId,
+    token.access_token,
+  );
+  const refreshPlain = token.refresh_token;
+  const refreshCiphertext =
+    typeof refreshPlain === "string" && refreshPlain
+      ? await encryptToken(config.tokenEncryptionKey, connectionId, refreshPlain)
+      : null;
 
   if (existing) {
     await db
@@ -186,60 +199,38 @@ export async function upsertLinearConnection(
         userInfo.id,
         displayName,
         now,
-        existing.id,
+        connectionId,
       )
       .run();
-    const row = await getConnectionById(db, existing.id);
-    if (!row) {
-      throw new Error("Linear connection update failed");
-    }
-    return row;
-  }
-
-  const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO connections (
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO connections (
         id, user_id, provider, access_token_ciphertext, refresh_token_ciphertext,
         token_expires_at, external_account_id, external_account_name, updated_at
       ) VALUES (?, ?, 'linear', ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      id,
-      userId,
-      accessCiphertext,
-      refreshCiphertext,
-      expiresAt,
-      userInfo.id,
-      displayName,
-      now,
-    )
-    .run();
+      )
+      .bind(
+        connectionId,
+        userId,
+        accessCiphertext,
+        refreshCiphertext,
+        expiresAt,
+        userInfo.id,
+        displayName,
+        now,
+      )
+      .run();
+  }
 
-  const row = await getConnectionById(db, id);
+  const row = await getConnectionById(db, connectionId);
   if (!row) {
-    throw new Error("Linear connection insert failed");
+    throw new Error("Linear connection upsert failed");
   }
   return row;
 }
 
-export async function getConnectionById(
-  db: D1Database,
-  connectionId: string,
-): Promise<ConnectionRow | null> {
-  return db
-    .prepare(
-      `SELECT
-        id, user_id, provider, access_token_ciphertext, refresh_token_ciphertext,
-        token_expires_at, installation_id, external_account_id, external_account_name,
-        created_at, updated_at
-      FROM connections WHERE id = ?`,
-    )
-    .bind(connectionId)
-    .first<ConnectionRow>();
-}
-
-function isTokenExpired(expiresAt: string | null): boolean {
+export function isLinearTokenExpired(expiresAt: string | null): boolean {
   if (!expiresAt) {
     return false;
   }
@@ -257,16 +248,17 @@ export async function refreshLinearTokens(
   fetchImpl: LinearFetch = fetch,
 ): Promise<ConnectionRow> {
   if (!connection.refresh_token_ciphertext) {
-    throw new LinearAccessError();
+    throw new LinearReconnectRequiredError();
   }
   let refreshPlain: string;
   try {
     refreshPlain = await decryptToken(
       config.tokenEncryptionKey,
+      connection.id,
       connection.refresh_token_ciphertext,
     );
   } catch {
-    throw new LinearAccessError();
+    throw new LinearReconnectRequiredError();
   }
 
   let response: Response;
@@ -282,16 +274,22 @@ export async function refreshLinearTokens(
       }),
     });
   } catch {
-    throw new LinearTokenExchangeError();
+    throw new LinearReconnectRequiredError();
   }
 
   if (!response.ok) {
-    throw new LinearTokenExchangeError();
+    throw new LinearReconnectRequiredError();
   }
 
-  const token = (await response.json()) as LinearTokenResponse;
+  let token: LinearTokenResponse;
+  try {
+    token = (await response.json()) as LinearTokenResponse;
+  } catch {
+    throw new LinearReconnectRequiredError();
+  }
+
   if (typeof token.access_token !== "string" || !token.access_token) {
-    throw new LinearTokenExchangeError();
+    throw new LinearReconnectRequiredError();
   }
 
   return upsertLinearConnection(db, config, connection.user_id, token, {
@@ -310,7 +308,7 @@ export async function getLinearAccessToken(
     throw new LinearAccessError();
   }
 
-  if (isTokenExpired(connection.token_expires_at)) {
+  if (isLinearTokenExpired(connection.token_expires_at)) {
     connection = await refreshLinearTokens(db, config, connection, fetchImpl);
   }
 
@@ -320,7 +318,7 @@ export async function getLinearAccessToken(
   }
 
   try {
-    return await decryptToken(config.tokenEncryptionKey, ciphertext);
+    return await decryptToken(config.tokenEncryptionKey, connection.id, ciphertext);
   } catch (error) {
     if (error instanceof TokenDecryptError) {
       throw new LinearAccessError();
@@ -334,7 +332,7 @@ export async function fetchLinearTeamsForConnection(
   config: QuorumConfig,
   connection: ConnectionRow,
   fetchImpl: LinearFetch = fetch,
-): Promise<AvailableSourceItemInternal[]> {
+): Promise<AvailableSourceItem[]> {
   const loadTeams = async (conn: ConnectionRow) => {
     const accessToken = await getLinearAccessToken(db, config, conn, fetchImpl);
     return fetchLinearTeams(accessToken, fetchImpl);
@@ -345,7 +343,14 @@ export async function fetchLinearTeamsForConnection(
   } catch (error) {
     if (error instanceof LinearHttpUnauthorizedError) {
       const refreshed = await refreshLinearTokens(db, config, connection, fetchImpl);
-      return loadTeams(refreshed);
+      try {
+        return await loadTeams(refreshed);
+      } catch (retryError) {
+        if (retryError instanceof LinearHttpUnauthorizedError) {
+          throw new LinearReconnectRequiredError();
+        }
+        throw retryError;
+      }
     }
     throw error;
   }

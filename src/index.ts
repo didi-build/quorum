@@ -15,10 +15,10 @@ import type { Env } from "./env.js";
 import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
-import { handleConnectionsRoute } from "./routes/connections.js";
-import { handleOauthRoute } from "./routes/oauth.js";
 import { handleChatWebSocket } from "./routes/chat-ws.js";
+import { handleConnectionsRoute } from "./routes/connections.js";
 import { handleHealth, handleReady } from "./routes/health.js";
+import { handleOAuthRoute } from "./routes/oauth.js";
 
 export type { Env } from "./env.js";
 
@@ -74,12 +74,7 @@ async function handleProtectedApi(
   config: QuorumConfig,
   actor: ActorContext,
 ): Promise<Response | null> {
-  const authResponse = await handleAuthRoute(request, env, config, pathname);
-  if (authResponse !== null) {
-    return authResponse;
-  }
-
-  const oauthResponse = await handleOauthRoute(request, env, config, pathname, actor);
+  const oauthResponse = await handleOAuthRoute(request, env, config, pathname, actor);
   if (oauthResponse !== null) {
     return oauthResponse;
   }
@@ -93,6 +88,11 @@ async function handleProtectedApi(
   );
   if (connectionsResponse !== null) {
     return connectionsResponse;
+  }
+
+  const authResponse = await handleAuthRoute(request, env, config, pathname);
+  if (authResponse !== null) {
+    return authResponse;
   }
 
   if (isApiPath(pathname)) {
@@ -129,19 +129,20 @@ export default {
           return configOrError;
         }
         await ensureBootstrapApiKey(env.DB, configOrError);
-        const publicAuth = await handleAuthRoute(request, env, configOrError, pathname);
-        if (publicAuth !== null) {
-          return publicAuth;
-        }
-        const publicOauth = await handleOauthRoute(
+        const publicOAuth = await handleOAuthRoute(
           request,
           env,
           configOrError,
           pathname,
           null,
         );
-        if (publicOauth !== null) {
-          return publicOauth;
+        if (publicOAuth !== null) {
+          return publicOAuth;
+        }
+
+        const publicAuth = await handleAuthRoute(request, env, configOrError, pathname);
+        if (publicAuth !== null) {
+          return publicAuth;
         }
       }
 
