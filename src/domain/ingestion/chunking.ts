@@ -1,4 +1,5 @@
-import { getEncoding } from "js-tiktoken";
+import { Tiktoken } from "js-tiktoken/lite";
+import cl100k_base from "js-tiktoken/ranks/cl100k_base";
 import type { QuorumConfig } from "../../config/types.js";
 
 export interface DocumentChunk {
@@ -8,16 +9,16 @@ export interface DocumentChunk {
   heading_hierarchy: string[];
 }
 
-let encoder: ReturnType<typeof getEncoding> | null = null;
+let encoder: Tiktoken | null = null;
 
-function getEncoder(): ReturnType<typeof getEncoding> {
+function getEncoder(): Tiktoken {
   if (!encoder) {
-    encoder = getEncoding("cl100k_base");
+    encoder = new Tiktoken(cl100k_base);
   }
   return encoder;
 }
 
-function countTokens(text: string, enc: ReturnType<typeof getEncoding>): number {
+function countTokens(text: string, enc: Tiktoken): number {
   return enc.encode(text).length;
 }
 

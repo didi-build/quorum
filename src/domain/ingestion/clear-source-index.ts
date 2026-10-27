@@ -24,7 +24,7 @@ export async function clearSourceIndex(
     .all<{ document_id: string; chunk_index: number }>();
 
   const rows = chunkRows.results ?? [];
-  const vectorIds = vectorIdsForChunks(knowledgeSourceId, rows);
+  const vectorIds = await vectorIdsForChunks(knowledgeSourceId, rows);
   if (vectorIds.length > 0) {
     await removeVectors(vectorize, vectorIds);
   }

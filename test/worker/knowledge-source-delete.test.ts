@@ -108,7 +108,7 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
 
   it("passes namespaced vector ids to the vector helper before the D1 delete", async () => {
     await seedKnowledgeSourceWithChunk();
-    const vectorId = chunkVectorId(SOURCE_ID, "doc.md", 0);
+    const vectorId = await chunkVectorId(SOURCE_ID, "doc.md", 0);
     let vectorChunkIds: string[] | undefined;
     let sourceExistedDuringVectors = false;
 

@@ -1,5 +1,8 @@
+import { DEFAULT_VOYAGE_BASE_URL } from "../../config/voyage-base-url.js";
 import type { QuorumConfig } from "../../config/types.js";
 import { EMBEDDING_BATCH_SIZE } from "./constants.js";
+
+export { EMBEDDING_BATCH_SIZE };
 
 export type VoyageFetch = typeof fetch;
 
@@ -18,14 +21,12 @@ export interface ContextualizedEmbeddingResponse {
   model: string;
 }
 
-const DEFAULT_VOYAGE_BASE = "https://api.voyageai.com/v1";
-
 function voyageBaseUrl(config: QuorumConfig): string {
-  const raw = config.voyageBaseUrl.trim();
-  if (!raw) {
-    return DEFAULT_VOYAGE_BASE;
-  }
-  return raw.replace(/\/$/, "");
+  return config.voyageBaseUrl || DEFAULT_VOYAGE_BASE_URL;
+}
+
+export function contextualizedEmbeddingsUrl(config: QuorumConfig): string {
+  return `${voyageBaseUrl(config)}/contextualizedembeddings`;
 }
 
 export class VoyageEmbedError extends Error {

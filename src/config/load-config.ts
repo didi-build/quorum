@@ -11,6 +11,7 @@ import { parseAllowedGithubIds, parseWsAllowedOriginSet } from "./parse.js";
 import { REQUIRED_SECRET_KEYS } from "./required-secrets.js";
 import type { QuorumConfig } from "./types.js";
 import { ConfigError } from "./errors.js";
+import { resolveVoyageBaseUrl } from "./voyage-base-url.js";
 
 const DEFAULT_USER_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -114,7 +115,9 @@ export function loadConfig(env: Env | ConfigEnv): QuorumConfig {
     linearScopes: envString(configEnv, "LINEAR_SCOPES", "read write"),
 
     voyageApiKey,
-    voyageBaseUrl: optionalEnvString(configEnv, "VOYAGE_BASE_URL") ?? "",
+    voyageBaseUrl: resolveVoyageBaseUrl(
+      optionalEnvString(configEnv, "VOYAGE_BASE_URL") ?? "",
+    ),
     voyageModel: envString(configEnv, "VOYAGE_MODEL", "voyage-context-4"),
     embeddingDimensions: envInt(configEnv, "EMBEDDING_DIMENSIONS", 1024),
 

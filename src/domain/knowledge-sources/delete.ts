@@ -9,7 +9,7 @@ export type DeleteKnowledgeSourceOptions = {
 };
 
 /**
- * Deletes a knowledge source: Vectorize vectors first (namespaced ids), then the D1 row
+ * Deletes a knowledge source: Vectorize vectors first (hashed namespaced ids), then the D1 row
  * (chunks and FTS rows cascade). Vector-first ordering allows retry if Vectorize fails.
  */
 export async function deleteKnowledgeSource(
@@ -27,7 +27,10 @@ export async function deleteKnowledgeSource(
     .bind(knowledgeSourceId)
     .all<{ document_id: string; chunk_index: number }>();
 
-  const vectorIds = vectorIdsForChunks(knowledgeSourceId, chunkRows.results ?? []);
+  const vectorIds = await vectorIdsForChunks(
+    knowledgeSourceId,
+    chunkRows.results ?? [],
+  );
   if (vectorIds.length > 0) {
     await removeVectors(vectorize, vectorIds);
   }

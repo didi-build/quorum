@@ -88,7 +88,19 @@ async function setSourceStatus(
     .run();
 }
 
-async function upsertVectors(
+export async function markKnowledgeSourceIndexingError(
+  db: D1Database,
+  sourceId: string,
+  statusMessage: string,
+): Promise<void> {
+  const source = await loadKnowledgeSource(db, sourceId);
+  if (source === null) {
+    return;
+  }
+  await setSourceStatus(db, sourceId, "error", statusMessage);
+}
+
+export async function upsertVectors(
   vectorize: VectorizeIndex,
   knowledgeSourceId: string,
   rows: Array<{
@@ -100,9 +112,9 @@ async function upsertVectors(
 ): Promise<void> {
   for (let offset = 0; offset < rows.length; offset += VECTORIZE_UPSERT_BATCH_SIZE) {
     const batch = rows.slice(offset, offset + VECTORIZE_UPSERT_BATCH_SIZE);
-    await vectorize.upsert(
-      batch.map((row) => ({
-        id: chunkVectorId(knowledgeSourceId, row.document_id, row.chunk_index),
+    const vectors = await Promise.all(
+      batch.map(async (row) => ({
+        id: await chunkVectorId(knowledgeSourceId, row.document_id, row.chunk_index),
         values: row.embedding,
         metadata: {
           knowledge_source_id: knowledgeSourceId,
@@ -112,7 +124,45 @@ async function upsertVectors(
         },
       })),
     );
+    await vectorize.upsert(vectors);
   }
+}
+
+async function upsertChunkRow(
+  db: D1Database,
+  sourceId: string,
+  chunk: {
+    document_id: string;
+    chunk_index: number;
+    content: string;
+    heading_hierarchy: string[];
+  },
+): Promise<number> {
+  const headingJson = JSON.stringify(chunk.heading_hierarchy);
+  await db
+    .prepare(
+      `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(knowledge_source_id, document_id, chunk_index)
+      DO UPDATE SET
+        content = excluded.content,
+        heading_hierarchy = excluded.heading_hierarchy`,
+    )
+    .bind(sourceId, chunk.document_id, chunk.chunk_index, chunk.content, headingJson)
+    .run();
+
+  const row = await db
+    .prepare(
+      `SELECT id FROM chunks
+       WHERE knowledge_source_id = ? AND document_id = ? AND chunk_index = ?`,
+    )
+    .bind(sourceId, chunk.document_id, chunk.chunk_index)
+    .first<{ id: number }>();
+  if (!row) {
+    throw new Error("Failed to load chunk row after upsert");
+  }
+  return row.id;
 }
 
 export interface IndexKnowledgeSourceResult {
@@ -150,7 +200,6 @@ export async function indexKnowledgeSource(
   const voyageFetch = deps.voyageFetch ?? fetch;
 
   if (isFreshRun) {
-    await clearIndex(db, vectorize, sourceId);
     await setSourceStatus(db, sourceId, "indexing", "Indexing in progress");
   }
 
@@ -180,7 +229,7 @@ export async function indexKnowledgeSource(
         db,
         config,
         connection as ConnectionRow,
-        voyageFetch,
+        providerFetch,
       );
       documents = await linearFetch(accessToken, source.external_ref, providerFetch);
     } else {
@@ -196,13 +245,23 @@ export async function indexKnowledgeSource(
       })),
     );
 
-    if (flatChunks.length === 0 && isFreshRun && !githubHasMore) {
+    const indexingComplete = !githubHasMore;
+
+    if (flatChunks.length === 0 && indexingComplete) {
+      if (isFreshRun) {
+        await clearIndex(db, vectorize, sourceId);
+      }
       const now = new Date().toISOString();
-      await setSourceStatus(db, sourceId, "ready", "No indexable content found", now);
+      const messageText = isFreshRun ? "No indexable content found" : null;
+      await setSourceStatus(db, sourceId, "ready", messageText, now);
       return { done: true, continuation: null };
     }
 
     if (flatChunks.length > 0) {
+      if (isFreshRun) {
+        await clearIndex(db, vectorize, sourceId);
+      }
+
       const embeddings = await embedChunksFlat(config, flatChunks, voyageFetch);
       const vectorRows: Array<{
         chunk_rowid: number;
@@ -213,35 +272,9 @@ export async function indexKnowledgeSource(
 
       for (let i = 0; i < flatChunks.length; i++) {
         const chunk = flatChunks[i];
-        const headingJson = JSON.stringify(chunk.heading_hierarchy);
-        await db
-          .prepare(
-            `INSERT INTO chunks (
-              knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
-            ) VALUES (?, ?, ?, ?, ?)`,
-          )
-          .bind(
-            sourceId,
-            chunk.document_id,
-            chunk.chunk_index,
-            chunk.content,
-            headingJson,
-          )
-          .run();
-
-        const row = await db
-          .prepare(
-            `SELECT id FROM chunks
-             WHERE knowledge_source_id = ? AND document_id = ? AND chunk_index = ?`,
-          )
-          .bind(sourceId, chunk.document_id, chunk.chunk_index)
-          .first<{ id: number }>();
-        if (!row) {
-          throw new Error("Failed to load inserted chunk row");
-        }
-
+        const chunkRowid = await upsertChunkRow(db, sourceId, chunk);
         vectorRows.push({
-          chunk_rowid: row.id,
+          chunk_rowid: chunkRowid,
           document_id: chunk.document_id,
           chunk_index: chunk.chunk_index,
           embedding: embeddings[i],
@@ -265,7 +298,8 @@ export async function indexKnowledgeSource(
     await setSourceStatus(db, sourceId, "ready", null, now);
     return { done: true, continuation: null };
   } catch (error) {
-    console.error("Indexing failed for source", sourceId, error);
+    const errorName = error instanceof Error ? error.name : "unknown_error";
+    console.error("Indexing failed for source", sourceId, errorName);
     await setSourceStatus(db, sourceId, "error", indexingErrorMessage(error));
     return { done: true, continuation: null };
   }
