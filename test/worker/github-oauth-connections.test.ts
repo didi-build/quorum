@@ -2,7 +2,10 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config/load-config.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
-import { upsertGithubConnection } from "../../src/domain/oauth/github-app.js";
+import {
+  GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
+  upsertGithubConnection,
+} from "../../src/domain/oauth/github-app.js";
 import { createOauthState } from "../../src/domain/oauth/state.js";
 import worker from "../../src/index";
 import { generateTestPrivateKeyBase64 } from "../fixtures/github-app-test-key.js";
@@ -96,6 +99,51 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
     expect(state).toBeTruthy();
   });
 
+  it("GET /oauth/github/callback rejects invalid installation_id before state or GitHub", async () => {
+    const bindings = await testEnvWithGithubApp();
+    const cfg = loadConfig(bindings);
+    const state = await createOauthState(cfg.tokenEncryptionKey, DEFAULT_USER_ID);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const cases: Array<{ label: string; installationQuery: string }> = [
+      { label: "empty", installationQuery: "" },
+      { label: "missing", installationQuery: "missing" },
+      { label: "traversal literal", installationQuery: "1/../../hook/config" },
+      { label: "traversal encoded", installationQuery: "1%2F..%2Fhook" },
+      { label: "query in id", installationQuery: "1%3Fx%3D1" },
+      { label: "non-numeric", installationQuery: "new-inst" },
+      { label: "zero", installationQuery: "0" },
+      { label: "leading zero", installationQuery: "012345" },
+    ];
+
+    for (const { label, installationQuery } of cases) {
+      await clearConnectionData();
+      const callbackUrl =
+        installationQuery === "missing"
+          ? `http://test/oauth/github/callback?state=${encodeURIComponent(state)}`
+          : `http://test/oauth/github/callback?installation_id=${installationQuery}&state=${encodeURIComponent(state)}`;
+
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(new Request(callbackUrl), bindings, ctx);
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status, label).toBe(400);
+      expect(((await response.json()) as { detail: string }).detail, label).toBe(
+        GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
+      );
+
+      const row = await env.DB.prepare(
+        "SELECT id FROM connections WHERE user_id = ? AND provider = 'github'",
+      )
+        .bind(DEFAULT_USER_ID)
+        .first();
+      expect(row, label).toBeNull();
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("GET /oauth/github/callback rejects forged state", async () => {
     const bindings = await testEnvWithGithubApp();
     const ctx = createExecutionContext();
@@ -168,7 +216,7 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'inst-1', 'acct', 'github-user')`,
+      ) VALUES (?, ?, 'github', '1001', 'acct', 'github-user')`,
     )
       .bind(connectionId, DEFAULT_USER_ID)
       .run();
@@ -201,7 +249,7 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
       .bind(connectionId, DEFAULT_USER_ID)
       .run();
 
-    await upsertGithubConnection(env.DB, DEFAULT_USER_ID, "new-inst", {
+    await upsertGithubConnection(env.DB, DEFAULT_USER_ID, "54321", {
       account: { id: 99, login: "fresh-login" },
     });
 
@@ -219,7 +267,7 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
     expect(row?.access_token_ciphertext).toBeNull();
     expect(row?.refresh_token_ciphertext).toBeNull();
     expect(row?.token_expires_at).toBeNull();
-    expect(row?.installation_id).toBe("new-inst");
+    expect(row?.installation_id).toBe("54321");
   });
 
   it("DELETE /connections/{id} removes the connection", async () => {
@@ -229,7 +277,7 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'inst-1', 'acct', 'github-user')`,
+      ) VALUES (?, ?, 'github', '1001', 'acct', 'github-user')`,
     )
       .bind(connectionId, DEFAULT_USER_ID)
       .run();

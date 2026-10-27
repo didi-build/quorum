@@ -14,6 +14,24 @@ import type { ConnectionRow } from "../db/connections.js";
 
 export const GITHUB_API_BASE = "https://api.github.com";
 
+export const GITHUB_APP_INSTALLATION_ID_PATTERN = /^[1-9][0-9]{0,19}$/;
+
+export const GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL =
+  "Invalid GitHub App installation ID";
+
+export class GithubAppInstallationIdError extends Error {
+  constructor() {
+    super(GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL);
+    this.name = "GithubAppInstallationIdError";
+  }
+}
+
+export function assertValidGithubAppInstallationId(installationId: string): void {
+  if (!GITHUB_APP_INSTALLATION_ID_PATTERN.test(installationId)) {
+    throw new GithubAppInstallationIdError();
+  }
+}
+
 interface CachedInstallationToken {
   token: string;
   expiresAtMs: number;
@@ -131,9 +149,11 @@ export async function fetchInstallation(
   config: QuorumConfig,
   installationId: string,
 ): Promise<Record<string, unknown>> {
+  assertValidGithubAppInstallationId(installationId);
   const appJwt = await createAppJwt(config);
+  const encodedInstallationId = encodeURIComponent(installationId);
   const response = await fetch(
-    `${GITHUB_API_BASE}/app/installations/${installationId}`,
+    `${GITHUB_API_BASE}/app/installations/${encodedInstallationId}`,
     {
       headers: {
         Authorization: `Bearer ${appJwt}`,
@@ -151,9 +171,11 @@ export async function createInstallationAccessToken(
   config: QuorumConfig,
   installationId: string,
 ): Promise<{ token: string; expiresAtMs: number }> {
+  assertValidGithubAppInstallationId(installationId);
   const appJwt = await createAppJwt(config);
+  const encodedInstallationId = encodeURIComponent(installationId);
   const response = await fetch(
-    `${GITHUB_API_BASE}/app/installations/${installationId}/access_tokens`,
+    `${GITHUB_API_BASE}/app/installations/${encodedInstallationId}/access_tokens`,
     {
       method: "POST",
       headers: {

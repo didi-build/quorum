@@ -64,14 +64,14 @@ describe("connections authorization (worker integration)", () => {
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'inst-own', 'acct-own', 'own-user')`,
+      ) VALUES (?, ?, 'github', '2001', 'acct-own', 'own-user')`,
     )
       .bind(ownConnectionId, DEFAULT_USER_ID)
       .run();
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'inst-other', 'acct-other', 'other-github')`,
+      ) VALUES (?, ?, 'github', '2002', 'acct-other', 'other-github')`,
     )
       .bind(otherConnectionId, OTHER_USER_ID)
       .run();
@@ -101,7 +101,7 @@ describe("connections authorization (worker integration)", () => {
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'inst-other', 'acct-other', 'other-github')`,
+      ) VALUES (?, ?, 'github', '2002', 'acct-other', 'other-github')`,
     )
       .bind(otherConnectionId, OTHER_USER_ID)
       .run();
@@ -134,7 +134,7 @@ describe("connections authorization (worker integration)", () => {
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'inst-own', 'acct-own', 'own-user')`,
+      ) VALUES (?, ?, 'github', '2001', 'acct-own', 'own-user')`,
     )
       .bind(ownConnectionId, DEFAULT_USER_ID)
       .run();

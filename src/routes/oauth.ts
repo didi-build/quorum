@@ -4,6 +4,8 @@ import type { Env } from "../env.js";
 import { jsonDetail } from "../http/api-error.js";
 import {
   fetchInstallation,
+  GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
+  GITHUB_APP_INSTALLATION_ID_PATTERN,
   githubInstallUrl,
   isGithubAppConfigured,
   upsertGithubConnection,
@@ -45,7 +47,13 @@ export async function handleOAuthRoute(
     const url = new URL(request.url);
     const installationId = url.searchParams.get("installation_id");
     const state = url.searchParams.get("state");
-    if (!installationId || !state) {
+    if (
+      installationId === null ||
+      !GITHUB_APP_INSTALLATION_ID_PATTERN.test(installationId)
+    ) {
+      return jsonDetail(GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL, 400);
+    }
+    if (!state) {
       return jsonDetail("Invalid or expired OAuth state", 400);
     }
 

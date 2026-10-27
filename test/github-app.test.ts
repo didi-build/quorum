@@ -5,8 +5,10 @@ import {
   clearInstallationTokenCache,
   createAppJwt,
   createInstallationAccessToken,
+  fetchInstallation,
   getInstallationAccessToken,
   GithubAppPrivateKeyFormatError,
+  GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
   GITHUB_APP_PRIVATE_KEY_PEM_REJECTED_MESSAGE,
   importSigningKey,
   isGithubAppConfigured,
@@ -197,10 +199,37 @@ describe("github-app (unit)", () => {
       vi.fn(async () => new Response("not found", { status: 404 })),
     );
 
-    await expect(
-      createInstallationAccessToken(config, "installation-1"),
-    ).rejects.toMatchObject({
+    await expect(createInstallationAccessToken(config, "42")).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+
+  it("fetchInstallation and createInstallationAccessToken reject invalid installation IDs before fetch", async () => {
+    const privateKeyBase64 = await generateTestPrivateKeyBase64();
+    const config = loadConfig(
+      withTestConfigEnv({
+        GITHUB_APP_ID: "123456",
+        GITHUB_APP_PRIVATE_KEY_BASE64: privateKeyBase64,
+      }),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const invalidIds = ["", "0", "01", "abc", "1/../../hook/config", "1?x=1"];
+
+    for (const installationId of invalidIds) {
+      await expect(fetchInstallation(config, installationId)).rejects.toMatchObject({
+        name: "GithubAppInstallationIdError",
+        message: GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
+      });
+      await expect(
+        createInstallationAccessToken(config, installationId),
+      ).rejects.toMatchObject({
+        name: "GithubAppInstallationIdError",
+        message: GITHUB_APP_INSTALLATION_ID_INVALID_DETAIL,
+      });
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

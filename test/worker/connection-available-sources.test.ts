@@ -22,9 +22,7 @@ async function testEnvWithGithubApp() {
   });
 }
 
-async function seedGithubConnection(
-  installationId = "installation-123",
-): Promise<string> {
+async function seedGithubConnection(installationId = "123"): Promise<string> {
   const connectionId = crypto.randomUUID();
   await env.DB.prepare(
     "INSERT OR IGNORE INTO users (id, github_id, login) VALUES (?, 1, 'default-user')",
@@ -270,7 +268,7 @@ describe("connection available-sources (worker integration)", () => {
     await env.DB.prepare(
       `INSERT INTO connections (
         id, user_id, provider, installation_id, external_account_id, external_account_name
-      ) VALUES (?, ?, 'github', 'installation-999', 'other', 'other-user')`,
+      ) VALUES (?, ?, 'github', '999', 'other', 'other-user')`,
     )
       .bind(connectionId, otherUserId)
       .run();
