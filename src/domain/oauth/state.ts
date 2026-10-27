@@ -35,11 +35,28 @@ function randomNonce(): string {
 /** Single-use Linear connection callbacks (per isolate; entries expire with state TTL). */
 const consumedOauthStates = new Map<string, number>();
 
+/** Bound per-isolate memory for consumed-state tracking. */
+const CONSUMED_OAUTH_STATES_MAX = 4096;
+
 function purgeConsumedOauthStates(nowSeconds: number): void {
   for (const [state, expiresAt] of consumedOauthStates) {
     if (expiresAt <= nowSeconds) {
       consumedOauthStates.delete(state);
     }
+  }
+}
+
+function enforceConsumedOauthStatesCap(nowSeconds: number): void {
+  purgeConsumedOauthStates(nowSeconds);
+  if (consumedOauthStates.size <= CONSUMED_OAUTH_STATES_MAX) {
+    return;
+  }
+  const entries = [...consumedOauthStates.entries()].sort(
+    (left, right) => left[1] - right[1],
+  );
+  const removeCount = consumedOauthStates.size - CONSUMED_OAUTH_STATES_MAX;
+  for (let index = 0; index < removeCount; index += 1) {
+    consumedOauthStates.delete(entries[index][0]);
   }
 }
 
@@ -109,6 +126,7 @@ export async function verifyOauthState(
   }
   if (options.singleUse) {
     consumedOauthStates.set(state, expiresAt);
+    enforceConsumedOauthStatesCap(nowSeconds);
   }
 
   return { userId, stateNonce };

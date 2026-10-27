@@ -17,6 +17,31 @@ async function importHkdfBaseKey(tokenEncryptionKey: string): Promise<CryptoKey>
   );
 }
 
+async function deriveHkdfBits(
+  tokenEncryptionKey: string,
+  info: Uint8Array,
+  lengthBits: number,
+): Promise<Uint8Array> {
+  const baseKey = await importHkdfBaseKey(tokenEncryptionKey);
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: HKDF_SALT,
+      info,
+    },
+    baseKey,
+    lengthBits,
+  );
+  return new Uint8Array(bits);
+}
+
+export async function deriveTokenAesKeyBits(
+  tokenEncryptionKey: string,
+): Promise<Uint8Array> {
+  return deriveHkdfBits(tokenEncryptionKey, TOKEN_AES_INFO, 256);
+}
+
 export async function deriveTokenAesKey(
   tokenEncryptionKey: string,
 ): Promise<CryptoKey> {
@@ -38,16 +63,5 @@ export async function deriveTokenAesKey(
 export async function deriveOauthStateHmacKey(
   tokenEncryptionKey: string,
 ): Promise<Uint8Array> {
-  const baseKey = await importHkdfBaseKey(tokenEncryptionKey);
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: HKDF_SALT,
-      info: OAUTH_STATE_HMAC_INFO,
-    },
-    baseKey,
-    256,
-  );
-  return new Uint8Array(bits);
+  return deriveHkdfBits(tokenEncryptionKey, OAUTH_STATE_HMAC_INFO, 256);
 }

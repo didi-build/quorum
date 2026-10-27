@@ -12,8 +12,53 @@ import worker from "../../src/index";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 
+const CONNECTION_NONCE_SET_COOKIE_SUFFIX =
+  "Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600";
+
+const CONNECTION_NONCE_CLEAR_COOKIE = `${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`;
+
 function oauthConnectionNonceCookieHeader(nonce: string): string {
-  return `${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=${nonce}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=600`;
+  return `${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=${nonce}; ${CONNECTION_NONCE_SET_COOKIE_SUFFIX}`;
+}
+
+function expectConnectionNonceSetCookie(setCookie: string, nonce: string): void {
+  expect(setCookie).toBe(
+    `${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=${nonce}; ${CONNECTION_NONCE_SET_COOKIE_SUFFIX}`,
+  );
+}
+
+function expectConnectionNonceClearCookie(response: Response): void {
+  const cookies = response.headers.getSetCookie();
+  expect(cookies).toContain(CONNECTION_NONCE_CLEAR_COOKIE);
+}
+
+function stubLinearOAuthFetch(): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/oauth/token")) {
+        return new Response(
+          JSON.stringify({
+            access_token: "mock-linear-access",
+            refresh_token: "mock-linear-refresh",
+            expires_in: 3600,
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/graphql")) {
+        return new Response(
+          JSON.stringify({
+            data: { viewer: { id: "linear-user-id", name: "Linear User" } },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    }),
+  );
 }
 
 function testEnv(overrides: Record<string, string> = {}) {
@@ -67,45 +112,22 @@ describe("Linear OAuth (worker integration)", () => {
     expect(url.searchParams.get("actor")).toBe("app");
     expect(url.searchParams.get("scope")).toBe("read write");
     expect(url.searchParams.get("state")).toBeTruthy();
-    const cookies = response.headers.getSetCookie();
-    expect(
-      cookies.some((c) => c.startsWith(`${OAUTH_CONNECTION_NONCE_COOKIE_NAME}=`)),
-    ).toBe(true);
+    const setCookies = response.headers.getSetCookie();
+    expect(setCookies.length).toBe(1);
+    const nonceValue = setCookies[0].slice(
+      OAUTH_CONNECTION_NONCE_COOKIE_NAME.length + 1,
+      setCookies[0].indexOf(";"),
+    );
+    expectConnectionNonceSetCookie(setCookies[0], nonceValue);
   });
 
-  it("callback exchanges code with matching nonce cookie, encrypts tokens, and redirects", async () => {
+  it("callback exchanges code with matching nonce cookie, encrypts tokens, clears cookie, and redirects", async () => {
     const cfg = loadConfig(testEnv());
     const user = await getOrCreateUser(env.DB, 424242, "linear-callback-user");
     const { state, nonce } = await createOauthState(cfg.tokenEncryptionKey, user.id);
     const fixedNow = 1_700_000_000_000;
     vi.spyOn(Date, "now").mockReturnValue(fixedNow);
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/oauth/token")) {
-          return new Response(
-            JSON.stringify({
-              access_token: "mock-linear-access",
-              refresh_token: "mock-linear-refresh",
-              expires_in: 3600,
-              token_type: "Bearer",
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        if (url.includes("/graphql")) {
-          return new Response(
-            JSON.stringify({
-              data: { viewer: { id: "linear-user-id", name: "Linear User" } },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      }),
-    );
+    stubLinearOAuthFetch();
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
@@ -122,6 +144,7 @@ describe("Linear OAuth (worker integration)", () => {
     expect(response.headers.get("Location")).toBe(
       "http://test/app/connections?provider=linear&status=connected",
     );
+    expectConnectionNonceClearCookie(response);
 
     const row = await env.DB.prepare(
       `SELECT access_token_ciphertext, refresh_token_ciphertext, token_expires_at, external_account_name
@@ -141,7 +164,7 @@ describe("Linear OAuth (worker integration)", () => {
     expect(row?.token_expires_at).toBe(new Date(fixedNow + 3600 * 1000).toISOString());
   });
 
-  it("callback rejects missing nonce cookie without D1 write or token exchange", async () => {
+  it("callback rejects missing nonce cookie without D1 write or token exchange and clears cookie", async () => {
     const cfg = loadConfig(testEnv());
     const user = await getOrCreateUser(env.DB, 424242, "linear-missing-cookie");
     const { state } = await createOauthState(cfg.tokenEncryptionKey, user.id);
@@ -159,6 +182,7 @@ describe("Linear OAuth (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+    expectConnectionNonceClearCookie(response);
     const row = await env.DB.prepare(
       "SELECT id FROM connections WHERE user_id = ? AND provider = 'linear'",
     )
@@ -167,7 +191,7 @@ describe("Linear OAuth (worker integration)", () => {
     expect(row).toBeNull();
   });
 
-  it("callback rejects wrong nonce cookie without D1 write", async () => {
+  it("callback rejects wrong nonce cookie without D1 write and clears cookie", async () => {
     const cfg = loadConfig(testEnv());
     const user = await getOrCreateUser(env.DB, 424242, "linear-wrong-cookie");
     const { state } = await createOauthState(cfg.tokenEncryptionKey, user.id);
@@ -186,37 +210,49 @@ describe("Linear OAuth (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+    expectConnectionNonceClearCookie(response);
   });
 
-  it("callback rejects replayed state after successful connect", async () => {
+  it("wrong nonce cookie does not consume state; a later matching cookie succeeds", async () => {
+    const cfg = loadConfig(testEnv());
+    const user = await getOrCreateUser(env.DB, 424242, "linear-wrong-then-right");
+    const { state, nonce } = await createOauthState(cfg.tokenEncryptionKey, user.id);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const callbackUrl = `http://test/oauth/linear/callback?code=auth-code&state=${encodeURIComponent(state)}`;
+
+    const ctxWrong = createExecutionContext();
+    const wrong = await worker.fetch(
+      new Request(callbackUrl, {
+        headers: { Cookie: oauthConnectionNonceCookieHeader("wrong-nonce-value") },
+      }),
+      testEnv(),
+      ctxWrong,
+    );
+    await waitOnExecutionContext(ctxWrong);
+    expect(wrong.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    stubLinearOAuthFetch();
+    const ctxRight = createExecutionContext();
+    const right = await worker.fetch(
+      new Request(callbackUrl, {
+        headers: { Cookie: oauthConnectionNonceCookieHeader(nonce) },
+      }),
+      testEnv(),
+      ctxRight,
+    );
+    await waitOnExecutionContext(ctxRight);
+    expect(right.status).toBe(307);
+    expectConnectionNonceClearCookie(right);
+  });
+
+  it("callback rejects replayed state after successful connect and clears cookie on first use", async () => {
     const cfg = loadConfig(testEnv());
     const user = await getOrCreateUser(env.DB, 424242, "linear-replay");
     const { state, nonce } = await createOauthState(cfg.tokenEncryptionKey, user.id);
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/oauth/token")) {
-          return new Response(
-            JSON.stringify({
-              access_token: "mock-linear-access",
-              refresh_token: "mock-linear-refresh",
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        if (url.includes("/graphql")) {
-          return new Response(
-            JSON.stringify({
-              data: { viewer: { id: "linear-user-id", name: "Linear User" } },
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      }),
-    );
+    stubLinearOAuthFetch();
 
     const callbackUrl = `http://test/oauth/linear/callback?code=auth-code&state=${encodeURIComponent(state)}`;
     const cookie = oauthConnectionNonceCookieHeader(nonce);
@@ -229,6 +265,7 @@ describe("Linear OAuth (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx1);
     expect(first.status).toBe(307);
+    expectConnectionNonceClearCookie(first);
 
     const ctx2 = createExecutionContext();
     const second = await worker.fetch(
@@ -238,9 +275,10 @@ describe("Linear OAuth (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx2);
     expect(second.status).toBe(400);
+    expectConnectionNonceClearCookie(second);
   });
 
-  it("callback rejects forged state at the route", async () => {
+  it("callback rejects forged state at the route and clears cookie", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const ctx = createExecutionContext();
@@ -255,5 +293,6 @@ describe("Linear OAuth (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+    expectConnectionNonceClearCookie(response);
   });
 });

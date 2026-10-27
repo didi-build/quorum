@@ -54,4 +54,24 @@ describe("provider OAuth state (unit)", () => {
     await expect(verifyOauthState(TOKEN_KEY, state)).rejects.toThrow(OAuthStateError);
     vi.restoreAllMocks();
   });
+
+  it("drops consumed-state entries after their expiry and still rejects expired signatures", async () => {
+    const ttlSeconds = 60;
+    const startMs = 1_700_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(startMs);
+    const { state } = await createOauthState(TOKEN_KEY, USER_ID, ttlSeconds);
+
+    await verifyOauthState(TOKEN_KEY, state, { singleUse: true });
+    await expect(
+      verifyOauthState(TOKEN_KEY, state, { singleUse: true }),
+    ).rejects.toThrow(OAuthStateError);
+
+    vi.spyOn(Date, "now").mockReturnValue(startMs + (ttlSeconds + 1) * 1000);
+    await expect(verifyOauthState(TOKEN_KEY, state)).rejects.toThrow(OAuthStateError);
+    await expect(
+      verifyOauthState(TOKEN_KEY, state, { singleUse: true }),
+    ).rejects.toThrow(OAuthStateError);
+
+    vi.restoreAllMocks();
+  });
 });

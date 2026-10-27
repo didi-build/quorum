@@ -125,9 +125,7 @@ export async function handleOAuthRoute(
     let userId: string;
     let stateNonce: string;
     try {
-      const verified = await verifyOauthState(config.tokenEncryptionKey, state, {
-        singleUse: true,
-      });
+      const verified = await verifyOauthState(config.tokenEncryptionKey, state);
       userId = verified.userId;
       stateNonce = verified.stateNonce;
     } catch (error) {
@@ -139,6 +137,15 @@ export async function handleOAuthRoute(
 
     if (!nonceCookie || !(await oauthLoginNoncesMatch(nonceCookie, stateNonce))) {
       return oauthStateJsonResponse("Invalid or expired OAuth state", 400);
+    }
+
+    try {
+      await verifyOauthState(config.tokenEncryptionKey, state, { singleUse: true });
+    } catch (error) {
+      if (error instanceof OAuthStateError) {
+        return oauthStateJsonResponse("Invalid or expired OAuth state", 400);
+      }
+      throw error;
     }
 
     const appUrl = config.appBaseUrl.replace(/\/+$/, "");
