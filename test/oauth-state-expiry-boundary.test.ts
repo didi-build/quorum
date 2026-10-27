@@ -20,11 +20,38 @@ function msOneSecondBeforeExpiry(startMs: number, ttlSeconds: number): number {
   return msAtExpirySecond(startMs, ttlSeconds) - 1000;
 }
 
+function msOneMillisecondBeforeExpiry(startMs: number, ttlSeconds: number): number {
+  return msAtExpirySecond(startMs, ttlSeconds) - 1;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe("OAuth state expiry boundary (unit)", () => {
+  it("accepts an unused state at expiresAt minus one second", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(START_MS);
+    const { state } = await createOauthState(TOKEN_KEY, USER_ID, TTL_SECONDS);
+
+    vi.spyOn(Date, "now").mockReturnValue(
+      msOneSecondBeforeExpiry(START_MS, TTL_SECONDS),
+    );
+    const verified = await verifyOauthState(TOKEN_KEY, state);
+    expect(verified.userId).toBe(USER_ID);
+    expect(verified.stateNonce).toBeTruthy();
+  });
+
+  it("accepts an unused state one millisecond before the expiry second boundary", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(START_MS);
+    const { state } = await createOauthState(TOKEN_KEY, USER_ID, TTL_SECONDS);
+
+    vi.spyOn(Date, "now").mockReturnValue(
+      msOneMillisecondBeforeExpiry(START_MS, TTL_SECONDS),
+    );
+    const verified = await verifyOauthState(TOKEN_KEY, state);
+    expect(verified.userId).toBe(USER_ID);
+  });
+
   it("rejects verification at exactly expiresAt when the state was never used", async () => {
     vi.spyOn(Date, "now").mockReturnValue(START_MS);
     const { state } = await createOauthState(TOKEN_KEY, USER_ID, TTL_SECONDS);
@@ -45,7 +72,7 @@ describe("OAuth state expiry boundary (unit)", () => {
     ).rejects.toThrow(OAuthStateError);
   });
 
-  it("rejects a used state at expiresAt minus one second (replay)", async () => {
+  it("rejects a used state at expiresAt minus one second while the consumed entry is still retained (replay, not early purge)", async () => {
     vi.spyOn(Date, "now").mockReturnValue(START_MS);
     const { state } = await createOauthState(TOKEN_KEY, USER_ID, TTL_SECONDS);
 
@@ -57,6 +84,7 @@ describe("OAuth state expiry boundary (unit)", () => {
     await expect(
       verifyOauthState(TOKEN_KEY, state, { singleUse: true }),
     ).rejects.toThrow(OAuthStateError);
+    await expect(verifyOauthState(TOKEN_KEY, state)).rejects.toThrow(OAuthStateError);
   });
 
   it("rejects a used state at exactly expiresAt (expiry, not replay after purge)", async () => {
