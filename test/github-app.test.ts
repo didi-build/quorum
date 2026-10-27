@@ -1,15 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../src/config/load-config.js";
+import type { QuorumConfig } from "../src/config/types.js";
 import {
   clearInstallationTokenCache,
   createAppJwt,
   createInstallationAccessToken,
   getInstallationAccessToken,
+  GithubAppPrivateKeyFormatError,
+  GITHUB_APP_PRIVATE_KEY_PEM_REJECTED_MESSAGE,
+  importSigningKey,
   isGithubAppConfigured,
 } from "../src/domain/oauth/github-app.js";
-import type { QuorumConfig } from "../src/config/types.js";
 import { withTestConfigEnv } from "./fixtures/config-env.js";
 import { generateTestPrivateKeyBase64 } from "./fixtures/github-app-test-key.js";
+
+function base64UrlEncodeJson(value: Record<string, unknown>): string {
+  const json = JSON.stringify(value);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
 
 describe("github-app (unit)", () => {
   afterEach(() => {
@@ -32,20 +45,94 @@ describe("github-app (unit)", () => {
     expect(token).not.toContain(privateKeyBase64);
   });
 
-  it("imports GitHub App PKCS#8 key as non-extractable (WebCrypto)", async () => {
-    const privateKeyBase64 = await generateTestPrivateKeyBase64();
-    const binary = atob(privateKeyBase64);
-    const pkcs8 = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      pkcs8[i] = binary.charCodeAt(i);
-    }
-    const key = await crypto.subtle.importKey(
+  it("importSigningKey accepts PKCS#8 DER base64 and signs a verifiable JWT", async () => {
+    const keyPair = (await crypto.subtle.generateKey(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+        hash: "SHA-256",
+      },
+      true,
+      ["sign", "verify"],
+    )) as CryptoKeyPair;
+
+    const pkcs8Der = (await crypto.subtle.exportKey(
       "pkcs8",
-      pkcs8,
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"],
+      keyPair.privateKey,
+    )) as ArrayBuffer;
+    const derBytes = new Uint8Array(pkcs8Der);
+    let binary = "";
+    for (const byte of derBytes) {
+      binary += String.fromCharCode(byte);
+    }
+    const privateKeyBase64 = btoa(binary);
+
+    const signingKey = await importSigningKey(privateKeyBase64);
+    const appId = "123456";
+    const now = Math.floor(Date.now() / 1000);
+    const header = base64UrlEncodeJson({ alg: "RS256", typ: "JWT" });
+    const payload = base64UrlEncodeJson({
+      iat: now - 60,
+      exp: now + 600,
+      iss: appId,
+    });
+    const signingInput = `${header}.${payload}`;
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      signingKey,
+      new TextEncoder().encode(signingInput),
     );
+    let sigBinary = "";
+    for (const byte of new Uint8Array(signature)) {
+      sigBinary += String.fromCharCode(byte);
+    }
+    const signatureEncoded = btoa(sigBinary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+    const token = `${signingInput}.${signatureEncoded}`;
+
+    const parts = token.split(".");
+    expect(parts).toHaveLength(3);
+    const data = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+    const sigBytes = Uint8Array.from(
+      atob(parts[2].replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0),
+    );
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      keyPair.publicKey,
+      sigBytes,
+      data,
+    );
+    expect(valid).toBe(true);
+  });
+
+  it("importSigningKey rejects base64-encoded PEM with a fixed error", async () => {
+    const pemText =
+      atob("LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0K") +
+      "placeholder\n" +
+      atob("LS0tLS1FTkQgUFJJVkFURSBLRVktLS0tLQo");
+    const pemBase64 = btoa(pemText);
+
+    let caught: unknown;
+    try {
+      await importSigningKey(pemBase64);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GithubAppPrivateKeyFormatError);
+    expect((caught as Error).message).toBe(GITHUB_APP_PRIVATE_KEY_PEM_REJECTED_MESSAGE);
+    expect((caught as Error).message).not.toContain("placeholder");
+    expect((caught as Error).message).not.toContain(
+      atob("LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0K").trim(),
+    );
+  });
+
+  it("importSigningKey imports GitHub App PKCS#8 DER as non-extractable", async () => {
+    const privateKeyBase64 = await generateTestPrivateKeyBase64();
+    const key = await importSigningKey(privateKeyBase64);
     expect(key.extractable).toBe(false);
     await expect(crypto.subtle.exportKey("pkcs8", key)).rejects.toThrow();
   });

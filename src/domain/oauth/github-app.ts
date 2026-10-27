@@ -1,12 +1,10 @@
 /**
  * GitHub App JWT and installation tokens (WebCrypto RS256).
  *
- * `GITHUB_APP_PRIVATE_KEY_BASE64` must be PKCS#8 PEM, base64-encoded (not PKCS#1).
+ * `GITHUB_APP_PRIVATE_KEY_BASE64` must be base64-encoded PKCS#8 DER (not PEM text).
  * GitHub often ships a PKCS#1 PEM. Convert with placeholder paths only, for example:
  *
- *   openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
- *     -in /path/to/github-app.pem -out /path/to/github-app-pkcs8.pem
- *   base64 -w0 /path/to/github-app-pkcs8.pem
+ *   openssl pkcs8 -topk8 -nocrypt -in /path/to/github-app.pem -outform DER | base64 -w0
  *
  * Never commit or log the key material.
  */
@@ -33,8 +31,21 @@ export function isGithubAppConfigured(config: QuorumConfig): boolean {
   );
 }
 
+export const GITHUB_APP_PRIVATE_KEY_PEM_REJECTED_MESSAGE =
+  "GITHUB_APP_PRIVATE_KEY_BASE64 must be base64-encoded PKCS#8 DER, not PEM text";
+
+export class GithubAppPrivateKeyFormatError extends Error {
+  constructor() {
+    super(GITHUB_APP_PRIVATE_KEY_PEM_REJECTED_MESSAGE);
+    this.name = "GithubAppPrivateKeyFormatError";
+  }
+}
+
 function decodePrivateKeyPkcs8(base64: string): Uint8Array {
   const binary = atob(base64);
+  if (binary.includes("-----BEGIN")) {
+    throw new GithubAppPrivateKeyFormatError();
+  }
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
@@ -61,7 +72,7 @@ function base64UrlEncodeBytes(bytes: Uint8Array): string {
 }
 
 /** `extractable` must remain false so the GitHub App private key cannot be exported. */
-async function importSigningKey(privateKeyBase64: string): Promise<CryptoKey> {
+export async function importSigningKey(privateKeyBase64: string): Promise<CryptoKey> {
   const pkcs8 = decodePrivateKeyPkcs8(privateKeyBase64);
   return await crypto.subtle.importKey(
     "pkcs8",
