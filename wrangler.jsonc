@@ -45,6 +45,13 @@
         "queue": "quorum-indexing",
       },
     ],
+    "consumers": [
+      {
+        "queue": "quorum-indexing",
+        "max_batch_size": 1,
+        "max_retries": 3,
+      },
+    ],
   },
   "vectorize": [
     {

@@ -2,13 +2,14 @@ import {
   deleteChunkVectors,
   type DeleteChunkVectors,
 } from "../ingestion/delete-vectors.js";
+import { vectorIdsForChunks } from "../ingestion/vector-id.js";
 
 export type DeleteKnowledgeSourceOptions = {
   deleteChunkVectors?: DeleteChunkVectors;
 };
 
 /**
- * Deletes a knowledge source: Vectorize vectors first (by chunk id), then the D1 row
+ * Deletes a knowledge source: Vectorize vectors first (namespaced ids), then the D1 row
  * (chunks and FTS rows cascade). Vector-first ordering allows retry if Vectorize fails.
  */
 export async function deleteKnowledgeSource(
@@ -20,13 +21,15 @@ export async function deleteKnowledgeSource(
   const removeVectors = options.deleteChunkVectors ?? deleteChunkVectors;
 
   const chunkRows = await db
-    .prepare("SELECT id FROM chunks WHERE knowledge_source_id = ?")
+    .prepare(
+      `SELECT document_id, chunk_index FROM chunks WHERE knowledge_source_id = ?`,
+    )
     .bind(knowledgeSourceId)
-    .all<{ id: number }>();
+    .all<{ document_id: string; chunk_index: number }>();
 
-  const chunkIds = (chunkRows.results ?? []).map((row) => String(row.id));
-  if (chunkIds.length > 0) {
-    await removeVectors(vectorize, chunkIds);
+  const vectorIds = vectorIdsForChunks(knowledgeSourceId, chunkRows.results ?? []);
+  if (vectorIds.length > 0) {
+    await removeVectors(vectorize, vectorIds);
   }
 
   await db

@@ -105,6 +105,16 @@ function hermeticGitEnv(dir: string) {
   };
 }
 
+function processEnvWithoutInheritedGitConfig(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_CONFIG_")) {
+      delete env[key];
+    }
+  }
+  return env;
+}
+
 function runRealGit(
   realGit: string,
   cwd: string,
@@ -244,7 +254,7 @@ function runBootstrapInitWithStubs(
     cwd: dir,
     encoding: "utf8",
     env: {
-      ...process.env,
+      ...processEnvWithoutInheritedGitConfig(),
       ...hermeticEnv,
       PATH: pathPrefix,
       BOOTSTRAP_STUB_LOG: logPath,
