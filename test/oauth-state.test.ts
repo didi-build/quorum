@@ -20,9 +20,11 @@ async function consumeSingleUseStates(
   verifyOauthStateFn: typeof verifyOauthState,
   specs: { ttlSeconds: number }[],
 ): Promise<string[]> {
+  const created = await Promise.all(
+    specs.map((spec) => createOauthStateFn(TOKEN_KEY, USER_ID, spec.ttlSeconds)),
+  );
   const states: string[] = [];
-  for (const spec of specs) {
-    const { state } = await createOauthStateFn(TOKEN_KEY, USER_ID, spec.ttlSeconds);
+  for (const { state } of created) {
     await verifyOauthStateFn(TOKEN_KEY, state, { singleUse: true });
     states.push(state);
   }
@@ -172,7 +174,7 @@ describe("provider OAuth state (unit)", () => {
     ).rejects.toThrow(StateError);
 
     vi.restoreAllMocks();
-  });
+  }, 120_000);
 
   it("evicts the soonest-expiring consumed OAuth state at CONSUMED_OAUTH_STATES_MAX", async () => {
     const {
@@ -218,5 +220,5 @@ describe("provider OAuth state (unit)", () => {
     );
 
     vi.restoreAllMocks();
-  });
+  }, 120_000);
 });

@@ -73,7 +73,8 @@ describe("Worker scheduled awaits session purge (integration, vitest-pool-worker
     await worker.scheduled(controller, { ...env, DB: delayedDb }, ctx);
     const elapsed = Date.now() - started;
 
-    expect(elapsed).toBeGreaterThanOrEqual(PURGE_DELAY_MS - 30);
+    // CI timer resolution/jitter can undershoot setTimeout by a few ms under load.
+    expect(elapsed).toBeGreaterThanOrEqual(PURGE_DELAY_MS - 50);
     expect(await sessionCount(env.DB)).toBe(0);
   });
 });

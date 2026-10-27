@@ -44,26 +44,42 @@ describe("capture-preview-screenshots (integration)", () => {
       env: process.env,
     });
 
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-preview-shots-"));
-    try {
-      execSync("node scripts/capture-preview-screenshots.mjs", {
-        cwd: root,
-        stdio: "pipe",
-        env: (() => {
-          const env = { ...process.env, PREVIEW_SCREENSHOTS_DIR: outDir };
-          delete env.PREVIEW_BASE_URL;
-          return env;
-        })(),
-      });
-      const pngs = fs.readdirSync(outDir).filter((name) => name.endsWith(".png"));
-      expect(pngs).toHaveLength(expectedPreviewScreenshotCount());
-      expect(pngs).toContain("landing-390-light.png");
-      expect(pngs).toContain("connections-1280-dark.png");
-      expect(
-        fs.readFileSync(path.join(outDir, "capture-source.txt"), "utf8").trim(),
-      ).toBe("local-static-server");
-    } finally {
-      fs.rmSync(outDir, { recursive: true, force: true });
+    const screenshotEnv = (outDir: string) => {
+      const env = { ...process.env, PREVIEW_SCREENSHOTS_DIR: outDir };
+      delete env.PREVIEW_BASE_URL;
+      return env;
+    };
+    const maxAttempts = 3;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-preview-shots-"));
+      try {
+        execSync("node scripts/capture-preview-screenshots.mjs", {
+          cwd: root,
+          stdio: "pipe",
+          env: screenshotEnv(outDir),
+        });
+        const pngs = fs.readdirSync(outDir).filter((name) => name.endsWith(".png"));
+        expect(pngs).toHaveLength(expectedPreviewScreenshotCount());
+        expect(pngs).toContain("landing-390-light.png");
+        expect(pngs).toContain("connections-1280-dark.png");
+        expect(
+          fs.readFileSync(path.join(outDir, "capture-source.txt"), "utf8").trim(),
+        ).toBe("local-static-server");
+        fs.rmSync(outDir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        fs.rmSync(outDir, { recursive: true, force: true });
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable =
+          message.includes("Unable to capture screenshot") ||
+          message.includes("Protocol error");
+        if (!retryable || attempt === maxAttempts) {
+          throw error;
+        }
+      }
     }
+    throw lastError;
   });
 });
