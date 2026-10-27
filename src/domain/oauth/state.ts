@@ -116,7 +116,7 @@ export async function verifyOauthState(
   const [userId, stateNonce, expiresAtStr] = payloadParts;
   const nowSeconds = Math.floor(Date.now() / 1000);
   const expiresAt = Number.parseInt(expiresAtStr, 10);
-  if (!Number.isFinite(expiresAt) || expiresAt < nowSeconds) {
+  if (!Number.isFinite(expiresAt) || expiresAt <= nowSeconds) {
     throw new OAuthStateError("Expired OAuth state");
   }
 
