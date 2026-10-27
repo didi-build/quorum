@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   GITHUB_ACCESS_LOST_DETAIL,
   LINEAR_ACCESS_LOST_DETAIL,
+  PROVIDER_RATE_LIMIT_DETAIL,
   mapGithubResourceHttpStatus,
   mapGithubTokenExchangeHttpStatus,
   mapLinearGraphqlErrors,
@@ -78,6 +79,12 @@ describe("available-sources (unit)", () => {
     const error = mapGithubTokenExchangeHttpStatus(404);
     expect(error.statusCode).toBe(403);
     expect(error.detail).toBe(GITHUB_ACCESS_LOST_DETAIL);
+  });
+
+  it("mapGithubTokenExchangeHttpStatus maps 429 to provider rate limit", () => {
+    const error = mapGithubTokenExchangeHttpStatus(429);
+    expect(error.statusCode).toBe(429);
+    expect(error.detail).toBe(PROVIDER_RATE_LIMIT_DETAIL);
   });
 
   it("mapGithubResourceHttpStatus maps 404 to 502", () => {

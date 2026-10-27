@@ -2,6 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config/load-config.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
+import { upsertGithubConnection } from "../../src/domain/oauth/github-app.js";
 import { createOauthState } from "../../src/domain/oauth/state.js";
 import worker from "../../src/index";
 import { generateTestPrivateKeyBase64 } from "../fixtures/github-app-test-key.js";
@@ -186,6 +187,39 @@ describe("GitHub App OAuth and connections (worker integration)", () => {
     const payload = (await response.json()) as { connections: Array<{ id: string }> };
     expect(payload.connections).toHaveLength(1);
     expect(payload.connections[0].id).toBe(connectionId);
+  });
+
+  it("upsertGithubConnection clears token columns on update", async () => {
+    const connectionId = crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO connections (
+        id, user_id, provider,
+        access_token_ciphertext, refresh_token_ciphertext, token_expires_at,
+        installation_id, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', 'legacy-cipher', 'legacy-refresh', '2026-01-01T00:00:00Z', 'old-inst', 'acct', 'legacy-name')`,
+    )
+      .bind(connectionId, DEFAULT_USER_ID)
+      .run();
+
+    await upsertGithubConnection(env.DB, DEFAULT_USER_ID, "new-inst", {
+      account: { id: 99, login: "fresh-login" },
+    });
+
+    const row = await env.DB.prepare(
+      `SELECT access_token_ciphertext, refresh_token_ciphertext, token_expires_at, installation_id
+       FROM connections WHERE id = ?`,
+    )
+      .bind(connectionId)
+      .first<{
+        access_token_ciphertext: string | null;
+        refresh_token_ciphertext: string | null;
+        token_expires_at: string | null;
+        installation_id: string | null;
+      }>();
+    expect(row?.access_token_ciphertext).toBeNull();
+    expect(row?.refresh_token_ciphertext).toBeNull();
+    expect(row?.token_expires_at).toBeNull();
+    expect(row?.installation_id).toBe("new-inst");
   });
 
   it("DELETE /connections/{id} removes the connection", async () => {

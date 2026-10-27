@@ -27,8 +27,14 @@ export function connectionRowToRead(row: ConnectionRow): ConnectionRead {
   };
 }
 
-export async function listAllConnections(db: D1Database): Promise<ConnectionRow[]> {
-  const result = await db.prepare("SELECT * FROM connections").all<ConnectionRow>();
+export async function listConnectionsByUserId(
+  db: D1Database,
+  userId: string,
+): Promise<ConnectionRow[]> {
+  const result = await db
+    .prepare("SELECT * FROM connections WHERE user_id = ?")
+    .bind(userId)
+    .all<ConnectionRow>();
   return result.results ?? [];
 }
 

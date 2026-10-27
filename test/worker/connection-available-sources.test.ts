@@ -187,7 +187,39 @@ describe("connection available-sources (worker integration)", () => {
     expect(body.detail).toContain("Reconnect GitHub");
   });
 
-  it("maps GitHub 429 to provider rate limit detail", async () => {
+  it("maps GitHub 429 on installation token mint to provider rate limit detail", async () => {
+    const bindings = await testEnvWithGithubApp();
+    const cfg = loadConfig(bindings);
+    const connectionId = await seedGithubConnection();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/access_tokens")) {
+          return new Response("rate limited", { status: 429 });
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(`http://test/connections/${connectionId}/available-sources`, {
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(429);
+    expect(((await response.json()) as { detail: string }).detail).toBe(
+      "Provider rate limit exceeded. Try again shortly.",
+    );
+  });
+
+  it("maps GitHub 429 on repository list to provider rate limit detail", async () => {
     const bindings = await testEnvWithGithubApp();
     const cfg = loadConfig(bindings);
     const connectionId = await seedGithubConnection();

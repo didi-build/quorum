@@ -3,7 +3,7 @@ import {
   connectionRowToRead,
   deleteConnectionById,
   getConnectionById,
-  listAllConnections,
+  listConnectionsByUserId,
 } from "../domain/db/connections.js";
 import {
   fetchGithubInstallationRepositories,
@@ -30,7 +30,7 @@ export async function handleConnectionsRoute(
   const method = request.method;
 
   if (pathname === "/connections" && method === "GET") {
-    const rows = await listAllConnections(env.DB);
+    const rows = await listConnectionsByUserId(env.DB, actor.userId);
     const connections = rows
       .filter((row) => can_access(actor.userId, actor.projectId, row.user_id, null))
       .map(connectionRowToRead);
