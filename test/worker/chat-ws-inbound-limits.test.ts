@@ -5,6 +5,7 @@ import {
   CHAT_WS_AUTH_INVALID_CLOSE_CODE,
   CHAT_WS_INBOUND_QUEUE_MAX,
   CHAT_WS_INVALID_FRAME_CLOSE_CODE,
+  CHAT_WS_QUEUE_FULL_CLOSE_REASON,
 } from "../../src/routes/chat-ws-inbound.js";
 import { deliverChatWsTurn } from "../../src/routes/chat-ws-pipeline.js";
 import { CHAT_CONTENT_MAX_BYTES } from "../../src/domain/chat/parse-inbound.js";
@@ -182,6 +183,7 @@ describe("chat WebSocket inbound limits (unit)", () => {
     }
     const event = await closed;
     expect(event.code).toBe(CHAT_WS_AUTH_INVALID_CLOSE_CODE);
+    expect(event.reason).toBe(CHAT_WS_QUEUE_FULL_CLOSE_REASON);
     releaseTurn();
   });
 });

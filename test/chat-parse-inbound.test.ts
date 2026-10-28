@@ -31,4 +31,15 @@ describe("parseChatMessageIn (unit)", () => {
       parseChatMessageIn(JSON.stringify({ session_id: "s1", content: big })),
     ).toThrow(ChatInboundParseError);
   });
+
+  it("rejects content over the byte cap when char count is below 32K", () => {
+    const emoji = "\u{1F600}";
+    const content = emoji.repeat(8193);
+    expect(new TextEncoder().encode(content).byteLength).toBeGreaterThan(
+      CHAT_CONTENT_MAX_BYTES,
+    );
+    expect(() =>
+      parseChatMessageIn(JSON.stringify({ session_id: "s1", content })),
+    ).toThrow(ChatInboundParseError);
+  });
 });

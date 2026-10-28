@@ -12,12 +12,21 @@ import { isAbortError, type ProcessMessageInjections } from "../domain/chat/serv
 
 export const CHAT_WS_AUTH_INVALID_CLOSE_CODE = 1008;
 export const CHAT_WS_AUTH_INVALID_CLOSE_REASON = "auth invalid";
+export const CHAT_WS_QUEUE_FULL_CLOSE_REASON = "queue full";
 export const CHAT_WS_INBOUND_QUEUE_MAX = 16;
 export const CHAT_WS_INVALID_FRAME_CLOSE_CODE = 1007;
 
 export function closeChatWsAuthInvalid(server: WebSocket): void {
   try {
     server.close(CHAT_WS_AUTH_INVALID_CLOSE_CODE, CHAT_WS_AUTH_INVALID_CLOSE_REASON);
+  } catch {
+    // ignore close errors on already-closed sockets
+  }
+}
+
+export function closeChatWsQueueFull(server: WebSocket): void {
+  try {
+    server.close(CHAT_WS_AUTH_INVALID_CLOSE_CODE, CHAT_WS_QUEUE_FULL_CLOSE_REASON);
   } catch {
     // ignore close errors on already-closed sockets
   }
@@ -186,7 +195,7 @@ export function attachChatWsInboundHandler(
       }
       if (queue.length >= CHAT_WS_INBOUND_QUEUE_MAX) {
         markSocketClosedAndClearQueue();
-        closeChatWsAuthInvalid(server);
+        closeChatWsQueueFull(server);
         return;
       }
       queue.push(event.data);

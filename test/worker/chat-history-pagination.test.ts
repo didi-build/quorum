@@ -91,4 +91,24 @@ describe("chat history pagination (worker integration)", () => {
     expect(allContents[0]).toBe("m-0");
     expect(allContents[149]).toBe("m-149");
   });
+
+  it("returns 400 when limit=1000", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 999031, "pager-limit")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const request = new Request(
+      `http://test/chat/sessions/${SESSION_ID}/messages?limit=1000`,
+      {
+        headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+      },
+    );
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(request, testEnv(), ctx);
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(400);
+  });
 });
