@@ -4,7 +4,7 @@ import { emitSupervisorStatus, type StatusQueue } from "../chat/status.js";
 import type { RetrievalSearchDeps } from "../retrieval/service.js";
 import type { ActorContext } from "../schemas/actor.js";
 import type { RoutedChatResponse } from "../schemas/chat.js";
-import type { ReviewRequest } from "../schemas/common.js";
+import type { ReviewRequest } from "../schemas/council.js";
 import {
   runCouncilOrchestrator,
   type RunCouncilOrchestratorParams,

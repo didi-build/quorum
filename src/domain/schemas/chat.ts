@@ -1,5 +1,5 @@
 import type { Citation } from "./citation.js";
-import type { CouncilDecision } from "./common.js";
+import type { CouncilDecision } from "./council.js";
 
 export const CHAT_INTENTS = [
   "greeting",

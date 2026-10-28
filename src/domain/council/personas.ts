@@ -14,7 +14,7 @@ import {
   type PersonaOpinion,
   type ReviewRequest,
   type Verdict,
-} from "../schemas/common.js";
+} from "../schemas/council.js";
 import { emitPersonaStatus, type StatusQueue } from "../chat/status.js";
 
 export const PERSONA_IDS = ["ux", "dev_experience", "business"] as const;

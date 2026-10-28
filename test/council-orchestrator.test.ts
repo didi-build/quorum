@@ -10,7 +10,7 @@ import type {
   CouncilDecision,
   PersonaOpinion,
   ReviewRequest,
-} from "../src/domain/schemas/common.js";
+} from "../src/domain/schemas/council.js";
 import { testConfigEnv } from "./fixtures/config-env.js";
 
 function makeOpinion(persona: string): PersonaOpinion {

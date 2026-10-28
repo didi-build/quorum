@@ -3,7 +3,7 @@ import type { QuorumConfig } from "../../config/types.js";
 import { emitSupervisorStatus, type StatusQueue } from "../chat/status.js";
 import type { RetrievalSearchDeps } from "../retrieval/service.js";
 import type { ActorContext } from "../schemas/actor.js";
-import type { CouncilDecision, ReviewRequest } from "../schemas/common.js";
+import type { CouncilDecision, ReviewRequest } from "../schemas/council.js";
 import { synthesizeDecision } from "./chair.js";
 import { PERSONA_IDS, runPersona, type PersonaId } from "./personas.js";
 

@@ -208,8 +208,6 @@ describe("council CPU and wall-time spike (DIDI-781, mocked models)", () => {
     expect(councilWallMs).toBeGreaterThan(
       MOCK_PERSONA_LATENCY_MS + MOCK_CHAIR_LATENCY_MS - 500,
     );
-    expect(councilWallMs).toBeLessThan(
-      MOCK_PERSONA_LATENCY_MS * 3 + MOCK_CHAIR_LATENCY_MS + 2_000,
-    );
+    expect(councilWallMs).toBeLessThan(11_500);
   }, 30_000);
 });
