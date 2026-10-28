@@ -21,6 +21,7 @@ import { handleChatWebSocket } from "./routes/chat-ws.js";
 import { handleConnectionsRoute } from "./routes/connections.js";
 import { handleHealth, handleReady } from "./routes/health.js";
 import { handleOAuthRoute } from "./routes/oauth.js";
+import { handleRetrievalRoute } from "./routes/retrieval.js";
 
 export type { Env } from "./env.js";
 
@@ -95,6 +96,17 @@ async function handleProtectedApi(
   const authResponse = await handleAuthRoute(request, env, config, pathname);
   if (authResponse !== null) {
     return authResponse;
+  }
+
+  const retrievalResponse = await handleRetrievalRoute(
+    request,
+    env,
+    config,
+    pathname,
+    actor,
+  );
+  if (retrievalResponse !== null) {
+    return retrievalResponse;
   }
 
   if (isApiPath(pathname)) {
