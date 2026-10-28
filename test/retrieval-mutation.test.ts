@@ -14,29 +14,8 @@ import type { ChunkRow } from "../src/domain/retrieval/chunk-rows.js";
 const config = loadConfig(withTestConfigEnv({ RRF_K: "42" }));
 
 const USER_A = "00000000-0000-4000-8000-000000000010";
-const USER_B = "00000000-0000-4000-8000-000000000011";
 const PROJECT_A = "10000000-0000-4000-8000-000000000001";
 const SOURCE_READY = "00000000-0000-4000-8000-000000000030";
-const SOURCE_INDEXING = "00000000-0000-4000-8000-000000000031";
-const SOURCE_OTHER_USER = "00000000-0000-4000-8000-000000000032";
-
-function mockDb(allRows: KnowledgeSourceRow[]): D1Database {
-  return {
-    prepare: () => ({
-      all: async () => ({ results: allRows }),
-      bind: () => ({
-        first: async () => null,
-        all: async () => ({ results: [] }),
-      }),
-    }),
-  } as unknown as D1Database;
-}
-
-interface KnowledgeSourceRow {
-  id: string;
-  user_id: string | null;
-  project_id: string | null;
-}
 
 describe("retrieval mutation guards (DIDI-778)", () => {
   it("passes config rrfK into reciprocalRankFusion during retrieve", async () => {
@@ -53,11 +32,8 @@ describe("retrieval mutation guards (DIDI-778)", () => {
 
     const db = {
       prepare: () => ({
-        all: async () => ({
-          results: [{ id: SOURCE_READY, user_id: USER_A, project_id: null }],
-        }),
         bind: () => ({
-          first: async () => null,
+          all: async () => ({ results: [{ id: SOURCE_READY }] }),
         }),
       }),
     } as unknown as D1Database;
@@ -69,6 +45,7 @@ describe("retrieval mutation guards (DIDI-778)", () => {
         config,
         query: "permissions model access control",
         actor: actorContext(USER_A, null),
+        effectiveProjectId: null,
         topK: 5,
       },
       {
@@ -86,16 +63,11 @@ describe("retrieval mutation guards (DIDI-778)", () => {
     );
 
     expect(fusionSpy).toHaveBeenCalled();
-    const call = fusionSpy.mock.calls[0];
-    expect(call?.[1]).toBe(42);
+    expect(fusionSpy.mock.calls[0]?.[1]).toBe(42);
     fusionSpy.mockRestore();
   });
 
   it("runs vector and keyword search in parallel", async () => {
-    let vectorStarted = false;
-    let keywordStarted = false;
-    let parallel = false;
-
     const chunk: ChunkRow = {
       id: 2,
       knowledge_source_id: SOURCE_READY,
@@ -105,22 +77,28 @@ describe("retrieval mutation guards (DIDI-778)", () => {
       heading_hierarchy: [],
     };
 
+    let releaseKeyword!: () => void;
+    const keywordGate = new Promise<void>((resolve) => {
+      releaseKeyword = resolve;
+    });
+    let keywordRanWhileVectorBlocked = false;
+
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          all: async () => ({ results: [{ id: SOURCE_READY }] }),
+        }),
+      }),
+    } as unknown as D1Database;
+
     await retrieve(
       {
-        db: {
-          prepare: () => ({
-            all: async () => ({
-              results: [{ id: SOURCE_READY, user_id: USER_A, project_id: null }],
-            }),
-            bind: () => ({
-              first: async () => null,
-            }),
-          }),
-        } as unknown as D1Database,
+        db,
         vectorize: {} as VectorizeIndex,
         config,
         query: "permissions model access control",
         actor: actorContext(USER_A, null),
+        effectiveProjectId: null,
         topK: 5,
       },
       {
@@ -133,23 +111,18 @@ describe("retrieval mutation guards (DIDI-778)", () => {
             { status: 200 },
           ),
         searchVector: async () => {
-          vectorStarted = true;
-          parallel = keywordStarted;
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          await keywordGate;
           return [chunk];
         },
         searchKeyword: async () => {
-          keywordStarted = true;
-          parallel = vectorStarted;
-          await new Promise((resolve) => setTimeout(resolve, 5));
+          keywordRanWhileVectorBlocked = true;
+          releaseKeyword();
           return [chunk];
         },
       },
     );
 
-    expect(vectorStarted).toBe(true);
-    expect(keywordStarted).toBe(true);
-    expect(parallel).toBe(true);
+    expect(keywordRanWhileVectorBlocked).toBe(true);
   });
 
   it("caps coverage expansion at literal 50", () => {
@@ -159,33 +132,35 @@ describe("retrieval mutation guards (DIDI-778)", () => {
     expect(expandedLimit).toBe(50);
   });
 
-  it("filters ready sources with can_access", async () => {
-    const rows: KnowledgeSourceRow[] = [
-      { id: SOURCE_READY, user_id: USER_A, project_id: null },
-      { id: SOURCE_INDEXING, user_id: USER_A, project_id: null },
-      { id: SOURCE_OTHER_USER, user_id: USER_B, project_id: null },
-      { id: "global", user_id: null, project_id: null },
-    ];
-
+  it("filters ready sources in SQL with can_access rules", async () => {
     const db = {
       prepare: (sql: string) => ({
-        all: async () => {
-          expect(sql).toContain("status = 'ready'");
-          return { results: rows.filter((row) => row.id !== SOURCE_INDEXING) };
-        },
+        bind: (userId: string, projectId: string | null) => ({
+          all: async () => {
+            expect(sql).toContain("status = 'ready'");
+            expect(sql).toContain("user_id IS NULL AND project_id IS NULL");
+            expect(userId).toBe(USER_A);
+            expect(projectId).toBe(PROJECT_A);
+            return {
+              results: [{ id: SOURCE_READY }],
+            };
+          },
+        }),
       }),
     } as unknown as D1Database;
 
-    const ids = await accessibleReadySourceIds(
-      db,
-      actorContext(USER_A, PROJECT_A),
-      PROJECT_A,
-    );
-    expect(ids).toEqual([SOURCE_READY, "global"]);
+    const ids = await accessibleReadySourceIds(db, USER_A, PROJECT_A);
+    expect(ids).toEqual([SOURCE_READY]);
   });
 
   it("returns empty retrieval when no accessible ready sources", async () => {
-    const db = mockDb([]);
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          all: async () => ({ results: [] }),
+        }),
+      }),
+    } as unknown as D1Database;
 
     const result = await retrieve(
       {
@@ -194,6 +169,7 @@ describe("retrieval mutation guards (DIDI-778)", () => {
         config,
         query: "anything",
         actor: actorContext(USER_A, null),
+        effectiveProjectId: null,
       },
       {
         searchVector: vi.fn(),

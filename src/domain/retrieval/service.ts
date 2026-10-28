@@ -1,11 +1,15 @@
 import type { QuorumConfig } from "../../config/types.js";
-import { embedQuery, type VoyageFetch } from "../ingestion/embedder.js";
-import { can_access } from "../permissions.js";
+import {
+  VoyageEmbedError,
+  embedQuery,
+  type VoyageFetch,
+} from "../ingestion/embedder.js";
 import type { ActorContext } from "../schemas/actor.js";
 import type { RetrievalResponse, RetrievedChunk } from "../schemas/retrieval.js";
 import { RETRIEVAL_EXPANSION_CAP } from "../schemas/retrieval.js";
-import { parseChunkRow, type ChunkRow } from "./chunk-rows.js";
+import { type ChunkRow } from "./chunk-rows.js";
 import { coverageCheck } from "./coverage.js";
+import { RetrievalUpstreamError } from "./errors.js";
 import { searchChunksByKeyword } from "./keyword-search.js";
 import { reciprocalRankFusion, type RankedResult, type RrfFusedRow } from "./rrf.js";
 import { searchChunksByVector } from "./vector-search.js";
@@ -18,7 +22,7 @@ export interface RetrieveParams {
   config: QuorumConfig;
   query: string;
   actor: ActorContext;
-  projectId?: string | null;
+  effectiveProjectId: string | null;
   topK?: number | null;
 }
 
@@ -28,30 +32,28 @@ export interface RetrievalSearchDeps {
   searchKeyword?: typeof searchChunksByKeyword;
 }
 
-interface KnowledgeSourceScopeRow {
-  id: string;
-  user_id: string | null;
-  project_id: string | null;
-}
-
 export async function accessibleReadySourceIds(
   db: D1Database,
-  actor: ActorContext,
+  actorUserId: string,
   actorProjectId: string | null,
 ): Promise<string[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT id, user_id, project_id FROM knowledge_sources WHERE status = 'ready'`,
+  const sql = `
+    SELECT id FROM knowledge_sources
+    WHERE status = 'ready'
+    AND (
+      (user_id IS NULL AND project_id IS NULL)
+      OR (user_id = ?1 AND project_id IS NULL)
+      OR (?2 IS NOT NULL AND user_id IS NULL AND project_id = ?2)
+      OR (?2 IS NOT NULL AND user_id = ?1 AND project_id = ?2)
     )
-    .all<KnowledgeSourceScopeRow>();
+  `;
 
-  const ids: string[] = [];
-  for (const row of results ?? []) {
-    if (can_access(actor.userId, actorProjectId, row.user_id, row.project_id)) {
-      ids.push(row.id);
-    }
-  }
-  return ids;
+  const { results } = await db
+    .prepare(sql)
+    .bind(actorUserId, actorProjectId)
+    .all<{ id: string }>();
+
+  return (results ?? []).map((row) => row.id);
 }
 
 function rankedFromRows(rows: ChunkRow[]): RankedResult[] {
@@ -105,8 +107,6 @@ async function hybridSearch(
 ): Promise<{
   fused: RrfFusedRow[];
   rowLookup: Map<number, ChunkRow>;
-  vectorRows: ChunkRow[];
-  keywordRows: ChunkRow[];
 }> {
   const searchVector = deps.searchVector ?? searchChunksByVector;
   const searchKeyword = deps.searchKeyword ?? searchChunksByKeyword;
@@ -127,50 +127,24 @@ async function hybridSearch(
   const fused = reciprocalRankFusion([vectorRanked, keywordRanked], params.config.rrfK);
   const rowLookup = buildRowLookup(vectorRows, keywordRows);
 
-  return { fused, rowLookup, vectorRows, keywordRows };
+  return { fused, rowLookup };
 }
 
-function toRetrievedChunks(
+function buildRetrievedChunks(
   fused: RrfFusedRow[],
   limit: number,
   rowLookup: Map<number, ChunkRow>,
-  db: D1Database,
-): Promise<RetrievedChunk[]> {
-  return buildRetrievedChunks(fused, limit, rowLookup, db);
-}
-
-async function buildRetrievedChunks(
-  fused: RrfFusedRow[],
-  limit: number,
-  rowLookup: Map<number, ChunkRow>,
-  db: D1Database,
-): Promise<RetrievedChunk[]> {
+  allowedSourceIds: ReadonlySet<string>,
+): RetrievedChunk[] {
   const chunks: RetrievedChunk[] = [];
 
   for (const [chunkId, score, rankMeta] of fused.slice(0, limit)) {
     if (typeof chunkId !== "number") {
       continue;
     }
-    let row = rowLookup.get(chunkId);
-    if (!row) {
-      const loaded = await db
-        .prepare(
-          `SELECT id, knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
-           FROM chunks WHERE id = ?`,
-        )
-        .bind(chunkId)
-        .first<{
-          id: number;
-          knowledge_source_id: string;
-          document_id: string;
-          chunk_index: number;
-          content: string;
-          heading_hierarchy: string;
-        }>();
-      if (loaded === null) {
-        continue;
-      }
-      row = parseChunkRow(loaded);
+    const row = rowLookup.get(chunkId);
+    if (!row || !allowedSourceIds.has(row.knowledge_source_id)) {
+      continue;
     }
 
     chunks.push({
@@ -193,11 +167,14 @@ export async function retrieve(
   params: RetrieveParams,
   deps: RetrievalSearchDeps = {},
 ): Promise<RetrievalResponse> {
-  const { db, vectorize, config, query, actor } = params;
-  const effectiveProjectId = params.projectId ?? actor.projectId;
+  const { db, vectorize, config, query, actor, effectiveProjectId } = params;
   const limit = params.topK ?? config.retrievalTopK;
 
-  const sourceIds = await accessibleReadySourceIds(db, actor, effectiveProjectId);
+  const sourceIds = await accessibleReadySourceIds(
+    db,
+    actor.userId,
+    effectiveProjectId,
+  );
   if (sourceIds.length === 0) {
     const coverage = coverageCheck(query, [], config.coverageMinScore);
     return {
@@ -209,7 +186,15 @@ export async function retrieve(
     };
   }
 
-  const queryEmbedding = await embedQuery(config, query, deps.voyageFetch);
+  let queryEmbedding: number[];
+  try {
+    queryEmbedding = await embedQuery(config, query, deps.voyageFetch);
+  } catch (error) {
+    if (error instanceof VoyageEmbedError) {
+      throw new RetrievalUpstreamError(502);
+    }
+    throw error;
+  }
 
   const searchDeps = {
     ...deps,
@@ -253,7 +238,7 @@ export async function retrieve(
     );
   }
 
-  const chunks = await toRetrievedChunks(fused, limit, rowLookup, db);
+  const chunks = buildRetrievedChunks(fused, limit, rowLookup, new Set(sourceIds));
 
   return {
     query,

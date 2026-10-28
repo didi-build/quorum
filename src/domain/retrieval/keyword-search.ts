@@ -1,9 +1,10 @@
 import { parseChunkRows, type ChunkRow, type ChunkRowRaw } from "./chunk-rows.js";
+import { RETRIEVAL_FTS_MAX_TERMS } from "./query-limits.js";
+import { tokenizeQueryForFts } from "./query-tokenize.js";
 
 /** Build an FTS5 MATCH string with AND between significant terms (plainto_tsquery-like). */
 export function buildFtsMatchQuery(query: string): string | null {
-  const tokens = query.match(/[a-zA-Z0-9_]+/g) ?? [];
-  const terms = tokens.filter((token) => token.length > 2);
+  const terms = tokenizeQueryForFts(query).slice(0, RETRIEVAL_FTS_MAX_TERMS);
   if (terms.length === 0) {
     return null;
   }
@@ -43,3 +44,5 @@ export async function searchChunksByKeyword(
 
   return parseChunkRows(results);
 }
+
+export { type ChunkRow };

@@ -8,6 +8,18 @@
 2. _Document your production deploy command or pipeline here when wired._
 3. Record where to watch logs and metrics.
 
+### One-time: Vectorize metadata index for retrieval
+
+Hybrid retrieval filters Vectorize queries on `knowledge_source_id`. Create the metadata index once per account (see [DIDI-945](https://linear.app/didi-build/issue/DIDI-945) for Diadem's manual production ticket):
+
+```bash
+wrangler vectorize create-metadata-index quorum-embeddings \
+  --property-name=knowledge_source_id \
+  --type=string
+```
+
+Vectors upserted **before** this index existed are not filterable until those sources are **re-indexed** (re-upsert). Plan re-indexing for any knowledge sources that were ready prior to the index. Details: [docs/architecture/retrieval.md](../architecture/retrieval.md).
+
 ## One-time: `quorum-preview` (PR mock previews)
 
 PR preview deploys use `wrangler versions upload` against the `quorum-preview` script. That script must exist before the first preview upload.

@@ -1,5 +1,8 @@
 import type { QuorumConfig } from "../config/types.js";
 import { retrieve } from "../domain/retrieval/service.js";
+import { RetrievalUpstreamError } from "../domain/retrieval/errors.js";
+import { resolveRetrievalProjectScope } from "../domain/retrieval/project-scope.js";
+import { RETRIEVAL_QUERY_MAX_LENGTH } from "../domain/retrieval/query-limits.js";
 import type { ActorContext } from "../domain/schemas/actor.js";
 import type { RetrievalRequestBody } from "../domain/schemas/retrieval.js";
 import type { Env } from "../env.js";
@@ -13,6 +16,12 @@ function parseRetrievalRequest(body: unknown): RetrievalRequestBody | Response {
   const query = record.query;
   if (typeof query !== "string" || query.length < 1) {
     return jsonDetail("query is required", 400);
+  }
+  if (query.length > RETRIEVAL_QUERY_MAX_LENGTH) {
+    return jsonDetail(
+      `query must be at most ${RETRIEVAL_QUERY_MAX_LENGTH} characters`,
+      400,
+    );
   }
 
   let projectId: string | null | undefined;
@@ -66,15 +75,29 @@ export async function handleRetrievalRoute(
     return parsed;
   }
 
-  const response = await retrieve({
-    db: env.DB,
-    vectorize: env.VECTORIZE,
-    config,
-    query: parsed.query,
-    actor,
-    projectId: parsed.project_id,
-    topK: parsed.top_k,
-  });
+  const scope = resolveRetrievalProjectScope(actor, parsed.project_id);
+  if (!scope.ok) {
+    return jsonDetail(scope.detail, scope.status);
+  }
 
-  return Response.json(response);
+  try {
+    const response = await retrieve({
+      db: env.DB,
+      vectorize: env.VECTORIZE,
+      config,
+      query: parsed.query,
+      actor,
+      effectiveProjectId: scope.effectiveProjectId,
+      topK: parsed.top_k,
+    });
+
+    return Response.json(response);
+  } catch (error) {
+    if (error instanceof RetrievalUpstreamError) {
+      return jsonDetail("Retrieval upstream unavailable", error.statusCode);
+    }
+    throw error;
+  }
 }
+
+export { parseRetrievalRequest };

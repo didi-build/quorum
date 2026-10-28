@@ -123,6 +123,7 @@ describe("hybrid retrieve (worker integration, D1 + mocks)", () => {
         config: cfg,
         query: "permissions model access control",
         actor: { userId: USER_ID, projectId: null },
+        effectiveProjectId: null,
       },
       { voyageFetch },
     );
