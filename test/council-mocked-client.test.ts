@@ -15,10 +15,20 @@ import { actorContext } from "../src/domain/schemas/actor.js";
 import type { PersonaOpinion, ReviewRequest } from "../src/domain/schemas/council.js";
 import type { RetrievedChunk } from "../src/domain/schemas/retrieval.js";
 import * as retrievalService from "../src/domain/retrieval/service.js";
-import { testConfigEnv } from "./fixtures/config-env.js";
+import { withTestConfigEnv } from "./fixtures/config-env.js";
+
+const TEST_PERSONA_MODEL = "test-persona-model";
+const TEST_CHAIR_MODEL = "test-chair-model";
+
+const councilMockedClientConfig = loadConfig(
+  withTestConfigEnv({
+    PERSONA_MODEL: TEST_PERSONA_MODEL,
+    COUNCIL_CHAIR_MODEL: TEST_CHAIR_MODEL,
+  }),
+);
 
 describe("runPersona happy path (mocked client)", () => {
-  const config = loadConfig(testConfigEnv);
+  const config = councilMockedClientConfig;
   const actor = actorContext("00000000-0000-4000-8000-000000000099");
   const sessionId = "00000000-0000-4000-8000-0000000000aa";
   const request: ReviewRequest = {
@@ -79,8 +89,8 @@ describe("runPersona happy path (mocked client)", () => {
     });
 
     expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0]?.[0].model).toBe(TEST_PERSONA_MODEL);
     expect(create.mock.calls[0]?.[0]).toMatchObject({
-      model: config.personaModel,
       system: PERSONA_SYSTEM_PROMPTS.ux,
     });
     const userContent = create.mock.calls[0]?.[0].messages[0]?.content as string;
@@ -98,7 +108,7 @@ describe("runPersona happy path (mocked client)", () => {
 });
 
 describe("synthesizeDecision happy path (mocked client)", () => {
-  const config = loadConfig(testConfigEnv);
+  const config = councilMockedClientConfig;
   const personaOpinions: PersonaOpinion[] = PERSONA_IDS.map((persona) => ({
     persona,
     verdict: "comment",
@@ -127,8 +137,8 @@ describe("synthesizeDecision happy path (mocked client)", () => {
     });
 
     expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0]?.[0].model).toBe(TEST_CHAIR_MODEL);
     expect(create.mock.calls[0]?.[0]).toMatchObject({
-      model: config.councilChairModel,
       system: CHAIR_SYSTEM_PROMPT,
     });
     const userContent = create.mock.calls[0]?.[0].messages[0]?.content as string;
@@ -142,7 +152,7 @@ describe("synthesizeDecision happy path (mocked client)", () => {
 });
 
 describe("runCouncilOrchestrator chair ordering (mocked client)", () => {
-  const config = loadConfig(testConfigEnv);
+  const config = councilMockedClientConfig;
   const actor = actorContext("00000000-0000-4000-8000-000000000099");
   const sessionId = "00000000-0000-4000-8000-0000000000aa";
   const request: ReviewRequest = {
@@ -214,6 +224,14 @@ describe("runCouncilOrchestrator chair ordering (mocked client)", () => {
     });
 
     expect(create).toHaveBeenCalledTimes(4);
+    for (let i = 0; i < 3; i += 1) {
+      expect((create.mock.calls[i]?.[0] as { model: string }).model).toBe(
+        TEST_PERSONA_MODEL,
+      );
+    }
+    expect((create.mock.calls[3]?.[0] as { model: string }).model).toBe(
+      TEST_CHAIR_MODEL,
+    );
     expect(personaResolvedAt).toHaveLength(3);
     expect(chairInvokedAt).toBeGreaterThan(0);
     expect(chairInvokedAt).toBeGreaterThanOrEqual(Math.max(...personaResolvedAt) - 5);
@@ -221,6 +239,7 @@ describe("runCouncilOrchestrator chair ordering (mocked client)", () => {
       [...PERSONA_IDS].sort(),
     );
     expect(create.mock.calls[3]?.[0]).toMatchObject({
+      model: TEST_CHAIR_MODEL,
       system: CHAIR_SYSTEM_PROMPT,
     });
     const chairUserContent = (
