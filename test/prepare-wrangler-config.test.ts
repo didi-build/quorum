@@ -13,6 +13,11 @@ const FAKE_ID = "11111111-2222-4333-8444-555555555555";
 
 const tempPaths: string[] = [];
 const tempDirs: string[] = [];
+const repoRootEscapeOutputs: string[] = [];
+
+function trackRepoRootEscapeOutput(resolvedOutputPath: string) {
+  repoRootEscapeOutputs.push(resolvedOutputPath);
+}
 
 function runPrepare(outputPath: string, env: Record<string, string | undefined> = {}) {
   return spawnSync("node", [PREPARE_SCRIPT, "--output", outputPath], {
@@ -24,6 +29,7 @@ function runPrepare(outputPath: string, env: Record<string, string | undefined> 
 function assertPrepareRejectedOutsideRepoRoot(
   outputArg: string,
   resolvedOutputPath: string,
+  options?: { assertOutputMissing?: boolean },
 ) {
   const result = runPrepare(outputArg, {
     QUORUM_D1_DATABASE_ID: FAKE_ID,
@@ -32,7 +38,9 @@ function assertPrepareRejectedOutsideRepoRoot(
   expect(result.stderr).toContain("directly in the repository root");
   expect(result.stdout).not.toContain(FAKE_ID);
   expect(result.stderr).not.toContain(FAKE_ID);
-  expect(existsSync(resolvedOutputPath)).toBe(false);
+  if (options?.assertOutputMissing !== false) {
+    expect(existsSync(resolvedOutputPath)).toBe(false);
+  }
 }
 
 afterEach(() => {
@@ -44,8 +52,10 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
   tempDirs.length = 0;
-  const parentEscape = resolve(process.cwd(), "..", "wrangler.ci.jsonc");
-  rmSync(parentEscape, { force: true });
+  for (const path of repoRootEscapeOutputs) {
+    rmSync(path, { force: true });
+  }
+  repoRootEscapeOutputs.length = 0;
   rmSync(resolve(process.cwd(), "scripts/wrangler.ci.jsonc"), { force: true });
 });
 
@@ -94,7 +104,16 @@ describe("prepare-wrangler-config (unit)", () => {
   describe("refuses output outside the repository root", () => {
     it("rejects --output ../wrangler.ci.jsonc", () => {
       const resolved = resolve(process.cwd(), "..", "wrangler.ci.jsonc");
-      assertPrepareRejectedOutsideRepoRoot("../wrangler.ci.jsonc", resolved);
+      const existedBefore = existsSync(resolved);
+      try {
+        assertPrepareRejectedOutsideRepoRoot("../wrangler.ci.jsonc", resolved, {
+          assertOutputMissing: false,
+        });
+      } finally {
+        if (!existedBefore && existsSync(resolved)) {
+          trackRepoRootEscapeOutput(resolved);
+        }
+      }
     });
 
     it("rejects an absolute path outside the repository root", () => {
