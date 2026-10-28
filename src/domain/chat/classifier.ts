@@ -19,7 +19,7 @@ export const CLASSIFIER_SYSTEM_PROMPT = `You are the domAIn chat intent classifi
 
 Return only the intent label. When unsure between simple_retrieval and strategic_session, prefer simple_retrieval for factual lookups and strategic_session for proposals, reviews, tradeoffs, or "should we" decisions.`;
 
-const INTENT_CLASSIFICATION_SCHEMA = {
+export const INTENT_CLASSIFICATION_SCHEMA = {
   type: "object",
   properties: {
     intent: {

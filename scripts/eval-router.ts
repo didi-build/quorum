@@ -16,7 +16,7 @@ export function readRouterEvalEnv(): ClassifierConfig {
   if (anthropicApiKey === undefined || anthropicApiKey.length === 0) {
     throw new Error("ANTHROPIC_API_KEY is required for npm run eval:router");
   }
-  const supervisorModel = process.env.SUPERVISOR_MODEL?.trim() ?? "claude-haiku-4-5";
+  const supervisorModel = process.env.SUPERVISOR_MODEL?.trim() || "claude-haiku-4-5";
   return { anthropicApiKey, supervisorModel };
 }
 

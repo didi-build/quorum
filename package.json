@@ -46,6 +46,12 @@
       "prettier --write"
     ]
   },
+  "overrides": {
+    "globby": {
+      "ignore": "7.0.12"
+    },
+    "p-map": "7.1.0"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.10.0",
     "@cloudflare/workers-types": "5.20261023.1",
@@ -68,7 +74,7 @@
     "jsdom": "26.1.0",
     "lint-staged": "16.4.0",
     "prettier": "3.9.10",
-    "secretlint": "^10.2.2",
+    "secretlint": "10.2.2",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.2",

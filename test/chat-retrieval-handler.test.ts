@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildCitations,
+  buildContext,
   handleSimpleRetrieval,
   NO_KNOWLEDGE_ANSWER,
   RETRIEVAL_SYSTEM_PROMPT,
@@ -56,10 +57,11 @@ describe("handleSimpleRetrieval (mocked client)", () => {
     vi.restoreAllMocks();
   });
 
-  it("calls RETRIEVAL_ANSWER_MODEL once with temperature 0.2 and v1 system prompt", async () => {
+  it("calls RETRIEVAL_ANSWER_MODEL and returns the answer with citations", async () => {
+    const chunks: RetrievedChunk[] = [{ ...sampleChunk, content: "answer context" }];
     vi.spyOn(retrievalService, "retrieve").mockResolvedValue({
-      query: "q",
-      chunks: [{ ...sampleChunk, content: "answer context" }],
+      query: "What is RRF?",
+      chunks,
       coverage_sufficient: true,
       coverage_score: 1,
       expanded: false,
@@ -70,7 +72,10 @@ describe("handleSimpleRetrieval (mocked client)", () => {
     });
     const client = { messages: { create } } as unknown as Anthropic;
 
-    await handleSimpleRetrieval({
+    const context = buildContext(chunks);
+    const expectedUserContent = `Question:\nWhat is RRF?\n\nKnowledge context:\n${context}\n\nAnswer:`;
+
+    const response = await handleSimpleRetrieval({
       sessionId,
       message: "What is RRF?",
       actor,
@@ -84,9 +89,50 @@ describe("handleSimpleRetrieval (mocked client)", () => {
     expect(create).toHaveBeenCalledOnce();
     expect(create.mock.calls[0]?.[0]).toMatchObject({
       model: config.retrievalAnswerModel,
+      max_tokens: 2048,
       temperature: RETRIEVAL_ANSWER_TEMPERATURE,
       system: RETRIEVAL_SYSTEM_PROMPT,
     });
+    expect(create.mock.calls[0]?.[0].messages[0]?.content).toBe(expectedUserContent);
+    expect(expectedUserContent).toContain(
+      "document_id=didi-build/quorum/src/example.ts chunk_index=3",
+    );
+    expect(expectedUserContent).toContain("heading: Architecture > Retrieval");
+    expect(response).toEqual({
+      session_id: sessionId,
+      content: "The answer.",
+      classified_intent: "simple_retrieval",
+      response_kind: "direct_answer",
+      citations: buildCitations(chunks),
+      council_decision: null,
+    });
+    vi.restoreAllMocks();
+  });
+
+  it("throws when the answer model returns empty content", async () => {
+    vi.spyOn(retrievalService, "retrieve").mockResolvedValue({
+      query: "q",
+      chunks: [{ ...sampleChunk, content: "answer context" }],
+      coverage_sufficient: true,
+      coverage_score: 1,
+      expanded: false,
+    });
+
+    const create = vi.fn().mockResolvedValue({ content: [] });
+    const client = { messages: { create } } as unknown as Anthropic;
+
+    await expect(
+      handleSimpleRetrieval({
+        sessionId,
+        message: "What is RRF?",
+        actor,
+        db,
+        vectorize,
+        config,
+        effectiveProjectId: null,
+        client,
+      }),
+    ).rejects.toThrow(/empty response/i);
     vi.restoreAllMocks();
   });
 

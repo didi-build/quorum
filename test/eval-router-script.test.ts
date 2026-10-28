@@ -22,6 +22,8 @@ describe("eval:router script (import-only, no live Anthropic)", () => {
       });
       process.env.SUPERVISOR_MODEL = "custom-supervisor";
       expect(readRouterEvalEnv().supervisorModel).toBe("custom-supervisor");
+      process.env.SUPERVISOR_MODEL = "";
+      expect(readRouterEvalEnv().supervisorModel).toBe("claude-haiku-4-5");
     } finally {
       if (priorKey === undefined) {
         delete process.env.ANTHROPIC_API_KEY;

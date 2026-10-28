@@ -20,9 +20,6 @@ Do not invent facts that are not supported by the context.`;
 const NO_KNOWLEDGE_ANSWER =
   "I could not find indexed knowledge that answers that question yet. Try connecting a source or rephrasing the query.";
 
-const RETRIEVAL_ANSWER_EMPTY_FALLBACK =
-  "I could not produce an answer from the model response. Try rephrasing the question.";
-
 function buildContext(chunks: RetrievedChunk[]): string {
   const sections: string[] = [];
   for (const [index, chunk] of chunks.entries()) {
@@ -105,10 +102,10 @@ export async function handleSimpleRetrieval(
     ],
   });
 
-  const content = textFromMessageContent(
-    answer.content,
-    RETRIEVAL_ANSWER_EMPTY_FALLBACK,
-  );
+  const content = textFromMessageContent(answer.content, "");
+  if (content.length === 0) {
+    throw new Error("Retrieval answer model returned an empty response");
+  }
 
   return {
     session_id: params.sessionId,
