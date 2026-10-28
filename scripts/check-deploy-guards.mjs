@@ -43,8 +43,17 @@ function fail(message) {
 }
 
 function loadConfig(configPath) {
-  const text = readFileSync(configPath, "utf8");
-  return parseJsonc(text);
+  let text;
+  try {
+    text = readFileSync(configPath, "utf8");
+  } catch {
+    fail("could not read wrangler config");
+  }
+  try {
+    return parseJsonc(text);
+  } catch {
+    fail("wrangler config is not valid JSONC");
+  }
 }
 
 function findProductionD1Row(config) {

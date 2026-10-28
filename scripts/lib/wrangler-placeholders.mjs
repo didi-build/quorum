@@ -9,5 +9,8 @@ export const PRODUCTION_RESOURCE_MARKERS = {
   vectorizeIndex: "quorum-embeddings",
 };
 
-/** Generated CI config (gitignored); must live in repo root for Wrangler relative paths. */
+/** Default generated deploy config filename (gitignored `wrangler*.ci.jsonc` pattern). */
 export const WRANGLER_CI_CONFIG = "wrangler.ci.jsonc";
+
+/** Basenames allowed for prepare-wrangler-config --output (matches .gitignore). */
+export const WRANGLER_CI_CONFIG_BASENAME_RE = /^wrangler.*\.ci\.jsonc$/;

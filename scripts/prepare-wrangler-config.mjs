@@ -7,7 +7,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { assertOutputInRepoRoot } from "./lib/assert-repo-root-output.mjs";
+import { assertPrepareOutputPath } from "./lib/assert-repo-root-output.mjs";
 import {
   D1_PLACEHOLDER_PRODUCTION,
   PRODUCTION_RESOURCE_MARKERS,
@@ -54,7 +54,7 @@ function assertNoPlaceholderLeft(text, placeholder, label) {
 
 function main() {
   const { output } = parseArgs(process.argv.slice(2));
-  assertOutputInRepoRoot(output);
+  assertPrepareOutputPath(output, SOURCE);
 
   const resolved = resolveProductionD1Id();
   if (resolved.error) {

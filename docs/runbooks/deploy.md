@@ -14,9 +14,9 @@
    node scripts/check-deploy-guards.mjs --target production-deploy --config wrangler.ci.jsonc
    ```
 
-   Set environment variable **`QUORUM_D1_DATABASE_ID`** from the GitHub Actions secret of the same name in CI (never commit or log the value). Do not use a repository variable for the id (variables can appear in logs). For Cloudflare API calls, use secret **`QUORUM_CLOUDFLARE_API_TOKEN_PRODUCTION`** and repository variable **`QUORUM_CLOUDFLARE_ACCOUNT_ID`** (names only; values are set separately).
+   Set environment variable **`QUORUM_D1_DATABASE_ID`** from the GitHub Actions secret of the same name in CI (never commit or log the value). Do not use a repository variable for the id (variables can appear in logs).
 
-4. **Production deploy workflow (future ticket):** A `.github/workflows/` pipeline that runs only on `main` (and optional `workflow_dispatch`), with the deploy job in a protected GitHub **`production`** environment so PR-branch code cannot read deploy secrets. That workflow is out of scope for DIDI-898; until it lands, maintainers run the steps above from a trusted process.
+4. **Production deploy workflow:** A separate privileged ticket will add the GitHub Actions pipeline; until then, maintainers run the steps above from a trusted process.
 5. Record where to watch logs and metrics.
 
 ## One-time: `quorum-preview` (PR mock previews)
