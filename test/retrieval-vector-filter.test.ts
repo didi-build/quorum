@@ -44,6 +44,22 @@ describe("chunkSourceIdsForVectorizeFilter", () => {
     expect(groups.flat()).toEqual(overflow);
   });
 
+  it("splits a two-id filter at exactly 2048 UTF-8 bytes (documented limit)", () => {
+    const idA = "a".repeat(1000);
+    const idB = "b".repeat(1009);
+    expect(vectorizeFilterJsonByteLength([idA, idB])).toBe(VECTORIZE_FILTER_MAX_BYTES);
+
+    const groups = chunkSourceIdsForVectorizeFilter([idA, idB]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toEqual([idA]);
+    expect(groups[1]).toEqual([idB]);
+    for (const group of groups) {
+      expect(vectorizeFilterJsonByteLength(group)).toBeLessThan(
+        VECTORIZE_FILTER_MAX_BYTES,
+      );
+    }
+  });
+
   it("accepts a filter strictly under 2048 UTF-8 bytes even when JSON char length is smaller than byte length", () => {
     const multibyteId = `00000000-0000-4000-8000-${"é".repeat(400)}`;
     const byteLength = vectorizeFilterJsonByteLength([multibyteId]);
