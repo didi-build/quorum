@@ -1,8 +1,7 @@
 import type { RoutedChatResponse } from "../../schemas/chat.js";
 import { emitSupervisorStatus, type StatusQueue } from "../status.js";
 
-const STRATEGIC_SESSION_PLACEHOLDER =
-  "Council review is not available yet. Strategic sessions will route to the AI seat council in a follow-up release.";
+const STRATEGIC_SESSION_PLACEHOLDER = "Council review is coming soon.";
 
 /** Placeholder until council fan-out ships (v1 `run_council`). */
 export async function handleStrategicSession(
