@@ -49,7 +49,17 @@ export async function routeMessage(
     });
   }
   if (resolvedIntent === "strategic_session") {
-    return handleStrategicSession(params.sessionId, params.message, params.statusQueue);
+    return handleStrategicSession({
+      sessionId: params.sessionId,
+      message: params.message,
+      actor: params.actor,
+      db: params.db,
+      vectorize: params.vectorize,
+      config: params.config,
+      effectiveProjectId: params.effectiveProjectId,
+      statusQueue: params.statusQueue,
+      searchDeps: params.retrievalSearchDeps,
+    });
   }
   if (resolvedIntent === "linear_read") {
     return handleLinearRead(params.sessionId, params.message);

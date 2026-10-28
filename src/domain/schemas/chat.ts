@@ -1,4 +1,5 @@
 import type { Citation } from "./citation.js";
+import type { CouncilDecision } from "./common.js";
 
 export const CHAT_INTENTS = [
   "greeting",
@@ -29,7 +30,7 @@ export interface RoutedChatResponse {
   classified_intent: ChatIntent;
   response_kind: ResponseKind;
   citations: Citation[];
-  council_decision: null;
+  council_decision: CouncilDecision | null;
 }
 
 export interface ChatStatusUpdate {
