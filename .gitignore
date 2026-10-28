@@ -6,6 +6,7 @@ dist/
 frontend/dist/
 frontend/dist-preview/
 .wrangler/
+wrangler*.ci.jsonc
 build/
 .next/
 out/

@@ -1,0 +1,55 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Deploy-time guards (committed wrangler.jsonc)
+        run: node scripts/check-deploy-guards.mjs --target committed --config wrangler.jsonc
+      - name: Prepare Wrangler config (production D1 id)
+        env:
+          QUORUM_D1_DATABASE_ID: ${{ secrets.QUORUM_D1_DATABASE_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/prepare-wrangler-config.mjs --output wrangler.ci.jsonc
+      - name: Deploy-time guards (production deploy config)
+        run: node scripts/check-deploy-guards.mjs --target production-deploy --config wrangler.ci.jsonc
+      - name: Build frontend and Worker bundle inputs
+        run: npm run build
+      - name: Apply production D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.QUORUM_CLOUDFLARE_API_TOKEN_PRODUCTION }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.QUORUM_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 migrations apply quorum-db --remote --config wrangler.ci.jsonc
+      - name: Deploy Worker to production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.QUORUM_CLOUDFLARE_API_TOKEN_PRODUCTION }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.QUORUM_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.ci.jsonc

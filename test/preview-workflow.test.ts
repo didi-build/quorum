@@ -1,15 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  collectActionUses,
+  findLocalActionUses,
+  findUnpinnedActionUses,
+} from "./lib/workflow-action-pins.js";
 
 const workflowPath = join(process.cwd(), ".github/workflows/preview.yml");
 const workflow = readFileSync(workflowPath, "utf8");
-
-/** Matches `uses:` at step or job level, with or without a leading `- `. */
-const USES_RE = /^\s*(?:-\s+)?uses:\s*(.+)$/gm;
-
-/** Marketplace actions and reusable workflow refs must pin a 40-character commit SHA after `@`. */
-const PINNED_ACTION_REF_RE = /^.+@[0-9a-f]{40}(\s+#.*)?$/;
 
 function extractJobBlock(yaml: string, jobId: string): string {
   const marker = `  ${jobId}:`;
@@ -20,50 +19,6 @@ function extractJobBlock(yaml: string, jobId: string): string {
   const rest = yaml.slice(start + marker.length);
   const nextJob = rest.search(/\n {2}[a-z][a-z0-9_-]*:\n/);
   return nextJob === -1 ? rest : rest.slice(0, nextJob);
-}
-
-export function normalizeUsesTarget(raw: string): string {
-  let target = raw.trim();
-  const commentIndex = target.indexOf(" #");
-  if (commentIndex !== -1) {
-    target = target.slice(0, commentIndex).trim();
-  }
-  if (
-    (target.startsWith('"') && target.endsWith('"')) ||
-    (target.startsWith("'") && target.endsWith("'"))
-  ) {
-    target = target.slice(1, -1);
-  }
-  return target.trim();
-}
-
-/** @returns {string[]} every `uses:` target in the given workflow YAML fragment */
-export function collectActionUses(text: string): string[] {
-  const uses = [];
-  for (const match of text.matchAll(USES_RE)) {
-    uses.push(normalizeUsesTarget(match[1]));
-  }
-  return uses;
-}
-
-/** Local composite/workflow paths are not allowed in preview.yml (no SHA pin model). */
-export function isLocalActionRef(target: string): boolean {
-  return target.startsWith("./") || target.startsWith("../");
-}
-
-/** @returns {string[]} local `./` or `../` action references */
-export function findLocalActionUses(text: string): string[] {
-  return collectActionUses(text).filter(isLocalActionRef);
-}
-
-/** @returns {string[]} marketplace action refs that are not pinned to a 40-character commit SHA */
-export function findUnpinnedActionUses(text: string): string[] {
-  return collectActionUses(text).filter((target) => {
-    if (isLocalActionRef(target)) {
-      return false;
-    }
-    return !PINNED_ACTION_REF_RE.test(target);
-  });
 }
 
 describe("preview.yml workflow structure (unit)", () => {
