@@ -5,6 +5,7 @@ import {
   getRetrievalAnswerModel,
   RETRIEVAL_ANSWER_TEMPERATURE,
 } from "../../llm/factory.js";
+import { textFromMessageContent } from "../../llm/message-content.js";
 import { retrieve, type RetrievalSearchDeps } from "../../retrieval/service.js";
 import type { ActorContext } from "../../schemas/actor.js";
 import type { Citation } from "../../schemas/citation.js";
@@ -18,6 +19,9 @@ Do not invent facts that are not supported by the context.`;
 
 const NO_KNOWLEDGE_ANSWER =
   "I could not find indexed knowledge that answers that question yet. Try connecting a source or rephrasing the query.";
+
+const RETRIEVAL_ANSWER_EMPTY_FALLBACK =
+  "I could not produce an answer from the model response. Try rephrasing the question.";
 
 function buildContext(chunks: RetrievedChunk[]): string {
   const sections: string[] = [];
@@ -101,9 +105,10 @@ export async function handleSimpleRetrieval(
     ],
   });
 
-  const textBlock = answer.content.find((block) => block.type === "text");
-  const content =
-    textBlock && textBlock.type === "text" ? textBlock.text : String(answer.content);
+  const content = textFromMessageContent(
+    answer.content,
+    RETRIEVAL_ANSWER_EMPTY_FALLBACK,
+  );
 
   return {
     session_id: params.sessionId,
@@ -115,4 +120,4 @@ export async function handleSimpleRetrieval(
   };
 }
 
-export { NO_KNOWLEDGE_ANSWER };
+export { NO_KNOWLEDGE_ANSWER, buildCitations, buildContext };

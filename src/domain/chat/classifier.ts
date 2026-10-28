@@ -1,7 +1,11 @@
-import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { QuorumConfig } from "../../config/types.js";
-import { getAnthropicClient, getSupervisorModel } from "../llm/factory.js";
+import {
+  getAnthropicClient,
+  getSupervisorModel,
+  SUPERVISOR_TEMPERATURE,
+} from "../llm/factory.js";
+import { textFromMessageContent } from "../llm/message-content.js";
 import { type ChatIntent, isChatIntent } from "../schemas/chat.js";
 
 /** Verbatim v1 `CLASSIFIER_SYSTEM_PROMPT` (`src/domain/chat/classifier.py`). */
@@ -34,12 +38,15 @@ const INTENT_CLASSIFICATION_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const intentOutputFormat = jsonSchemaOutputFormat(INTENT_CLASSIFICATION_SCHEMA);
-
 export type ClassifyIntentFn = (message: string) => Promise<ChatIntent>;
 
+export type ClassifierConfig = Pick<
+  QuorumConfig,
+  "anthropicApiKey" | "supervisorModel"
+>;
+
 export interface ClassifierDeps {
-  config: QuorumConfig;
+  config: ClassifierConfig;
   client?: Anthropic;
 }
 
@@ -48,19 +55,41 @@ export async function classifyIntent(
   deps: ClassifierDeps,
 ): Promise<ChatIntent> {
   const client = deps.client ?? getAnthropicClient(deps.config);
-  const parsed = await client.messages.parse({
+  const response = await client.messages.create({
     model: getSupervisorModel(deps.config),
     max_tokens: 256,
-    temperature: 0,
+    temperature: SUPERVISOR_TEMPERATURE,
     system: CLASSIFIER_SYSTEM_PROMPT,
     messages: [{ role: "user", content: message }],
     output_config: {
-      format: intentOutputFormat,
+      format: {
+        type: "json_schema",
+        schema: INTENT_CLASSIFICATION_SCHEMA,
+      },
     },
   });
 
-  const intent = parsed.parsed_output?.intent;
-  if (typeof intent !== "string" || !isChatIntent(intent)) {
+  const rawJson = textFromMessageContent(response.content, "");
+  if (rawJson.length === 0) {
+    throw new Error("Supervisor classifier returned an empty response");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    throw new Error("Supervisor classifier returned non-JSON output");
+  }
+
+  const intent =
+    typeof parsed === "object" &&
+    parsed !== null &&
+    "intent" in parsed &&
+    typeof (parsed as { intent: unknown }).intent === "string"
+      ? (parsed as { intent: string }).intent
+      : null;
+
+  if (intent === null || !isChatIntent(intent)) {
     throw new Error("Supervisor classifier returned an invalid intent");
   }
   return intent;

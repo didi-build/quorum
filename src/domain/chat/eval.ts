@@ -1,6 +1,4 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import routerEvalDatasetJson from "./data/router_eval_dataset.json" with { type: "json" };
 import { classifyIntent, type ClassifyIntentFn } from "./classifier.js";
 import { type ChatIntent, isChatIntent } from "../schemas/chat.js";
 
@@ -16,14 +14,7 @@ export interface RouterEvalResult {
   mismatches: Array<[string, ChatIntent, ChatIntent]>;
 }
 
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-
-export const DEFAULT_DATASET_PATH = join(moduleDir, "data", "router_eval_dataset.json");
-
-export function loadRouterEvalDataset(
-  path: string = DEFAULT_DATASET_PATH,
-): RouterEvalExample[] {
-  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+function parseRouterEvalDatasetRaw(raw: unknown): RouterEvalExample[] {
   if (!Array.isArray(raw)) {
     throw new Error("Router eval dataset must be a JSON array");
   }
@@ -45,17 +36,19 @@ export function loadRouterEvalDataset(
   });
 }
 
+export function loadRouterEvalDataset(): RouterEvalExample[] {
+  return parseRouterEvalDatasetRaw(routerEvalDatasetJson);
+}
+
 export async function scoreRouterDataset(
   examples: RouterEvalExample[],
   classifier: ClassifyIntentFn,
 ): Promise<RouterEvalResult> {
-  const classify = classifier;
-
   const mismatches: Array<[string, ChatIntent, ChatIntent]> = [];
   let correct = 0;
 
   for (const example of examples) {
-    const predicted = await classify(example.message);
+    const predicted = await classifier(example.message);
     if (predicted === example.expected_intent) {
       correct += 1;
     } else {

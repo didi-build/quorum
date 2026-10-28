@@ -1,10 +1,5 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_DATASET_PATH,
-  loadRouterEvalDataset,
-  scoreRouterDataset,
-} from "../src/domain/chat/eval.js";
+import { loadRouterEvalDataset, scoreRouterDataset } from "../src/domain/chat/eval.js";
 import type { ChatIntent } from "../src/domain/schemas/chat.js";
 
 describe("router eval dataset (v1 parity)", () => {
@@ -28,13 +23,8 @@ describe("router eval dataset (v1 parity)", () => {
     );
   });
 
-  it("loads valid JSON from the ported path", () => {
-    const payload: unknown = JSON.parse(readFileSync(DEFAULT_DATASET_PATH, "utf8"));
-    expect(Array.isArray(payload)).toBe(true);
-    for (const item of payload as Array<Record<string, unknown>>) {
-      expect(typeof item.message).toBe("string");
-      expect(typeof item.expected_intent).toBe("string");
-    }
+  it("loads 72 examples from the bundled JSON import", () => {
+    expect(loadRouterEvalDataset()).toHaveLength(72);
   });
 
   it("scores perfectly with a mapped mock classifier", async () => {

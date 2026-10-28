@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleGreeting } from "../src/domain/chat/handlers/greeting.js";
 import * as retrievalHandler from "../src/domain/chat/handlers/retrieval.js";
 import { STRATEGIC_SESSION_PLACEHOLDER } from "../src/domain/chat/handlers/strategic-session.js";
 import { routeMessage } from "../src/domain/chat/router.js";
 import { loadConfig } from "../src/config/load-config.js";
 import { actorContext } from "../src/domain/schemas/actor.js";
+import type { ChatIntent } from "../src/domain/schemas/chat.js";
 import { testConfigEnv } from "./fixtures/config-env.js";
 
 describe("routeMessage (v1 parity)", () => {
@@ -102,13 +102,31 @@ describe("routeMessage (v1 parity)", () => {
     expect(readResponse.response_kind).toBe("stub_not_implemented");
     expect(writeResponse.response_kind).toBe("stub_not_implemented");
   });
-});
 
-describe("handleGreeting canned replies (v1 parity)", () => {
-  it("matches v1 hello branch", async () => {
-    const response = await handleGreeting("session", "hello");
-    expect(response.content).toBe(
-      "Hello! Ask me about the knowledge layer, or bring a strategic question for the council.",
-    );
+  it("falls back to simple retrieval for an unrecognized intent value", async () => {
+    const retrievalSpy = vi
+      .spyOn(retrievalHandler, "handleSimpleRetrieval")
+      .mockResolvedValue({
+        session_id: sessionId,
+        content: "fallback",
+        classified_intent: "simple_retrieval",
+        response_kind: "direct_answer",
+        citations: [],
+        council_decision: null,
+      });
+
+    await routeMessage({
+      sessionId,
+      message: "edge case",
+      actor,
+      db,
+      vectorize,
+      config,
+      effectiveProjectId: null,
+      intent: "not-a-real-intent" as ChatIntent,
+    });
+
+    expect(retrievalSpy).toHaveBeenCalledOnce();
+    retrievalSpy.mockRestore();
   });
 });

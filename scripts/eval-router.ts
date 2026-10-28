@@ -1,14 +1,35 @@
-import { loadConfig } from "../src/config/load-config.js";
-import { classifyIntent } from "../src/domain/chat/classifier.js";
+import Anthropic from "@anthropic-ai/sdk";
+import {
+  ANTHROPIC_CLIENT_MAX_RETRIES,
+  ANTHROPIC_CLIENT_TIMEOUT_MS,
+} from "../src/domain/llm/factory.js";
+import {
+  classifyIntent,
+  type ClassifierConfig,
+} from "../src/domain/chat/classifier.js";
 import { loadRouterEvalDataset, scoreRouterDataset } from "../src/domain/chat/eval.js";
 
 const ACCURACY_BAR = 0.85;
 
-async function main(): Promise<number> {
-  const config = loadConfig(process.env as Record<string, string | undefined>);
+export function readRouterEvalEnv(): ClassifierConfig {
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (anthropicApiKey === undefined || anthropicApiKey.length === 0) {
+    throw new Error("ANTHROPIC_API_KEY is required for npm run eval:router");
+  }
+  const supervisorModel = process.env.SUPERVISOR_MODEL?.trim() ?? "claude-haiku-4-5";
+  return { anthropicApiKey, supervisorModel };
+}
+
+export async function runRouterEval(): Promise<number> {
+  const config = readRouterEvalEnv();
+  const client = new Anthropic({
+    apiKey: config.anthropicApiKey,
+    timeout: ANTHROPIC_CLIENT_TIMEOUT_MS,
+    maxRetries: ANTHROPIC_CLIENT_MAX_RETRIES,
+  });
   const examples = loadRouterEvalDataset();
   const result = await scoreRouterDataset(examples, (message) =>
-    classifyIntent(message, { config }),
+    classifyIntent(message, { config, client }),
   );
 
   console.log(
@@ -23,11 +44,16 @@ async function main(): Promise<number> {
   return result.accuracy >= ACCURACY_BAR ? 0 : 1;
 }
 
-main()
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((error: unknown) => {
+async function main(): Promise<void> {
+  process.exitCode = await runRouterEval();
+}
+
+const isEvalRouterEntry =
+  typeof process.argv[1] === "string" && process.argv[1].endsWith("eval-router.ts");
+
+if (isEvalRouterEntry) {
+  main().catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;
   });
+}

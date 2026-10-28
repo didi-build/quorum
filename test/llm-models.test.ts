@@ -1,13 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  ANTHROPIC_CLIENT_MAX_RETRIES,
+  ANTHROPIC_CLIENT_TIMEOUT_MS,
+  COUNCIL_CHAIR_TEMPERATURE,
+  getAnthropicClient,
   getCouncilChairModel,
   getPersonaModel,
   getRetrievalAnswerModel,
   getSupervisorModel,
+  PERSONA_TEMPERATURE,
+  resetAnthropicClientCacheForTests,
+  RETRIEVAL_ANSWER_TEMPERATURE,
   roleModelsFromConfig,
+  SUPERVISOR_TEMPERATURE,
 } from "../src/domain/llm/factory.js";
 import { loadConfig } from "../src/config/load-config.js";
-import { testConfigEnv } from "./fixtures/config-env.js";
+import { testConfigEnv, withTestConfigEnv } from "./fixtures/config-env.js";
+
+const anthropicConstructOptions: unknown[] = [];
+
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: class Anthropic {
+    constructor(options: unknown) {
+      anthropicConstructOptions.push(options);
+    }
+  },
+}));
 
 describe("LLM role models from config (v1 parity)", () => {
   const config = loadConfig(testConfigEnv);
@@ -20,14 +38,36 @@ describe("LLM role models from config (v1 parity)", () => {
     expect(roles.councilChairModel).toBe("claude-sonnet-5");
   });
 
-  it("uses a lighter supervisor model than council chair", () => {
-    expect(getSupervisorModel(config)).not.toBe(getCouncilChairModel(config));
-    expect(getSupervisorModel(config)).toBe("claude-haiku-4-5");
+  it("maps each getter to the configured model id", () => {
+    const distinct = loadConfig(
+      withTestConfigEnv({
+        SUPERVISOR_MODEL: "supervisor-model-id",
+        RETRIEVAL_ANSWER_MODEL: "retrieval-model-id",
+        PERSONA_MODEL: "persona-model-id",
+        COUNCIL_CHAIR_MODEL: "chair-model-id",
+      }),
+    );
+    expect(getSupervisorModel(distinct)).toBe("supervisor-model-id");
+    expect(getRetrievalAnswerModel(distinct)).toBe("retrieval-model-id");
+    expect(getPersonaModel(distinct)).toBe("persona-model-id");
+    expect(getCouncilChairModel(distinct)).toBe("chair-model-id");
   });
 
-  it("keeps persona and retrieval answer models on the configured Sonnet id", () => {
-    expect(getPersonaModel(config)).toBe("claude-sonnet-5");
-    expect(getRetrievalAnswerModel(config)).toBe("claude-sonnet-5");
-    expect(getPersonaModel(config)).not.toBe(getSupervisorModel(config));
+  it("keeps v1 sampling temperatures as named constants", () => {
+    expect(SUPERVISOR_TEMPERATURE).toBe(0);
+    expect(RETRIEVAL_ANSWER_TEMPERATURE).toBe(0.2);
+    expect(PERSONA_TEMPERATURE).toBe(0.2);
+    expect(COUNCIL_CHAIR_TEMPERATURE).toBe(0.2);
+  });
+
+  it("configures explicit Anthropic client timeout and retry limits", () => {
+    resetAnthropicClientCacheForTests();
+    anthropicConstructOptions.length = 0;
+    getAnthropicClient(config);
+    expect(anthropicConstructOptions[0]).toMatchObject({
+      timeout: ANTHROPIC_CLIENT_TIMEOUT_MS,
+      maxRetries: ANTHROPIC_CLIENT_MAX_RETRIES,
+    });
+    resetAnthropicClientCacheForTests();
   });
 });
