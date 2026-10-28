@@ -16,12 +16,12 @@ Local `@cloudflare/vitest-pool-workers` integration test `test/worker/council-cp
 
 ## Findings
 
-| Metric                                         | Observed (local worker test)                           | Workers paid limit                                                          |
-| ---------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Wall time, 3 parallel retrievals only          | Low tens of ms (I/O mocked except D1)                  | No hard wall limit for waiting on I/O                                       |
-| Wall time, full council with mocked LLM sleeps | ~10s (max persona sleep + chair sleep, not 3x persona) | Client and `ANTHROPIC_CLIENT_TIMEOUT_MS` (120s) bound end-user wait         |
-| CPU time during provider waits                 | Not charged (waits are off-CPU)                        | Default **30s CPU** per HTTP request; optional **300s** via `limits.cpu_ms` |
-| CPU time for triple retrieval on fixture       | Well under 30s                                         | Same default 30s CPU budget                                                 |
+| Metric                                         | Observed (local worker test)                      | Workers paid limit                                                          |
+| ---------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------- |
+| Wall time, 3 parallel retrievals only          | ~13-16 ms on D1 fixture (Voyage/Vectorize mocked) | No hard wall limit for waiting on I/O                                       |
+| Wall time, full council with mocked LLM sleeps | ~10.0 s (6 s parallel personas + 4 s chair)       | Client and `ANTHROPIC_CLIENT_TIMEOUT_MS` (120s) bound end-user wait         |
+| CPU time during provider waits                 | Not charged (waits are off-CPU)                   | Default **30s CPU** per HTTP request; optional **300s** via `limits.cpu_ms` |
+| CPU time for triple retrieval on fixture       | Well under 30s                                    | Same default 30s CPU budget                                                 |
 
 Cloudflare documents that **CPU time excludes** time spent waiting on `fetch`, external LLM APIs, and database I/O. Council runs are I/O bound across three parallel retrievals plus four sequential LLM round trips, so wall clock can exceed 30s while CPU stays far below the default cap.
 
