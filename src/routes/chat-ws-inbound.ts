@@ -1,25 +1,31 @@
 import type { QuorumConfig } from "../config/types.js";
 import type { ActorContext } from "../domain/schemas/actor.js";
 import type { Env } from "../env.js";
-import {
-  closeChatWsInternalError,
-  deliverChatWsTurn,
-  isChatInboundParseError,
-  type ChatWsTurnContext,
-} from "./chat-ws-pipeline.js";
+import * as chatWsPipeline from "./chat-ws-pipeline.js";
+import { type ChatWsTurnContext } from "./chat-ws-pipeline.js";
 import {
   type ChatWsAuthRecheck,
   type ChatWsClock,
   chatWsRecheckDue,
 } from "./chat-ws-recheck.js";
-import { isAbortError } from "../domain/chat/service.js";
+import { isAbortError, type ProcessMessageInjections } from "../domain/chat/service.js";
 
 export const CHAT_WS_AUTH_INVALID_CLOSE_CODE = 1008;
 export const CHAT_WS_AUTH_INVALID_CLOSE_REASON = "auth invalid";
+export const CHAT_WS_INBOUND_QUEUE_MAX = 16;
+export const CHAT_WS_INVALID_FRAME_CLOSE_CODE = 1007;
 
 export function closeChatWsAuthInvalid(server: WebSocket): void {
   try {
     server.close(CHAT_WS_AUTH_INVALID_CLOSE_CODE, CHAT_WS_AUTH_INVALID_CLOSE_REASON);
+  } catch {
+    // ignore close errors on already-closed sockets
+  }
+}
+
+export function closeChatWsInvalidFrame(server: WebSocket): void {
+  try {
+    server.close(CHAT_WS_INVALID_FRAME_CLOSE_CODE);
   } catch {
     // ignore close errors on already-closed sockets
   }
@@ -34,11 +40,12 @@ export type ChatWsHandlerContext = {
 export type ChatWsInboundDeps = {
   clock: ChatWsClock;
   recheckAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boolean>;
+  processMessageInjections?: ProcessMessageInjections;
   deliverTurn?: (
     ctx: ChatWsTurnContext,
     rawInbound: string,
     signal: AbortSignal,
-  ) => ReturnType<typeof deliverChatWsTurn>;
+  ) => ReturnType<typeof chatWsPipeline.deliverChatWsTurn>;
 };
 
 function logChatWsInboundError(error: unknown): void {
@@ -51,7 +58,15 @@ export function attachChatWsInboundHandler(
   authRecheck: ChatWsAuthRecheck,
   deps: ChatWsInboundDeps,
 ): void {
-  const deliverTurn = deps.deliverTurn ?? deliverChatWsTurn;
+  const deliverTurn =
+    deps.deliverTurn ??
+    ((ctx, raw, signal) =>
+      chatWsPipeline.deliverChatWsTurn(
+        ctx,
+        raw,
+        signal,
+        deps.processMessageInjections,
+      ));
   let lastRecheckAtMs = deps.clock.nowMs();
   let recheckInFlight: Promise<boolean> | null = null;
   let socketClosed = false;
@@ -124,14 +139,14 @@ export function attachChatWsInboundHandler(
       if (isAbortError(error) || socketClosed) {
         return;
       }
-      if (isChatInboundParseError(error)) {
+      if (chatWsPipeline.isChatInboundParseError(error)) {
         markSocketClosedAndClearQueue();
-        closeChatWsInternalError(server);
+        closeChatWsInvalidFrame(server);
         return;
       }
       logChatWsInboundError(error);
       markSocketClosedAndClearQueue();
-      closeChatWsInternalError(server);
+      chatWsPipeline.closeChatWsInternalError(server);
     } finally {
       if (activeAbort === abortController) {
         activeAbort = null;
@@ -167,6 +182,11 @@ export function attachChatWsInboundHandler(
         return;
       }
       if (socketClosed) {
+        return;
+      }
+      if (queue.length >= CHAT_WS_INBOUND_QUEUE_MAX) {
+        markSocketClosedAndClearQueue();
+        closeChatWsAuthInvalid(server);
         return;
       }
       queue.push(event.data);

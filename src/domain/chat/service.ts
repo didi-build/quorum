@@ -1,6 +1,6 @@
 import type { QuorumConfig } from "../../config/types.js";
 import { classifyIntent, type ClassifierDeps } from "./classifier.js";
-import { routeMessage } from "./router.js";
+import { routeMessage, type RouteMessageParams } from "./router.js";
 import type { ActorContext } from "../schemas/actor.js";
 import type {
   ChatIntent,
@@ -47,7 +47,8 @@ async function routeMessageWithAbort(
   params: ProcessMessageParams,
   intent: ChatIntent,
 ): Promise<Awaited<ReturnType<typeof routeMessage>>> {
-  const routePromise = routeMessage({
+  const routeFn = params.routeMessageFn ?? routeMessage;
+  const routePromise = routeFn({
     sessionId: params.sessionId,
     message: params.content,
     actor: params.actor,
@@ -188,7 +189,13 @@ export interface ProcessMessageParams {
   signal?: AbortSignal;
   classifierDeps?: ClassifierDeps;
   retrievalSearchDeps?: RetrievalSearchDeps;
+  routeMessageFn?: (params: RouteMessageParams) => ReturnType<typeof routeMessage>;
 }
+
+export type ProcessMessageInjections = Pick<
+  ProcessMessageParams,
+  "classifierDeps" | "routeMessageFn"
+>;
 
 export async function processMessage(
   params: ProcessMessageParams,
@@ -241,47 +248,165 @@ export async function processMessage(
   };
 }
 
+export const HISTORY_DEFAULT_LIMIT = 50;
+export const HISTORY_MAX_LIMIT = 100;
+
+export function encodeHistoryCursor(createdAt: string, id: string): string {
+  return `${createdAt}|${id}`;
+}
+
+export function decodeHistoryCursor(
+  cursor: string,
+): { createdAt: string; id: string } | null {
+  const separator = cursor.indexOf("|");
+  if (separator <= 0 || separator >= cursor.length - 1) {
+    return null;
+  }
+  return {
+    createdAt: cursor.slice(0, separator),
+    id: cursor.slice(separator + 1),
+  };
+}
+
+export interface SessionMessagesPage {
+  messages: ChatMessageOut[];
+  next_cursor: string | null;
+}
+
+interface HistoryMessageRow extends ChatMessageRow {
+  wb_id: string | null;
+  wb_chat_message_id: string | null;
+  wb_user_id: string | null;
+  wb_project_id: string | null;
+  wb_plan: string | null;
+  wb_feedback_history: string | null;
+  wb_status: string | null;
+  wb_execution_results: string | null;
+  wb_created_at: string | null;
+  wb_updated_at: string | null;
+  wb_executed_at: string | null;
+}
+
+export const HISTORY_MESSAGES_USER_SCOPE_SQL = "m.user_id = ?";
+
+const HISTORY_SELECT = `
+  SELECT
+    m.id, m.session_id, m.user_id, m.project_id, m.role, m.content,
+    m.classified_intent, m.response_kind, m.citations, m.council_decision, m.created_at,
+    p.id AS wb_id,
+    p.chat_message_id AS wb_chat_message_id,
+    p.user_id AS wb_user_id,
+    p.project_id AS wb_project_id,
+    p.plan AS wb_plan,
+    p.feedback_history AS wb_feedback_history,
+    p.status AS wb_status,
+    p.execution_results AS wb_execution_results,
+    p.created_at AS wb_created_at,
+    p.updated_at AS wb_updated_at,
+    p.executed_at AS wb_executed_at
+  FROM chat_messages m
+  LEFT JOIN write_back_proposals p ON p.chat_message_id = m.id
+`;
+
+function proposalFromHistoryRow(row: HistoryMessageRow): WriteBackProposalRow | null {
+  if (row.wb_id === null || row.wb_chat_message_id === null) {
+    return null;
+  }
+  return {
+    id: row.wb_id,
+    chat_message_id: row.wb_chat_message_id,
+    user_id: row.wb_user_id ?? "",
+    project_id: row.wb_project_id,
+    plan: row.wb_plan ?? "{}",
+    feedback_history: row.wb_feedback_history ?? "[]",
+    status: row.wb_status ?? "proposed",
+    execution_results: row.wb_execution_results ?? "[]",
+    created_at: row.wb_created_at ?? row.created_at,
+    updated_at: row.wb_updated_at ?? row.created_at,
+    executed_at: row.wb_executed_at,
+  };
+}
+
+function rowToMessageOut(row: HistoryMessageRow): ChatMessageOut {
+  const messageRow: ChatMessageRow = {
+    id: row.id,
+    session_id: row.session_id,
+    user_id: row.user_id,
+    project_id: row.project_id,
+    role: row.role,
+    content: row.content,
+    classified_intent: row.classified_intent,
+    response_kind: row.response_kind,
+    citations: row.citations,
+    council_decision: row.council_decision,
+    created_at: row.created_at,
+  };
+  return toMessageOut(messageRow, proposalFromHistoryRow(row));
+}
+
+export function clampHistoryLimit(limit: number | null | undefined): number {
+  if (limit === null || limit === undefined || !Number.isInteger(limit) || limit < 1) {
+    return HISTORY_DEFAULT_LIMIT;
+  }
+  return Math.min(limit, HISTORY_MAX_LIMIT);
+}
+
 export async function getSessionMessages(
   db: D1Database,
   sessionId: string,
   actor: ActorContext,
-): Promise<ChatMessageOut[]> {
-  const result = await db
-    .prepare(
-      `SELECT
-        id, session_id, user_id, project_id, role, content,
-        classified_intent, response_kind, citations, council_decision, created_at
-       FROM chat_messages
-       WHERE session_id = ? AND user_id = ?
-       ORDER BY created_at ASC`,
-    )
-    .bind(sessionId, actor.userId)
-    .all<ChatMessageRow>();
+  options: {
+    limit?: number;
+    cursor?: { createdAt: string; id: string } | null;
+  } = {},
+): Promise<SessionMessagesPage> {
+  const limit = clampHistoryLimit(options.limit);
+  const fetchLimit = limit + 1;
+  const cursor = options.cursor ?? null;
 
-  const records = result.results ?? [];
-  if (records.length === 0) {
-    return [];
+  let result: D1Result<HistoryMessageRow>;
+  if (cursor === null) {
+    result = await db
+      .prepare(
+        `${HISTORY_SELECT}
+         WHERE m.session_id = ? AND ${HISTORY_MESSAGES_USER_SCOPE_SQL}
+         ORDER BY m.created_at ASC, m.id ASC
+         LIMIT ?`,
+      )
+      .bind(sessionId, actor.userId, fetchLimit)
+      .all<HistoryMessageRow>();
+  } else {
+    result = await db
+      .prepare(
+        `${HISTORY_SELECT}
+         WHERE m.session_id = ? AND ${HISTORY_MESSAGES_USER_SCOPE_SQL}
+           AND (
+             m.created_at > ?
+             OR (m.created_at = ? AND m.id > ?)
+           )
+         ORDER BY m.created_at ASC, m.id ASC
+         LIMIT ?`,
+      )
+      .bind(
+        sessionId,
+        actor.userId,
+        cursor.createdAt,
+        cursor.createdAt,
+        cursor.id,
+        fetchLimit,
+      )
+      .all<HistoryMessageRow>();
   }
 
-  const messageIds = records.map((record) => record.id);
-  const placeholders = messageIds.map(() => "?").join(", ");
-  const proposalsResult = await db
-    .prepare(
-      `SELECT
-        id, chat_message_id, user_id, project_id, plan, feedback_history,
-        status, execution_results, created_at, updated_at, executed_at
-       FROM write_back_proposals
-       WHERE chat_message_id IN (${placeholders})`,
-    )
-    .bind(...messageIds)
-    .all<WriteBackProposalRow>();
+  const rows = result.results ?? [];
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const messages = pageRows.map(rowToMessageOut);
+  const last = pageRows.at(-1);
+  const next_cursor =
+    hasMore && last !== undefined
+      ? encodeHistoryCursor(last.created_at, last.id)
+      : null;
 
-  const proposalsByMessageId = new Map<string, WriteBackProposalRow>();
-  for (const proposal of proposalsResult.results ?? []) {
-    proposalsByMessageId.set(proposal.chat_message_id, proposal);
-  }
-
-  return records.map((record) =>
-    toMessageOut(record, proposalsByMessageId.get(record.id) ?? null),
-  );
+  return { messages, next_cursor };
 }

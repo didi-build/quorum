@@ -17,7 +17,7 @@ const testEnv = () =>
   workerEnvWithSecrets({
     ...env,
     ...withTestConfigEnv({
-      AUTH_ALLOWED_GITHUB_IDS: "1,999030",
+      AUTH_ALLOWED_GITHUB_IDS: "1,999030,999031",
       APP_BASE_URL: "http://test",
       WS_ALLOWED_ORIGINS: "http://test",
     }),
@@ -34,13 +34,13 @@ describe("chat persistence and history (worker integration)", () => {
     await env.DB.prepare("DELETE FROM users").run();
   });
 
-  async function authGet(path: string, rawToken: string): Promise<Response> {
+  async function authGet(path: string, rawToken: string | null): Promise<Response> {
     const cfg = loadConfig(testEnv());
-    const request = new Request(`http://test${path}`, {
-      headers: {
-        Cookie: `${cfg.sessionCookieName}=${rawToken}`,
-      },
-    });
+    const headers: Record<string, string> = {};
+    if (rawToken !== null) {
+      headers.Cookie = `${cfg.sessionCookieName}=${rawToken}`;
+    }
+    const request = new Request(`http://test${path}`, { headers });
     const ctx = createExecutionContext();
     const response = await worker.fetch(request, testEnv(), ctx);
     await waitOnExecutionContext(ctx);
@@ -107,13 +107,60 @@ describe("chat persistence and history (worker integration)", () => {
     expect(historyResponse.status).toBe(200);
     const history = (await historyResponse.json()) as {
       session_id: string;
+      next_cursor: string | null;
       messages: Array<{
         role: string;
+        classified_intent: string | null;
+        response_kind: string | null;
+        citations: unknown[];
+        council_decision: unknown | null;
         write_back_proposal: { chat_message_id: string } | null;
       }>;
     };
     expect(history.session_id).toBe(TEST_CHAT_SESSION_ID);
+    expect(history.next_cursor).toBeNull();
     expect(history.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(history.messages[0]?.classified_intent).toBe("greeting");
+    expect(history.messages[1]?.classified_intent).toBe("greeting");
+    expect(history.messages[1]?.response_kind).toBe("direct_answer");
+    expect(history.messages[1]?.citations).toEqual([]);
+    expect(history.messages[1]?.council_decision).toBeNull();
     expect(history.messages[1]?.write_back_proposal?.chat_message_id).toBe(assistantId);
+  });
+
+  it("returns 401 for unauthenticated history", async () => {
+    const response = await authGet(
+      `/chat/sessions/${encodeURIComponent(TEST_CHAT_SESSION_ID)}/messages`,
+      null,
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("returns an empty list for another user's session", async () => {
+    const cfg = loadConfig(testEnv());
+    const ownerId = crypto.randomUUID();
+    const otherId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(ownerId, 999030, "owner")
+      .run();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(otherId, 999031, "other")
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chat_messages (
+        id, session_id, user_id, role, content, citations
+      ) VALUES (?, ?, ?, 'user', 'secret', '[]')`,
+    )
+      .bind(crypto.randomUUID(), TEST_CHAT_SESSION_ID, ownerId)
+      .run();
+
+    const { rawToken: otherToken } = await createBrowserSession(env.DB, cfg, otherId);
+    const response = await authGet(
+      `/chat/sessions/${encodeURIComponent(TEST_CHAT_SESSION_ID)}/messages`,
+      otherToken,
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { messages: unknown[] };
+    expect(body.messages).toEqual([]);
   });
 });

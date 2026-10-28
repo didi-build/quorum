@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/index.js";
 import type { QuorumConfig } from "../config/types.js";
+import type { ProcessMessageInjections } from "../domain/chat/service.js";
 import { processMessage } from "../domain/chat/service.js";
 import {
   parseChatMessageIn,
@@ -22,6 +23,7 @@ export async function deliverChatWsTurn(
   ctx: ChatWsTurnContext,
   rawInbound: string,
   signal: AbortSignal,
+  injections?: ProcessMessageInjections,
 ): Promise<ChatResponse> {
   const inbound = parseChatMessageIn(rawInbound);
   return processMessage({
@@ -32,6 +34,8 @@ export async function deliverChatWsTurn(
     content: inbound.content,
     actor: ctx.actor,
     signal,
+    classifierDeps: injections?.classifierDeps,
+    routeMessageFn: injections?.routeMessageFn,
   });
 }
 

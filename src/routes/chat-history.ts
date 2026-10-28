@@ -1,5 +1,9 @@
 import type { QuorumConfig } from "../config/types.js";
-import { getSessionMessages } from "../domain/chat/service.js";
+import {
+  clampHistoryLimit,
+  decodeHistoryCursor,
+  getSessionMessages,
+} from "../domain/chat/service.js";
 import type { ChatHistoryResponse } from "../domain/schemas/chat.js";
 import type { ActorContext } from "../domain/schemas/actor.js";
 import type { Env } from "../env.js";
@@ -24,6 +28,17 @@ export function parseChatSessionMessagesPath(pathname: string): string | null {
   return decodeURIComponent(encodedSessionId);
 }
 
+export function parseHistoryLimitParam(raw: string | null): number {
+  if (raw === null) {
+    return clampHistoryLimit(undefined);
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed)) {
+    return clampHistoryLimit(undefined);
+  }
+  return clampHistoryLimit(parsed);
+}
+
 export async function handleChatHistoryRoute(
   request: Request,
   env: Env,
@@ -36,10 +51,20 @@ export async function handleChatHistoryRoute(
     return null;
   }
 
-  const messages = await getSessionMessages(env.DB, sessionId, actor);
+  const url = new URL(request.url);
+  const limit = parseHistoryLimitParam(url.searchParams.get("limit"));
+  const cursorRaw = url.searchParams.get("cursor");
+  const cursor =
+    cursorRaw === null || cursorRaw.length < 1 ? null : decodeHistoryCursor(cursorRaw);
+
+  const page = await getSessionMessages(env.DB, sessionId, actor, {
+    limit,
+    cursor,
+  });
   const body: ChatHistoryResponse = {
     session_id: sessionId,
-    messages,
+    messages: page.messages,
+    next_cursor: page.next_cursor,
   };
   return Response.json(body);
 }

@@ -65,6 +65,7 @@ export interface ChatMessageOut {
 export interface ChatHistoryResponse {
   session_id: string;
   messages: ChatMessageOut[];
+  next_cursor: string | null;
 }
 
 export interface ChatStatusUpdate {

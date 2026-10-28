@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   parseChatMessageIn,
   ChatInboundParseError,
 } from "../src/domain/chat/parse-inbound.js";
-import * as routerModule from "../src/domain/chat/router.js";
 import { processMessage, getSessionMessages } from "../src/domain/chat/service.js";
 import { loadConfig } from "../src/config/load-config.js";
 import { actorContext } from "../src/domain/schemas/actor.js";
@@ -52,15 +51,6 @@ describe("processMessage (unit, mocked router)", () => {
       },
     } as unknown as D1Database;
 
-    vi.spyOn(routerModule, "routeMessage").mockResolvedValue({
-      session_id: sessionId,
-      content: "Hello back",
-      classified_intent: "greeting",
-      response_kind: "direct_answer",
-      citations: [],
-      council_decision: null,
-    });
-
     const response = await processMessage({
       db: mockDb,
       vectorize: {} as VectorizeIndex,
@@ -69,6 +59,14 @@ describe("processMessage (unit, mocked router)", () => {
       content: "Hi",
       actor,
       intent: "greeting",
+      routeMessageFn: async () => ({
+        session_id: sessionId,
+        content: "Hello back",
+        classified_intent: "greeting",
+        response_kind: "direct_answer",
+        citations: [],
+        council_decision: null,
+      }),
     });
 
     expect(response.classified_intent).toBe("greeting");
@@ -118,12 +116,10 @@ describe("processMessage (unit, mocked router)", () => {
       },
     } as unknown as D1Database;
 
-    vi.spyOn(routerModule, "routeMessage").mockImplementation(
-      () =>
-        new Promise(() => {
-          /* hang until abort */
-        }),
-    );
+    const hangRoute = () =>
+      new Promise<never>(() => {
+        /* hang until abort */
+      });
 
     const abortController = new AbortController();
     const pending = processMessage({
@@ -135,6 +131,7 @@ describe("processMessage (unit, mocked router)", () => {
       actor,
       intent: "greeting",
       signal: abortController.signal,
+      routeMessageFn: hangRoute,
     });
 
     await Promise.resolve();
@@ -159,7 +156,7 @@ describe("processMessage (unit, mocked router)", () => {
                 return null as T;
               },
               all<T>() {
-                if (sql.includes("FROM chat_messages")) {
+                if (sql.includes("FROM chat_messages m")) {
                   return {
                     results: [
                       {
@@ -174,31 +171,23 @@ describe("processMessage (unit, mocked router)", () => {
                         citations: "[]",
                         council_decision: null,
                         created_at: "2026-01-01T00:00:00.000Z",
-                      },
-                    ] as T[],
-                  };
-                }
-                if (sql.includes("FROM write_back_proposals")) {
-                  return {
-                    results: [
-                      {
-                        id: proposalId,
-                        chat_message_id: messageId,
-                        user_id: actor.userId,
-                        project_id: null,
-                        plan: JSON.stringify({
+                        wb_id: proposalId,
+                        wb_chat_message_id: messageId,
+                        wb_user_id: actor.userId,
+                        wb_project_id: null,
+                        wb_plan: JSON.stringify({
                           needs_doc_update: false,
                           doc_target: null,
                           existing_doc_path: null,
                           new_doc_slug: null,
                           needs_roadmap_item: false,
                         }),
-                        feedback_history: "[]",
-                        status: "proposed",
-                        execution_results: "[]",
-                        created_at: "2026-01-01T00:00:00.000Z",
-                        updated_at: "2026-01-01T00:00:00.000Z",
-                        executed_at: null,
+                        wb_feedback_history: "[]",
+                        wb_status: "proposed",
+                        wb_execution_results: "[]",
+                        wb_created_at: "2026-01-01T00:00:00.000Z",
+                        wb_updated_at: "2026-01-01T00:00:00.000Z",
+                        wb_executed_at: null,
                       },
                     ] as T[],
                   };
@@ -211,8 +200,9 @@ describe("processMessage (unit, mocked router)", () => {
       },
     } as unknown as D1Database;
 
-    const messages = await getSessionMessages(mockDb, sessionId, actor);
-    expect(messages).toHaveLength(1);
-    expect(messages[0]?.write_back_proposal?.id).toBe(proposalId);
+    const page = await getSessionMessages(mockDb, sessionId, actor);
+    expect(page.messages).toHaveLength(1);
+    expect(page.messages[0]?.write_back_proposal?.id).toBe(proposalId);
+    expect(page.next_cursor).toBeNull();
   });
 });
