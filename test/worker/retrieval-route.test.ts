@@ -149,9 +149,35 @@ describe("POST /retrieval/query route guards (worker integration)", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns 404 when a P-scoped API key sends project_id Q", async () => {
-    await seedProjectSource(SOURCE_P, PROJECT_P, "permissions model access control");
+  it("accepts a query of exactly 2000 characters", async () => {
+    await seedProjectSource(SOURCE_P, PROJECT_P, "exact length query chunk body text");
     await seedScopedApiKey(PROJECT_P);
+    const cfg = loadConfig(testEnv());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            {
+              index: 0,
+              data: [
+                {
+                  index: 0,
+                  embedding: Array.from(
+                    { length: cfg.embeddingDimensions },
+                    () => 0.02,
+                  ),
+                },
+              ],
+            },
+          ],
+          model: cfg.voyageModel,
+        }),
+      ),
+    );
+
+    const query = "a".repeat(RETRIEVAL_QUERY_MAX_LENGTH);
+    expect(query.length).toBe(2000);
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
@@ -161,19 +187,22 @@ describe("POST /retrieval/query route guards (worker integration)", () => {
           "Content-Type": "application/json",
           "X-API-Key": API_KEY,
         },
-        body: JSON.stringify({
-          query: "permissions model access control",
-          project_id: PROJECT_Q,
-        }),
+        body: JSON.stringify({ query }),
       }),
-      testEnv(),
+      {
+        ...testEnv(),
+        VECTORIZE: {
+          query: vi.fn(async () => ({ matches: [] })),
+        } as unknown as VectorizeIndex,
+      },
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect(response.status).toBe(404);
+    vi.unstubAllGlobals();
+    expect(response.status).toBe(200);
   });
 
-  it("returns 200 for a P-scoped API key with matching project_id", async () => {
+  it("returns 404 when a P-scoped API key sends project_id Q", async () => {
     await clearData();
     await seedProjectSource(
       SOURCE_P,
@@ -232,9 +261,17 @@ describe("POST /retrieval/query route guards (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     vi.unstubAllGlobals();
     expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      chunks: Array<{ content: string; knowledge_source_id: string }>;
+    };
+    expect(body.chunks.length).toBeGreaterThan(0);
+    expect(
+      body.chunks.some((chunk) => chunk.content.includes("permissions model")),
+    ).toBe(true);
+    expect(body.chunks[0]?.knowledge_source_id).toBe(SOURCE_P);
   });
 
-  it("returns 503 with a fixed detail when Voyage fails", async () => {
+  it("returns 502 with a fixed detail when Voyage fails", async () => {
     await seedProjectSource(SOURCE_P, PROJECT_P, "permissions model access control");
     await seedScopedApiKey(PROJECT_P);
     vi.stubGlobal(
@@ -326,6 +363,8 @@ describe("POST /retrieval/query route guards (worker integration)", () => {
     vi.unstubAllGlobals();
     expect(response.status).toBe(200);
     const body = (await response.json()) as { chunks: Array<{ content: string }> };
+    expect(body.chunks.length).toBeGreaterThan(0);
+    expect(body.chunks.some((chunk) => chunk.content.includes("project P"))).toBe(true);
     expect(body.chunks.every((chunk) => !chunk.content.includes("project Q"))).toBe(
       true,
     );

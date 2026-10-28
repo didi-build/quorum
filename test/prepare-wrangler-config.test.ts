@@ -13,6 +13,11 @@ const FAKE_ID = "11111111-2222-4333-8444-555555555555";
 
 const tempPaths: string[] = [];
 const tempDirs: string[] = [];
+const repoRootEscapeOutputs: string[] = [];
+
+function trackRepoRootEscapeOutput(resolvedOutputPath: string) {
+  repoRootEscapeOutputs.push(resolvedOutputPath);
+}
 
 function runPrepare(outputPath: string, env: Record<string, string | undefined> = {}) {
   return spawnSync("node", [PREPARE_SCRIPT, "--output", outputPath], {
@@ -44,8 +49,10 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
   tempDirs.length = 0;
-  const parentEscape = resolve(process.cwd(), "..", "wrangler.ci.jsonc");
-  rmSync(parentEscape, { force: true });
+  for (const path of repoRootEscapeOutputs) {
+    rmSync(path, { force: true });
+  }
+  repoRootEscapeOutputs.length = 0;
   rmSync(resolve(process.cwd(), "scripts/wrangler.ci.jsonc"), { force: true });
 });
 
@@ -95,6 +102,9 @@ describe("prepare-wrangler-config (unit)", () => {
     it("rejects --output ../wrangler.ci.jsonc", () => {
       const resolved = resolve(process.cwd(), "..", "wrangler.ci.jsonc");
       assertPrepareRejectedOutsideRepoRoot("../wrangler.ci.jsonc", resolved);
+      if (existsSync(resolved)) {
+        trackRepoRootEscapeOutput(resolved);
+      }
     });
 
     it("rejects an absolute path outside the repository root", () => {

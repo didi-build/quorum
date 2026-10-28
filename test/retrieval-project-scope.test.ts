@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { actorContext } from "../src/domain/schemas/actor.js";
+import { isRetrievalProjectUuid } from "../src/domain/retrieval/query-limits.js";
 import { resolveRetrievalProjectScope } from "../src/domain/retrieval/project-scope.js";
+import { actorContext } from "../src/domain/schemas/actor.js";
 
 const USER = "00000000-0000-4000-8000-000000000010";
 const PROJECT_P = "10000000-0000-4000-8000-000000000001";
 const PROJECT_Q = "10000000-0000-4000-8000-000000000002";
+
+describe("isRetrievalProjectUuid", () => {
+  it("accepts lowercase and uppercase UUID v4 strings", () => {
+    expect(isRetrievalProjectUuid("10000000-0000-4000-8000-000000000001")).toBe(true);
+    expect(
+      isRetrievalProjectUuid("10000000-0000-4000-8000-000000000001".toUpperCase()),
+    ).toBe(true);
+  });
+
+  it("rejects non-UUID strings", () => {
+    expect(isRetrievalProjectUuid("not-a-uuid")).toBe(false);
+    expect(isRetrievalProjectUuid("10000000-0000-4000-8000")).toBe(false);
+    expect(isRetrievalProjectUuid("")).toBe(false);
+  });
+});
 
 describe("resolveRetrievalProjectScope", () => {
   it("returns 404 when a P-scoped actor sends project_id Q", () => {

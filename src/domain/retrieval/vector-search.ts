@@ -8,6 +8,10 @@ function vectorizeInFilter(sourceIds: string[]): VectorizeVectorMetadataFilter {
   return { knowledge_source_id: { $in: sourceIds } };
 }
 
+export function vectorizeFilterJsonByteLength(sourceIds: string[]): number {
+  return new TextEncoder().encode(JSON.stringify(vectorizeInFilter(sourceIds))).length;
+}
+
 export function chunkSourceIdsForVectorizeFilter(
   sourceIds: string[],
   maxBytes = VECTORIZE_FILTER_MAX_BYTES,
@@ -24,8 +28,8 @@ export function chunkSourceIdsForVectorizeFilter(
 
   for (const id of sourceIds) {
     const candidate = [...current, id];
-    const size = JSON.stringify(vectorizeInFilter(candidate)).length;
-    if (size > maxBytes && current.length > 0) {
+    const size = vectorizeFilterJsonByteLength(candidate);
+    if (size >= maxBytes && current.length > 0) {
       groups.push(current);
       current = [id];
     } else {
@@ -76,38 +80,43 @@ export async function searchChunksByVector(
   }
 
   const groups = chunkSourceIdsForVectorizeFilter(sourceIds);
-  const mergedMatches: VectorizeMatch[] = [];
 
   try {
-    for (const group of groups) {
-      const filter =
-        group.length === 1
-          ? { knowledge_source_id: group[0] }
-          : { knowledge_source_id: { $in: group } };
+    const responses = await Promise.all(
+      groups.map((group) => {
+        const filter =
+          group.length === 1
+            ? { knowledge_source_id: group[0] }
+            : { knowledge_source_id: { $in: group } };
 
-      const response = await vectorize.query(queryEmbedding, {
-        topK: limit,
-        returnMetadata: "all",
-        filter,
-      });
+        return vectorize.query(queryEmbedding, {
+          topK: limit,
+          returnMetadata: "all",
+          filter,
+        });
+      }),
+    );
+
+    const mergedMatches: VectorizeMatch[] = [];
+    for (const response of responses) {
       mergedMatches.push(...(response.matches ?? []));
     }
+
+    mergedMatches.sort(compareVectorMatches);
+    const topMatches = mergedMatches.slice(0, limit);
+
+    const rowids: number[] = [];
+    for (const match of topMatches) {
+      const rowid = chunkRowidFromMetadata(
+        match.metadata as Record<string, unknown> | undefined,
+      );
+      if (rowid !== null) {
+        rowids.push(rowid);
+      }
+    }
+
+    return loadChunksByIdsInOrder(db, rowids, new Set(sourceIds));
   } catch {
     throw new RetrievalUpstreamError(503);
   }
-
-  mergedMatches.sort(compareVectorMatches);
-  const topMatches = mergedMatches.slice(0, limit);
-
-  const rowids: number[] = [];
-  for (const match of topMatches) {
-    const rowid = chunkRowidFromMetadata(
-      match.metadata as Record<string, unknown> | undefined,
-    );
-    if (rowid !== null) {
-      rowids.push(rowid);
-    }
-  }
-
-  return loadChunksByIdsInOrder(db, rowids, new Set(sourceIds));
 }
