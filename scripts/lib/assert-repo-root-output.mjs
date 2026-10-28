@@ -4,7 +4,7 @@ export const REPO_ROOT = resolve(process.cwd());
 
 /**
  * Wrangler resolves main, assets.directory, migrations_dir, etc. relative to the
- * config file's directory — generated configs must sit in the repository root.
+ * config file's directory; generated configs must sit in the repository root.
  */
 export function assertOutputInRepoRoot(outputPath) {
   const resolved = resolve(outputPath);

@@ -3,7 +3,7 @@
  * Substitute the production D1 database_id placeholder and write a deploy-ready Wrangler config.
  *
  * Environment:
- *   QUORUM_D1_DATABASE_ID — production quorum-db id (GitHub Actions secret at deploy time)
+ *   QUORUM_D1_DATABASE_ID: production quorum-db id (GitHub Actions secret at deploy time)
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
