@@ -5,8 +5,19 @@
 ## Production Worker (`quorum`)
 
 1. CI green on the commit you deploy.
-2. _Document your production deploy command or pipeline here when wired._
-3. Record where to watch logs and metrics.
+2. **D1 `database_id` (committed config):** `wrangler.jsonc` keeps a placeholder `database_id` for `quorum-db`. Never commit the real Cloudflare id.
+3. **Before `wrangler deploy` or `wrangler d1 migrations apply` on production:** generate a deploy config in the repo root (for example `wrangler.ci.jsonc`, gitignored) using the prepare and guard scripts in this repo:
+
+   ```bash
+   node scripts/check-deploy-guards.mjs --target committed --config wrangler.jsonc
+   node scripts/prepare-wrangler-config.mjs --output wrangler.ci.jsonc
+   node scripts/check-deploy-guards.mjs --target production-deploy --config wrangler.ci.jsonc
+   ```
+
+   Set environment variable **`QUORUM_D1_DATABASE_ID`** from the GitHub Actions secret of the same name in CI (never commit or log the value). Do not use a repository variable for the id (variables can appear in logs).
+
+4. **Production deploy workflow:** A separate privileged ticket will add the GitHub Actions pipeline; until then, maintainers run the steps above from a trusted process.
+5. Record where to watch logs and metrics.
 
 ### One-time: Vectorize metadata index for retrieval
 

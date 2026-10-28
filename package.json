@@ -9,7 +9,9 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build:frontend && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution && npm run nodrift",
+    "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build:frontend && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution && npm run deploy:guards && npm run workflow-d1-id-secrets && npm run nodrift",
+    "deploy:guards": "node scripts/check-deploy-guards.mjs --target committed --config wrangler.jsonc",
+    "workflow-d1-id-secrets": "node scripts/check-workflow-d1-id-secrets.mjs",
     "dev": "npm run build:frontend && wrangler dev",
     "build:frontend": "node scripts/build-frontend.mjs production",
     "build:frontend:mock-preview": "node scripts/build-frontend.mjs mock-preview",
