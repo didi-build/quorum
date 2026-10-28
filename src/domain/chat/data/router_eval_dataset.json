@@ -1,0 +1,215 @@
+[
+  { "message": "Hello!", "expected_intent": "greeting" },
+  { "message": "Hi there", "expected_intent": "greeting" },
+  { "message": "Hey domAIn", "expected_intent": "greeting" },
+  { "message": "Good morning", "expected_intent": "greeting" },
+  { "message": "Thanks for the help", "expected_intent": "greeting" },
+  { "message": "Thank you", "expected_intent": "greeting" },
+  { "message": "How are you?", "expected_intent": "greeting" },
+  { "message": "Nice to meet you", "expected_intent": "greeting" },
+  { "message": "What's up?", "expected_intent": "greeting" },
+  { "message": "Yo", "expected_intent": "greeting" },
+  { "message": "What ADRs cover permissions?", "expected_intent": "simple_retrieval" },
+  { "message": "How does can_access() work?", "expected_intent": "simple_retrieval" },
+  {
+    "message": "What embedding model does domAIn use?",
+    "expected_intent": "simple_retrieval"
+  },
+  { "message": "Explain the chunking strategy", "expected_intent": "simple_retrieval" },
+  {
+    "message": "What are the knowledge source status values?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "Where is the retrieval service implemented?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "What OAuth providers are supported?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "How does RRF fusion work in this project?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "What is the default retrieval top_k?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "Which database extensions are required?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "What verdict vocabulary does the council use?",
+    "expected_intent": "simple_retrieval"
+  },
+  { "message": "How are API keys validated?", "expected_intent": "simple_retrieval" },
+  {
+    "message": "What fields are on KnowledgeSource?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "Does the Composer have a routing toggle?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "What is the write-back mechanism for docs?",
+    "expected_intent": "simple_retrieval"
+  },
+  { "message": "How are GitHub repos indexed?", "expected_intent": "simple_retrieval" },
+  {
+    "message": "What scopes does the GitHub OAuth app request?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "Where is ActorContext defined?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "What is the coverage check threshold?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "How many tokens are targeted per chunk?",
+    "expected_intent": "simple_retrieval"
+  },
+  {
+    "message": "Review this proposal: migrate chunking to semantic splitting",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Should we add multi-project support in Phase 1?",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Council review: replace hand-rolled OAuth with Nango",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Evaluate whether we should ship file upload in v1",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "I need a decision on adopting LangGraph for routing only",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Please review this ADR draft about permissions",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "What are the tradeoffs of using Pinecone instead of pgvector?",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Help me decide if we should add a staging environment",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Strategic question: should persona output be tested in CI?",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Review whether council write-back should be automatic",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "We need a council opinion on changing the default LLM",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Debate this product direction: unified chat without mode selector",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Should we prioritize fleet visualizer over eval pipeline?",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Give me a strategic review of adding Linear as a write target",
+    "expected_intent": "strategic_session"
+  },
+  {
+    "message": "Council: approve or reject this PRD scope change",
+    "expected_intent": "strategic_session"
+  },
+  { "message": "Show me Linear issue DIDI-371", "expected_intent": "linear_read" },
+  {
+    "message": "Fetch the status of ticket ENG-42 from Linear",
+    "expected_intent": "linear_read"
+  },
+  {
+    "message": "What is in the current Linear roadmap?",
+    "expected_intent": "linear_read"
+  },
+  { "message": "List open Linear issues for domAIn", "expected_intent": "linear_read" },
+  { "message": "Read Linear issue 123", "expected_intent": "linear_read" },
+  {
+    "message": "Display the Linear ticket about OAuth",
+    "expected_intent": "linear_read"
+  },
+  { "message": "Pull up issue DIDI-200 in Linear", "expected_intent": "linear_read" },
+  {
+    "message": "What did we decide in Linear issue 88?",
+    "expected_intent": "linear_read"
+  },
+  {
+    "message": "Get me the description for Linear ticket PROD-15",
+    "expected_intent": "linear_read"
+  },
+  { "message": "Show roadmap items from Linear", "expected_intent": "linear_read" },
+  { "message": "Can you open Linear issue DIDI-99?", "expected_intent": "linear_read" },
+  {
+    "message": "Update Linear issue DIDI-371 to In Progress",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Add a comment to Linear ticket ENG-42",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Create a new Linear issue for router eval work",
+    "expected_intent": "linear_write"
+  },
+  { "message": "Mark Linear issue 55 as done", "expected_intent": "linear_write" },
+  {
+    "message": "Change the priority on Linear ticket PROD-9",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Write back to Linear that the council approved the plan",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Post a roadmap update to Linear issue 17",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Set Linear issue DIDI-120 status to blocked",
+    "expected_intent": "linear_write"
+  },
+  { "message": "Assign Linear ticket ENG-7 to me", "expected_intent": "linear_write" },
+  {
+    "message": "Close Linear issue 301 with a summary comment",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Create a Linear issue for the council write-back spike",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Update the Linear roadmap item for Phase 2",
+    "expected_intent": "linear_write"
+  },
+  {
+    "message": "Move ticket DIDI-44 to the next cycle in Linear",
+    "expected_intent": "linear_write"
+  },
+  { "message": "Add labels to Linear issue 12", "expected_intent": "linear_write" },
+  {
+    "message": "Comment on Linear that retrieval latency regressed",
+    "expected_intent": "linear_write"
+  },
+  { "message": "Reopen Linear issue ENG-19", "expected_intent": "linear_write" }
+]

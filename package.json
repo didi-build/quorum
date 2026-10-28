@@ -33,6 +33,7 @@
     "repo-settings": "node scripts/repo-settings.mjs",
     "verify-action-pins": "node scripts/verify-action-pins.mjs",
     "capture-preview-screenshots": "node scripts/capture-preview-screenshots.mjs",
+    "eval:router": "tsx scripts/eval-router.ts",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -44,6 +45,12 @@
     "*.{json,md,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "overrides": {
+    "globby": {
+      "ignore": "7.0.12"
+    },
+    "p-map": "7.1.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.10.0",
@@ -68,6 +75,7 @@
     "lint-staged": "16.4.0",
     "prettier": "3.9.10",
     "secretlint": "10.2.2",
+    "tsx": "4.20.6",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.2",
     "vite": "7.1.9",
@@ -76,6 +84,7 @@
     "wrangler": "4.152.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.78.0",
     "js-tiktoken": "1.0.21",
     "react": "19.2.0",
     "react-dom": "19.2.0"

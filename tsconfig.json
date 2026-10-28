@@ -5,6 +5,7 @@
     "moduleResolution": "NodeNext",
     "lib": ["ES2022"],
     "strict": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
@@ -24,6 +25,7 @@
     "scripts/lib/launchpad-attribution.mjs",
     "scripts/lib/gh-api-errors.mjs",
     "scripts/lib/bootstrap.mjs",
+    "scripts/**/*.ts",
     "vitest.config.ts",
     "vitest.worker.config.ts",
     "eslint.config.js"
