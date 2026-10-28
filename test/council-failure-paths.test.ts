@@ -102,6 +102,37 @@ describe("runPersona failure paths (mocked client)", () => {
     ).rejects.toThrow("Persona model returned non-JSON output");
   });
 
+  it("rejects truncated response with stop_reason max_tokens", async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          stop_reason: "max_tokens",
+          content: [
+            { type: "text", text: '{"verdict": "comment", "reasoning": "cut off' },
+          ],
+        }),
+      },
+    } as unknown as Anthropic;
+
+    await expect(runPersona({ ...baseParams, client })).rejects.toThrow(
+      "Persona model returned non-JSON output",
+    );
+  });
+
+  it("rejects empty content array", async () => {
+    const client = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [],
+        }),
+      },
+    } as unknown as Anthropic;
+
+    await expect(runPersona({ ...baseParams, client })).rejects.toThrow(
+      "Persona model returned an empty response",
+    );
+  });
+
   it("propagates rejected messages.create", async () => {
     const client = {
       messages: {
@@ -190,6 +221,18 @@ describe("synthesizeDecision failure paths (mocked client)", () => {
         client: clientReturningText('{"overall_verdict": "comment", "synthesis":'),
       }),
     ).rejects.toThrow("Council chair model returned non-JSON output");
+  });
+
+  it("rejects non-string synthesis", async () => {
+    await expect(
+      synthesizeDecision({
+        personaOpinions: opinions,
+        config,
+        client: clientReturningText(
+          JSON.stringify({ overall_verdict: "comment", synthesis: 42 }),
+        ),
+      }),
+    ).rejects.toThrow("Council chair model returned an invalid synthesis shape");
   });
 
   it("propagates rejected messages.create", async () => {

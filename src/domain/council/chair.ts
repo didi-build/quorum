@@ -13,7 +13,7 @@ import {
   type Verdict,
 } from "../schemas/council.js";
 
-/** Verbatim v1 `CHAIR_SYSTEM_PROMPT` (`domain/council/chair.py`). */
+/** Matches v1 `CHAIR_SYSTEM_PROMPT` (`domain/council/chair.py`) except one em dash is a semicolon (pending Diadem). */
 export const CHAIR_SYSTEM_PROMPT = `You are the chair of a decision council. You receive three persona opinions
 (UX/end-user, developer experience, business/product) on a strategic question.
 

@@ -76,12 +76,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function mockCouncilClient(): Anthropic {
+function mockCouncilClient(): {
+  client: Anthropic;
+  callRecords: Array<{ isChair: boolean; startMs: number; endMs: number }>;
+} {
+  const callRecords: Array<{ isChair: boolean; startMs: number; endMs: number }> = [];
+
   const create = vi.fn(async (request: { system?: string }) => {
     const isChair =
       typeof request.system === "string" &&
       request.system.includes("chair of a decision council");
+    const startMs = performance.now();
     await sleep(isChair ? MOCK_CHAIR_LATENCY_MS : MOCK_PERSONA_LATENCY_MS);
+    const endMs = performance.now();
+    callRecords.push({ isChair, startMs, endMs });
+
     if (isChair) {
       return {
         content: [
@@ -107,7 +116,11 @@ function mockCouncilClient(): Anthropic {
       ],
     };
   });
-  return { messages: { create } } as unknown as Anthropic;
+
+  return {
+    client: { messages: { create } } as unknown as Anthropic,
+    callRecords,
+  };
 }
 
 describe("council CPU and wall-time spike (DIDI-781, mocked models)", () => {
@@ -115,7 +128,7 @@ describe("council CPU and wall-time spike (DIDI-781, mocked models)", () => {
     await clearData();
   });
 
-  it("records wall time and retrieval CPU against Workers limits", async () => {
+  it("measures council wall time only against Worker limits", async () => {
     const cfg = loadConfig(testEnv());
     const actor = actorContext(USER_ID);
     const sessionId = "00000000-0000-4000-8000-0000000000aa";
@@ -172,6 +185,7 @@ describe("council CPU and wall-time spike (DIDI-781, mocked models)", () => {
     );
     const tripleRetrievalWallMs = performance.now() - retrievalWallStart;
 
+    const { client, callRecords } = mockCouncilClient();
     const councilWallStart = performance.now();
     const decision = await runCouncilOrchestrator({
       request: {
@@ -184,12 +198,23 @@ describe("council CPU and wall-time spike (DIDI-781, mocked models)", () => {
       vectorize: mockVectorize,
       config: cfg,
       effectiveProjectId: null,
-      client: mockCouncilClient(),
+      client,
       searchDeps: { voyageFetch },
     });
     const councilWallMs = performance.now() - councilWallStart;
 
     expect(decision.persona_opinions).toHaveLength(3);
+
+    const personaCalls = callRecords.filter((record) => !record.isChair);
+    const chairCalls = callRecords.filter((record) => record.isChair);
+    expect(personaCalls).toHaveLength(3);
+    expect(chairCalls).toHaveLength(1);
+    const personaStartSpreadMs =
+      Math.max(...personaCalls.map((record) => record.startMs)) -
+      Math.min(...personaCalls.map((record) => record.startMs));
+    expect(personaStartSpreadMs).toBeLessThan(1_000);
+    const lastPersonaEndMs = Math.max(...personaCalls.map((record) => record.endMs));
+    expect(chairCalls[0]!.startMs).toBeGreaterThanOrEqual(lastPersonaEndMs - 5);
 
     // Spike metrics for DIDI-781 ADR note
     console.info(
@@ -197,6 +222,7 @@ describe("council CPU and wall-time spike (DIDI-781, mocked models)", () => {
         spike: "DIDI-781",
         tripleRetrievalWallMs: Math.round(tripleRetrievalWallMs),
         councilWallMs: Math.round(councilWallMs),
+        personaStartSpreadMs: Math.round(personaStartSpreadMs),
         mockPersonaLatencyMs: MOCK_PERSONA_LATENCY_MS,
         mockChairLatencyMs: MOCK_CHAIR_LATENCY_MS,
         workersDefaultCpuLimitMs: WORKERS_DEFAULT_CPU_MS,

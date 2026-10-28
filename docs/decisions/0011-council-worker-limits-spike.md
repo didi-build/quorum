@@ -23,7 +23,7 @@ Local `@cloudflare/vitest-pool-workers` integration test `test/worker/council-cp
 | CPU time during provider waits                 | Not charged (waits are off-CPU)                                                      | Default **30s CPU** per HTTP request; optional **300s** via `limits.cpu_ms`                                                                  |
 | CPU time for triple retrieval on fixture       | Inferred well under 30s (I/O-bound; local vitest does not enforce Worker CPU limits) | Same default 30s CPU budget                                                                                                                  |
 
-Cloudflare documents that **CPU time excludes** time spent waiting on `fetch`, external LLM APIs, and database I/O. Council runs are I/O bound across three parallel retrievals plus four sequential LLM round trips, so wall clock can exceed 30s while CPU stays far below the default cap.
+Cloudflare documents that **CPU time excludes** time spent waiting on `fetch`, external LLM APIs, and database I/O. Council runs are I/O bound across two sequential stages (three parallel persona LLM calls, then the chair), so wall clock can exceed 30s while CPU stays far below the default cap.
 
 ## Decision
 
