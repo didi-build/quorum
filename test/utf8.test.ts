@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { truncateUtf8ToMaxBytes } from "../src/lib/utf8.js";
-import { CHAT_WS_PROBE_ECHO_MAX_BYTES } from "../src/routes/chat-ws.js";
 
 describe("truncateUtf8ToMaxBytes (unit)", () => {
   it("does not split a multi-byte UTF-8 character at the byte cap", () => {
-    const max = CHAT_WS_PROBE_ECHO_MAX_BYTES;
+    const max = 4096;
     const emoji = "😀";
 
     const fits = "a".repeat(max - 4) + emoji;
