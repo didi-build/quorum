@@ -191,4 +191,17 @@ describe("check-deploy-guards (unit)", () => {
     expect(result.stderr).toContain(PRODUCTION_RESOURCE_MARKERS.d1Binding);
     expect(result.stderr).not.toContain(FAKE_ID);
   });
+
+  it("fails when d1_databases is empty", () => {
+    const path = writeTempConfig(
+      `wrangler.guards-test-${process.pid}.ci.jsonc`,
+      (c) => {
+        c.d1_databases = [];
+      },
+    );
+    const result = runGuard("production-deploy", path);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("d1_databases is required");
+    expect(result.stderr).not.toContain(FAKE_ID);
+  });
 });
