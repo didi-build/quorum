@@ -20,8 +20,7 @@ export type StuckIndexingSweepOptions = {
   log?: (payload: Record<string, string | number | boolean>) => void;
 };
 
-/** Candidate rows for stuck-indexing sweep (used by UPDATE and tests). */
-export const STUCK_INDEXING_SWEEP_CANDIDATE_WHERE = `
+const STUCK_INDEXING_SWEEP_CANDIDATE_WHERE = `
   status = 'indexing'
   AND updated_at < ?
 `;

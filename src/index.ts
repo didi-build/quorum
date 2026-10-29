@@ -143,8 +143,20 @@ export default {
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
-    await purgeExpiredSessions(env.DB);
-    await sweepStuckIndexingKnowledgeSources(env.DB);
+    let scheduledError: unknown;
+    try {
+      await purgeExpiredSessions(env.DB);
+    } catch (error) {
+      scheduledError = error;
+    }
+    try {
+      await sweepStuckIndexingKnowledgeSources(env.DB);
+    } catch (error) {
+      scheduledError = scheduledError ?? error;
+    }
+    if (scheduledError !== undefined) {
+      throw scheduledError;
+    }
   },
 
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {

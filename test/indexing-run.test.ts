@@ -46,6 +46,24 @@ describe("resolveIndexingRun", () => {
     );
   });
 
+  it("drops continuation with run id when the source is no longer indexing", () => {
+    const runId = "00000000-0000-4000-8000-000000000009";
+    const result = resolveIndexingRun(
+      {
+        source_id: "s1",
+        indexing_run_id: runId,
+        github_files_processed: 10,
+      },
+      {
+        indexing_run_id: null,
+        indexing_run_files_committed: null,
+        status: "error",
+      },
+      false,
+    );
+    expect(result).toEqual({ stale: true, runId: null, mustClaimRun: false });
+  });
+
   it("drops continuation messages with a stale run id", () => {
     const result = resolveIndexingRun(
       {
