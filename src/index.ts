@@ -22,6 +22,7 @@ import { handleConnectionsRoute } from "./routes/connections.js";
 import { handleHealth, handleReady } from "./routes/health.js";
 import { handleOAuthRoute } from "./routes/oauth.js";
 import { handleRetrievalRoute } from "./routes/retrieval.js";
+import { handleSourcesRoute } from "./routes/sources.js";
 
 export type { Env } from "./env.js";
 
@@ -107,6 +108,17 @@ async function handleProtectedApi(
   );
   if (retrievalResponse !== null) {
     return retrievalResponse;
+  }
+
+  const sourcesResponse = await handleSourcesRoute(
+    request,
+    env,
+    config,
+    pathname,
+    actor,
+  );
+  if (sourcesResponse !== null) {
+    return sourcesResponse;
   }
 
   if (isApiPath(pathname)) {
