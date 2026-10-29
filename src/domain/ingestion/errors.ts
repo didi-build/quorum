@@ -13,6 +13,14 @@ export class IndexingHttpError extends Error {
   }
 }
 
+/** Configuration or adapter errors that should not be retried by the queue. */
+export class IndexingPermanentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IndexingPermanentError";
+  }
+}
+
 export function indexingErrorMessage(exc: unknown): string {
   if (
     exc instanceof IndexingHttpError &&

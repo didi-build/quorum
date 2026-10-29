@@ -57,7 +57,7 @@ describe("handleIndexingQueueBatch", () => {
     vi.restoreAllMocks();
   });
 
-  it("acks permanent failures without retry", async () => {
+  it("acks successful pipeline results without retry", async () => {
     const sourceId = "00000000-0000-4000-8000-000000000098";
     const env = {
       ...withTestConfigEnv(),

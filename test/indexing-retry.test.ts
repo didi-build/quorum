@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { VoyageEmbedError } from "../src/domain/ingestion/embedder.js";
-import { IndexingHttpError } from "../src/domain/ingestion/errors.js";
+import {
+  IndexingHttpError,
+  IndexingPermanentError,
+} from "../src/domain/ingestion/errors.js";
 import {
   isIndexingTemporaryError,
   indexingErrorLogFields,
@@ -17,6 +20,12 @@ describe("isIndexingTemporaryError", () => {
     expect(isIndexingTemporaryError(new IndexingHttpError(401))).toBe(false);
     expect(isIndexingTemporaryError(new IndexingHttpError(404))).toBe(false);
     expect(isIndexingTemporaryError(new VoyageEmbedError(400))).toBe(false);
+  });
+
+  it("treats IndexingPermanentError as permanent", () => {
+    expect(
+      isIndexingTemporaryError(new IndexingPermanentError("missing installation_id")),
+    ).toBe(false);
   });
 
   it("treats network and generic errors as temporary", () => {

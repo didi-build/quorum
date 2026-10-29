@@ -235,6 +235,11 @@ d1_tables:
         data: UUID identifying the active indexing queue run for this source
         purpose: ignore stale queue redeliveries (DIDI-933)
         retention: until source deleted
+      indexing_run_files_committed:
+        whose: operational
+        data: GitHub files-processed cursor committed for the active indexing run
+        purpose: drop late first messages after a continuation batch (DIDI-933)
+        retention: until source deleted
       created_at:
         whose: operational
         data: Source creation timestamp (ISO 8601 UTC)

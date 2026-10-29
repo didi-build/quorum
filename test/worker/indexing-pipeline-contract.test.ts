@@ -317,6 +317,125 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(chunk?.content).toBe("stay");
   });
 
+  it("drops a late first message without run id after progress was committed", async () => {
+    const currentRunId = "00000000-0000-4000-8000-000000000044";
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = ?
+       WHERE id = ?`,
+    )
+      .bind(currentRunId, 50, SOURCE_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'keep.md', 0, 'stay', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    const clearSpy = vi.fn(async () => {});
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "hello" }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const chunk = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'keep.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(chunk?.content).toBe("stay");
+  });
+
+  it("drops a late first message without run id after the source is ready again", async () => {
+    const finishedRunId = "00000000-0000-4000-8000-000000000045";
+    await seedGithubSource("ready");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET indexing_run_id = ? WHERE id = ?`,
+    )
+      .bind(finishedRunId, SOURCE_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'keep.md', 0, 'stay', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    const clearSpy = vi.fn(async () => {});
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "hello" }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it("adopts an in-flight indexing source with no run id yet", async () => {
+    await seedGithubSource("indexing");
+    const clearSpy = vi.fn(async () => {});
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: true,
+          files_processed: 25,
+        }),
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(result.stale).not.toBe(true);
+    expect(clearSpy).toHaveBeenCalled();
+
+    const source = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_id: string | null;
+        indexing_run_files_committed: number | null;
+      }>();
+    expect(source?.indexing_run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(source?.indexing_run_files_committed).toBe(25);
+  });
+
   it("is idempotent when a continuation message is redelivered", async () => {
     await seedGithubSource("indexing");
     const runId = "00000000-0000-4000-8000-000000000043";

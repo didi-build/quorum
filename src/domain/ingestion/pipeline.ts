@@ -9,10 +9,14 @@ import { chunkText } from "./chunking.js";
 import { clearSourceIndex } from "./clear-source-index.js";
 import { VECTORIZE_UPSERT_BATCH_SIZE } from "./constants.js";
 import { embedChunksFlat, type VoyageFetch } from "./embedder.js";
-import { indexingErrorMessage } from "./errors.js";
+import { indexingErrorMessage, IndexingPermanentError } from "./errors.js";
 import type { IndexingQueueMessage } from "./indexing-message.js";
 import { indexingErrorLogFields, isIndexingTemporaryError } from "./indexing-retry.js";
-import { resolveIndexingRun, withIndexingRunId } from "./indexing-run.js";
+import {
+  claimIndexingRunOnSource,
+  resolveIndexingRun,
+  withIndexingRunId,
+} from "./indexing-run.js";
 import { chunkVectorId } from "./vector-id.js";
 
 export type GithubDocumentsFetcher = (
@@ -58,6 +62,7 @@ interface KnowledgeSourceRow {
   external_ref: string;
   connection_id: string;
   indexing_run_id: string | null;
+  indexing_run_files_committed: number | null;
   status: string;
 }
 
@@ -67,24 +72,63 @@ async function loadKnowledgeSource(
 ): Promise<KnowledgeSourceRow | null> {
   return await db
     .prepare(
-      `SELECT id, source_type, external_ref, connection_id, indexing_run_id, status
+      `SELECT id, source_type, external_ref, connection_id, indexing_run_id, indexing_run_files_committed, status
        FROM knowledge_sources WHERE id = ?`,
     )
     .bind(sourceId)
     .first<KnowledgeSourceRow>();
 }
 
-async function setIndexingRunId(
+async function ensureIndexingRunClaimed(
   db: D1Database,
   sourceId: string,
-  runId: string,
+  message: IndexingQueueMessage,
+  source: KnowledgeSourceRow,
+  isFreshRun: boolean,
+): Promise<
+  | { ok: true; runId: string }
+  | { ok: false; stale: true }
+  | { ok: false; stale: false; done: true }
+> {
+  let currentSource = source;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const runResolution = resolveIndexingRun(message, currentSource, isFreshRun);
+    if (runResolution.stale || runResolution.runId === null) {
+      return { ok: false, stale: true };
+    }
+    const runId = runResolution.runId;
+    if (!runResolution.mustClaimRun) {
+      return { ok: true, runId };
+    }
+    const outcome = await claimIndexingRunOnSource(
+      db,
+      sourceId,
+      runId,
+      currentSource.indexing_run_id,
+    );
+    if (outcome === "claimed" || outcome === "already") {
+      return { ok: true, runId };
+    }
+    const reloaded = await loadKnowledgeSource(db, sourceId);
+    if (reloaded === null) {
+      return { ok: false, stale: false, done: true };
+    }
+    currentSource = reloaded;
+  }
+  return { ok: false, stale: true };
+}
+
+async function setIndexingRunFilesCommitted(
+  db: D1Database,
+  sourceId: string,
+  filesCommitted: number,
 ): Promise<void> {
   const now = new Date().toISOString();
   await db
     .prepare(
-      `UPDATE knowledge_sources SET indexing_run_id = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE knowledge_sources SET indexing_run_files_committed = ?, updated_at = ? WHERE id = ?`,
     )
-    .bind(runId, now, sourceId)
+    .bind(filesCommitted, now, sourceId)
     .run();
 }
 
@@ -206,18 +250,20 @@ export async function indexKnowledgeSource(
     return { done: true, continuation: null };
   }
 
-  const runResolution = resolveIndexingRun(message, source, isFreshRun);
-  if (runResolution.stale) {
+  const claimResult = await ensureIndexingRunClaimed(
+    db,
+    sourceId,
+    message,
+    source,
+    isFreshRun,
+  );
+  if (!claimResult.ok) {
+    if ("done" in claimResult && claimResult.done) {
+      return { done: true, continuation: null };
+    }
     return { done: true, continuation: null, stale: true };
   }
-  const runId = runResolution.runId;
-  if (runId === null) {
-    return { done: true, continuation: null, stale: true };
-  }
-
-  if (source.indexing_run_id !== runId) {
-    await setIndexingRunId(db, sourceId, runId);
-  }
+  const runId = claimResult.runId;
 
   const connection = await getConnectionById(db, source.connection_id);
   if (connection === null) {
@@ -243,7 +289,9 @@ export async function indexKnowledgeSource(
 
     if (source.source_type === "github_repo") {
       if (!connection.installation_id) {
-        throw new Error("GitHub connection is missing installation_id");
+        throw new IndexingPermanentError(
+          "GitHub connection is missing installation_id",
+        );
       }
       const result = await githubFetch(
         config,
@@ -266,7 +314,9 @@ export async function indexKnowledgeSource(
       );
       documents = await linearFetch(accessToken, source.external_ref, providerFetch);
     } else {
-      throw new Error(`Unsupported source type: ${source.source_type}`);
+      throw new IndexingPermanentError(
+        `Unsupported source type: ${source.source_type}`,
+      );
     }
 
     const flatChunks = documents.flatMap((document) =>
@@ -294,6 +344,7 @@ export async function indexKnowledgeSource(
       if (isFreshRun) {
         await clearIndex(db, vectorize, sourceId);
       }
+      await setIndexingRunFilesCommitted(db, sourceId, githubFilesProcessed);
       return {
         done: false,
         continuation: withIndexingRunId(
@@ -333,6 +384,7 @@ export async function indexKnowledgeSource(
     await upsertVectorsImpl(vectorize, sourceId, vectorRows);
 
     if (githubHasMore) {
+      await setIndexingRunFilesCommitted(db, sourceId, githubFilesProcessed);
       return {
         done: false,
         continuation: withIndexingRunId(

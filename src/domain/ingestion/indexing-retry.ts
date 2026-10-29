@@ -1,5 +1,5 @@
 import { VoyageEmbedError } from "./embedder.js";
-import { IndexingHttpError } from "./errors.js";
+import { IndexingHttpError, IndexingPermanentError } from "./errors.js";
 
 export function httpStatusFromIndexingError(error: unknown): number | undefined {
   if (error instanceof IndexingHttpError || error instanceof VoyageEmbedError) {
@@ -9,12 +9,12 @@ export function httpStatusFromIndexingError(error: unknown): number | undefined 
 }
 
 export function isIndexingTemporaryError(error: unknown): boolean {
+  if (error instanceof IndexingPermanentError) {
+    return false;
+  }
   const status = httpStatusFromIndexingError(error);
   if (status !== undefined) {
     return status === 429 || status >= 500;
-  }
-  if (error instanceof TypeError) {
-    return true;
   }
   if (error instanceof Error) {
     return true;
