@@ -1396,6 +1396,167 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(row?.status).toBe("ready");
   });
 
+  it("refresh at progress 25 drops a run-id-less final continuation then B indexes with one clear", async () => {
+    await seedIndexingWithRun(RUN1, 25);
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runB = queued!.indexingRunId;
+
+    const clearSpy = vi.fn(async () => {});
+    let strayFetchCalled = false;
+
+    const stray = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 25 },
+      {
+        fetchGithubRepoDocuments: async () => {
+          strayFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "stray final" }],
+            has_more: false,
+            files_processed: 26,
+          };
+        },
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(stray.stale).toBe(true);
+    expect(strayFetchCalled).toBe(false);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const afterStray = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterStray?.indexing_run_id).toBe(runB);
+    expect(afterStray?.status).toBe("pending");
+
+    const firstB = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runB },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(firstB.stale).not.toBe(true);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+
+    const afterB = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterB?.indexing_run_id).toBe(runB);
+    expect(afterB?.status).toBe("ready");
+  });
+
+  it("refresh first leg retries after a transient Voyage 503 and reaches ready under run B", async () => {
+    await seedGithubSource("ready");
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runB = queued!.indexingRunId;
+
+    const clearSpy = vi.fn(async () => {});
+    const baseVoyageFetch = mockVoyageFetch();
+    let voyageCalls = 0;
+
+    const voyageFetch = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      voyageCalls++;
+      if (voyageCalls === 1) {
+        return new Response("fail", { status: 503 });
+      }
+      return baseVoyageFetch(...args);
+    });
+
+    await expect(
+      indexKnowledgeSource(
+        env.DB,
+        env.VECTORIZE,
+        config,
+        { source_id: SOURCE_ID, indexing_run_id: runB },
+        {
+          fetchGithubRepoDocuments: async () => ({
+            documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+            has_more: false,
+            files_processed: 1,
+          }),
+          voyageFetch,
+          clearSourceIndex: clearSpy,
+          upsertChunkVectors: async () => {},
+        },
+      ),
+    ).rejects.toMatchObject({ name: "VoyageEmbedError", statusCode: 503 });
+
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const afterFailure = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed, status
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_id: string;
+        indexing_run_files_committed: number | null;
+        status: string;
+      }>();
+    expect(afterFailure?.indexing_run_id).toBe(runB);
+    expect(afterFailure?.indexing_run_files_committed).toBe(0);
+    expect(afterFailure?.status).toBe("indexing");
+
+    const retry = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runB },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch,
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(retry.stale).not.toBe(true);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+
+    const afterRetry = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterRetry?.indexing_run_id).toBe(runB);
+    expect(afterRetry?.status).toBe("ready");
+  });
+
   it.each([
     ["ready", "ready"],
     ["error", "error"],
@@ -1404,6 +1565,14 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     "refresh from %s status clears the index exactly once on the first message",
     async (seedStatus, _label) => {
       await seedGithubSource(seedStatus);
+      await env.DB.prepare(
+        `UPDATE knowledge_sources
+         SET indexing_run_id = ?, indexing_run_files_committed = 40
+         WHERE id = ?`,
+      )
+        .bind(RUN1, SOURCE_ID)
+        .run();
+
       const queued = await markKnowledgeSourceQueuedForReindex(
         env.DB,
         SOURCE_ID,
@@ -1433,6 +1602,14 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
 
       expect(result.stale).not.toBe(true);
       expect(clearSpy).toHaveBeenCalledTimes(1);
+
+      const row = await env.DB.prepare(
+        `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+      )
+        .bind(SOURCE_ID)
+        .first<{ indexing_run_id: string; status: string }>();
+      expect(row?.indexing_run_id).toBe(runId);
+      expect(row?.status).toBe("ready");
     },
   );
 });

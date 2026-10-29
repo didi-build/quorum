@@ -82,6 +82,20 @@ describe("resolveIndexingRun", () => {
     expect(result).toEqual({ stale: false, runId, mustClaimRun: true });
   });
 
+  it("drops a run-id-less continuation while the source is pending with a run id", () => {
+    const runId = "00000000-0000-4000-8000-000000000011";
+    const result = resolveIndexingRun(
+      { source_id: "s1", github_files_processed: 25 },
+      {
+        indexing_run_id: runId,
+        indexing_run_files_committed: 0,
+        status: "pending",
+      },
+      false,
+    );
+    expect(result).toEqual({ stale: true, runId: null, mustClaimRun: false });
+  });
+
   it("drops continuation messages with a stale run id", () => {
     const result = resolveIndexingRun(
       {
@@ -117,6 +131,20 @@ describe("resolveIndexingRun", () => {
     const runId = "00000000-0000-4000-8000-000000000004";
     const result = resolveIndexingRun(
       { source_id: "s1" },
+      {
+        indexing_run_id: runId,
+        indexing_run_files_committed: 50,
+        status: "indexing",
+      },
+      true,
+    );
+    expect(result).toEqual({ stale: true, runId: null, mustClaimRun: false });
+  });
+
+  it("drops a late first message with a matching run id after progress was committed", () => {
+    const runId = "00000000-0000-4000-8000-000000000012";
+    const result = resolveIndexingRun(
+      { source_id: "s1", indexing_run_id: runId },
       {
         indexing_run_id: runId,
         indexing_run_files_committed: 50,

@@ -26,6 +26,9 @@ export function resolveIndexingRun(
       return { stale: true, runId: null, mustClaimRun: false };
     }
     if (srcRun !== null) {
+      if (msgRun === null && source.status === "pending") {
+        return { stale: true, runId: null, mustClaimRun: false };
+      }
       const runId = msgRun ?? srcRun;
       return { stale: false, runId, mustClaimRun: false };
     }
