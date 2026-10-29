@@ -14,6 +14,7 @@ import {
 import type { Env } from "./env.js";
 import { handleIndexingQueueBatch } from "./jobs/indexing-consumer.js";
 import { purgeExpiredSessions } from "./jobs/session-purge.js";
+import { sweepStuckIndexingKnowledgeSources } from "./jobs/stuck-indexing-sweep.js";
 import type { IndexingQueueMessage } from "./domain/ingestion/indexing-message.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
@@ -143,6 +144,7 @@ export default {
     _ctx: ExecutionContext,
   ): Promise<void> {
     await purgeExpiredSessions(env.DB);
+    await sweepStuckIndexingKnowledgeSources(env.DB);
   },
 
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
