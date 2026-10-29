@@ -5,7 +5,20 @@
 ## Production Worker (`quorum`)
 
 1. CI green on the commit you deploy.
-2. **D1 migrations:** Apply pending D1 migrations to the target database **before** `wrangler deploy` in each environment (development, staging, production). Indexing and other Worker code expect the schema that matches the deployed commit. After migration 0003, queue messages without an `indexing_run_id` still run while a source is `indexing` with a null `indexing_run_id` (the consumer adopts a run id once). During the deploy window (DIDI-966), run-id-less continuations attach to the source's current run. If they arrive after the source is `ready`, they attach to that current run and continue indexing; committed progress can regress while status stays `ready`. Late **first** messages (no continuation offset) are **dropped** without clearing when a run finished (`ready` with a run id) or when a continuation already committed progress. Two edge cases to watch: an old run's run-id-less continuation can attach to a newer run and leave a partial index, and a late first message can re-clear a source whose `indexing_run_files_committed` is null. Workaround: re-index the affected source after the queue drains.
+2. **D1 migrations:** Apply pending D1 migrations to the target database **before** `wrangler deploy` in each environment (development, staging, production). Indexing and other Worker code expect the schema that matches the deployed commit.
+
+   **Migration 0003 (`indexing_run_id`) deploy window ([DIDI-933](https://linear.app/didi-build/issue/DIDI-933), [DIDI-966](https://linear.app/didi-build/issue/DIDI-966)):** Messages queued before migration 0003 may lack an `indexing_run_id`. The deployed Worker keeps two fallbacks so those messages can still finish: a run-id-less continuation uses the source's current run id (non-fresh branch), and a run-id-less continuation or first message can adopt a run once while the source is `indexing` with a null `indexing_run_id`. After every environment that ran pre-0003 code has drained its indexing queue, DIDI-966 part 2 removes both fallbacks; a message with no run id is then stale unless it is a fresh first message. That follow-up closes all three edge cases below.
+
+   **Operator steps:**
+   - Apply migration 0003 and deploy the matching Worker code when no knowledge source is `indexing`, if possible.
+   - If the deploy overlapped an in-flight index, refresh (re-index) any source that was mid-run during the window.
+   - If a source shows stale or partial index data after the queue drains, refresh that source.
+
+   **Edge cases during the deploy window (accepted while the fallbacks remain):**
+   1. A source that was mid-run before the migration has null `indexing_run_files_committed`, so a late **first** message in that window can still re-clear it (even though other late first messages are normally dropped without clearing when a run finished or progress was already committed).
+   2. A pre-deploy continuation from an old run R1 (no run id) can attach to a newer run R2 if R2 started first (for example through refresh). Its progress write then counts for R2. If R2's first leg then needs a retry, that retry is dropped, and R2 can finish with a partial index until the next refresh.
+   3. A run-id-less continuation arriving after the source is `ready` attaches to the source's current run and keeps going, so committed progress can go backwards while status stays `ready`.
+
 3. **D1 `database_id` (committed config):** `wrangler.jsonc` keeps a placeholder `database_id` for `quorum-db`. Never commit the real Cloudflare id.
 4. **Before `wrangler deploy` or `wrangler d1 migrations apply` on production:** generate a deploy config in the repo root (for example `wrangler.ci.jsonc`, gitignored) using the prepare and guard scripts in this repo:
 
