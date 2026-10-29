@@ -64,6 +64,24 @@ describe("resolveIndexingRun", () => {
     expect(result).toEqual({ stale: true, runId: null, mustClaimRun: false });
   });
 
+  it("claims message run id on continuation when indexing with null source run id", () => {
+    const runId = "00000000-0000-4000-8000-000000000010";
+    const result = resolveIndexingRun(
+      {
+        source_id: "s1",
+        indexing_run_id: runId,
+        github_files_processed: 10,
+      },
+      {
+        indexing_run_id: null,
+        indexing_run_files_committed: null,
+        status: "indexing",
+      },
+      false,
+    );
+    expect(result).toEqual({ stale: false, runId, mustClaimRun: true });
+  });
+
   it("drops continuation messages with a stale run id", () => {
     const result = resolveIndexingRun(
       {

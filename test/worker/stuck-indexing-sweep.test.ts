@@ -363,10 +363,53 @@ function wrapDbWithFailingSessionPurge(database: D1Database): D1Database {
   } as D1Database;
 }
 
+function wrapDbWithFailingStuckIndexingSweep(database: D1Database): D1Database {
+  const originalPrepare = database.prepare.bind(database);
+  return {
+    prepare(sql: string) {
+      const statement = originalPrepare(sql);
+      if (!sql.includes("UPDATE knowledge_sources")) {
+        return statement;
+      }
+      if (!sql.includes("status = 'error'")) {
+        return statement;
+      }
+      return {
+        bind: (...args: unknown[]) => {
+          const bound = statement.bind(...args);
+          return {
+            ...bound,
+            run: async () => {
+              throw new Error("stuck indexing sweep failed");
+            },
+          };
+        },
+      } as unknown as D1PreparedStatement;
+    },
+    batch: database.batch.bind(database),
+    exec: database.exec.bind(database),
+  } as D1Database;
+}
+
 describe("Worker scheduled job isolation (integration, vitest-pool-workers)", () => {
+  const SESSION_USER_ID = "00000000-0000-4000-8000-000000000948";
+
   beforeEach(async () => {
     await clearData();
     await seedConnection();
+    await env.DB.prepare("DELETE FROM sessions").run();
+    const expiredAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare(
+      `INSERT INTO users (id, github_id, login) VALUES (?, 948, 'scheduled-isolation-user')`,
+    )
+      .bind(SESSION_USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at)
+       VALUES (?, ?, 'hash-isolation', ?)`,
+    )
+      .bind("00000000-0000-4000-8000-000000000949", SESSION_USER_ID, expiredAt)
+      .run();
   });
 
   it("still runs the stuck indexing sweep when session purge throws", async () => {
@@ -394,5 +437,37 @@ describe("Worker scheduled job isolation (integration, vitest-pool-workers)", ()
       .bind(SOURCE_ID)
       .first<{ status: string }>();
     expect(row?.status).toBe("error");
+  });
+
+  it("still purges expired sessions when the stuck indexing sweep throws", async () => {
+    await insertSource({
+      id: SOURCE_ID,
+      status: "indexing",
+      updatedAt: STALE_UPDATED_AT,
+    });
+
+    const failingDb = wrapDbWithFailingStuckIndexingSweep(env.DB);
+    const controller = createScheduledController({
+      cron: "0 4 * * *",
+      scheduledTime: NOW,
+    });
+    const ctx = createExecutionContext();
+
+    await expect(
+      worker.scheduled(controller, { ...env, DB: failingDb }, ctx),
+    ).rejects.toThrow("stuck indexing sweep failed");
+    await waitOnExecutionContext(ctx);
+
+    const sessions = await env.DB.prepare(`SELECT COUNT(*) AS c FROM sessions`).first<{
+      c: number;
+    }>();
+    expect(sessions?.c).toBe(0);
+
+    const source = await env.DB.prepare(
+      `SELECT status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string }>();
+    expect(source?.status).toBe("indexing");
   });
 });
