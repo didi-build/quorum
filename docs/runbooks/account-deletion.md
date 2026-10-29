@@ -19,6 +19,8 @@ Auth rejects expired and revoked browser sessions on every authenticated request
 
 ## 3. Delete or anonymize by store
 
+Never delete a `users` row with raw SQL. Call the domain function `deleteUserAccount` in `src/domain/users/delete-account.ts` so Vectorize chunk vectors are removed before the D1 cascade runs. A production script that invokes `deleteUserAccount` is planned as follow-up work; this ticket does not add that script or an HTTP route.
+
 Use `docs/privacy/data-map.yml` as the checklist of stores. For each row that holds this user's data, record what you did.
 
 | Map location (table, item id, or binding) | Action taken | Verified by |
