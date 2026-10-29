@@ -623,6 +623,58 @@ describe("knowledge sources API (worker integration)", () => {
     expect(row?.status_message).toBeNull();
   });
 
+  it("DELETE and refresh return 404 for ownerless sources and leave them unchanged", async () => {
+    const queueSend = vi.fn();
+    const bindings = await testBindings(queueSend);
+    const cfg = loadConfig(bindings);
+    const sourceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    await insertGithubConnection(connectionId, DEFAULT_USER_ID);
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+        id, user_id, project_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, NULL, NULL, 'github_repo', 'org/shared', ?, 'Shared', 'ready')`,
+    )
+      .bind(sourceId, connectionId)
+      .run();
+
+    const deleteCtx = createExecutionContext();
+    const deleteResponse = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      deleteCtx,
+    );
+    await waitOnExecutionContext(deleteCtx);
+
+    const refreshCtx = createExecutionContext();
+    const refreshResponse = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}/refresh`, {
+        method: "POST",
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      refreshCtx,
+    );
+    await waitOnExecutionContext(refreshCtx);
+
+    expect(deleteResponse.status).toBe(404);
+    expect(refreshResponse.status).toBe(404);
+    expect(await deleteResponse.json()).toEqual(SOURCE_NOT_FOUND_BODY);
+    expect(await refreshResponse.json()).toEqual(SOURCE_NOT_FOUND_BODY);
+    expect(queueSend).not.toHaveBeenCalled();
+
+    const row = await env.DB.prepare(
+      "SELECT status, status_message FROM knowledge_sources WHERE id = ?",
+    )
+      .bind(sourceId)
+      .first<{ status: string; status_message: string | null }>();
+    expect(row?.status).toBe("ready");
+    expect(row?.status_message).toBeNull();
+  });
+
   it("POST /sources/{id}/refresh queues re-indexing with the v1 status message", async () => {
     const queueSend = vi.fn();
     const bindings = await testBindings(queueSend);

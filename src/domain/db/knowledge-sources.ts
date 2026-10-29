@@ -37,11 +37,24 @@ export function knowledgeSourceRowToRead(row: KnowledgeSourceRow): KnowledgeSour
   };
 }
 
+/** Matches can_access() for knowledge source rows (same shape as retrieval source scope). */
+export const KNOWLEDGE_SOURCE_ACCESS_SQL = `
+  (
+    (user_id IS NULL AND project_id IS NULL)
+    OR (user_id = ?1 AND project_id IS NULL)
+    OR (?2 IS NOT NULL AND user_id IS NULL AND project_id = ?2)
+    OR (?2 IS NOT NULL AND user_id = ?1 AND project_id = ?2)
+  )
+`;
+
 export async function listKnowledgeSourceRows(
   db: D1Database,
+  actorUserId: string,
+  actorProjectId: string | null,
 ): Promise<KnowledgeSourceRow[]> {
   const result = await db
-    .prepare("SELECT * FROM knowledge_sources")
+    .prepare(`SELECT * FROM knowledge_sources WHERE ${KNOWLEDGE_SOURCE_ACCESS_SQL}`)
+    .bind(actorUserId, actorProjectId)
     .all<KnowledgeSourceRow>();
   return result.results ?? [];
 }
@@ -97,15 +110,19 @@ export async function insertKnowledgeSource(
 export async function markKnowledgeSourceQueuedForReindex(
   db: D1Database,
   sourceId: string,
+  ownerUserId: string,
 ): Promise<KnowledgeSourceRow | null> {
   const now = new Date().toISOString();
-  await db
+  const result = await db
     .prepare(
       `UPDATE knowledge_sources
        SET status = 'pending', status_message = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND user_id = ?`,
     )
-    .bind("Queued for re-indexing", now, sourceId)
+    .bind("Queued for re-indexing", now, sourceId, ownerUserId)
     .run();
+  if (result.meta.changes === 0) {
+    return null;
+  }
   return await getKnowledgeSourceRowById(db, sourceId);
 }

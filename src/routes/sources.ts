@@ -32,11 +32,18 @@ function knowledgeSourceNotFound(): Response {
   return jsonDetail("Knowledge source not found", 404);
 }
 
-function actorCanAccessSource(
+function actorCanAccessSourceForRead(
   actor: ActorContext,
   row: { user_id: string | null; project_id: string | null },
 ): boolean {
   return can_access(actor.userId, actor.projectId, row.user_id, row.project_id);
+}
+
+function actorCanMutateOwnedSource(
+  actor: ActorContext,
+  row: { user_id: string | null; project_id: string | null },
+): boolean {
+  return actorCanAccessSourceForRead(actor, row) && row.user_id === actor.userId;
 }
 
 function parseKnowledgeSourceCreate(body: unknown): KnowledgeSourceCreate | Response {
@@ -91,10 +98,8 @@ function parseKnowledgeSourceCreate(body: unknown): KnowledgeSourceCreate | Resp
 }
 
 async function handleListSources(env: Env, actor: ActorContext): Promise<Response> {
-  const rows = await listKnowledgeSourceRows(env.DB);
-  const sources = rows
-    .filter((row) => actorCanAccessSource(actor, row))
-    .map(knowledgeSourceRowToRead);
+  const rows = await listKnowledgeSourceRows(env.DB, actor.userId, actor.projectId);
+  const sources = rows.map(knowledgeSourceRowToRead);
   const body: KnowledgeSourceListResponse = { sources };
   return Response.json(body);
 }
@@ -156,7 +161,7 @@ async function handleGetSource(
   sourceId: string,
 ): Promise<Response> {
   const row = await getKnowledgeSourceRowById(env.DB, sourceId);
-  if (row === null || !actorCanAccessSource(actor, row)) {
+  if (row === null || !actorCanAccessSourceForRead(actor, row)) {
     return knowledgeSourceNotFound();
   }
   return Response.json(knowledgeSourceRowToRead(row));
@@ -168,7 +173,7 @@ async function handleDeleteSource(
   sourceId: string,
 ): Promise<Response> {
   const row = await getKnowledgeSourceRowById(env.DB, sourceId);
-  if (row === null || !actorCanAccessSource(actor, row)) {
+  if (row === null || !actorCanMutateOwnedSource(actor, row)) {
     return knowledgeSourceNotFound();
   }
 
@@ -182,11 +187,15 @@ async function handleRefreshSource(
   sourceId: string,
 ): Promise<Response> {
   const row = await getKnowledgeSourceRowById(env.DB, sourceId);
-  if (row === null || !actorCanAccessSource(actor, row)) {
+  if (row === null || !actorCanMutateOwnedSource(actor, row)) {
     return knowledgeSourceNotFound();
   }
 
-  const updated = await markKnowledgeSourceQueuedForReindex(env.DB, sourceId);
+  const updated = await markKnowledgeSourceQueuedForReindex(
+    env.DB,
+    sourceId,
+    actor.userId,
+  );
   if (updated === null) {
     return knowledgeSourceNotFound();
   }
