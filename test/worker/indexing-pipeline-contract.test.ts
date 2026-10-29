@@ -267,6 +267,54 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(prior?.content).toBe("keep-me");
   });
 
+  it("does not clear existing chunks on an empty final continuation batch", async () => {
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'prior-final.md', 0, 'keep-final', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    let clearInvoked = false;
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 120 },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: false,
+          files_processed: 120,
+        }),
+        clearSourceIndex: async () => {
+          clearInvoked = true;
+        },
+      },
+    );
+
+    expect(result.done).toBe(true);
+    expect(result.continuation).toBeNull();
+    expect(clearInvoked).toBe(false);
+
+    const prior = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'prior-final.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(prior?.content).toBe("keep-final");
+
+    const source = await env.DB.prepare(
+      `SELECT status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string }>();
+    expect(source?.status).toBe("ready");
+  });
+
   it("clears stale chunks on a fresh run when the first batch has no chunks but more files remain", async () => {
     await seedGithubSource("ready");
     await env.DB.prepare(

@@ -13,29 +13,52 @@ const config = loadConfig(withTestConfigEnv());
 class FixtureIndexingError extends Error {
   constructor() {
     super(
-      "api_key=REDACTED fixture token=fixture-token query=https://example.test?q=1 body=secret-content",
+      "fixture-key-123 fixture token=fixture-token-456 query=https://example.test?q=fixture body=fixture-content-789",
     );
     this.name = "FixtureIndexingError";
   }
 }
 
 const forbiddenLogSubstrings = [
-  "api_key=REDACTED",
-  "fixture-token",
-  "https://example.test?q=1",
-  "secret-content",
+  "fixture-key-123",
+  "fixture-token-456",
+  "https://example.test?q=fixture",
+  "fixture-content-789",
 ];
 
-function expectLogsOnlyErrorName(calls: unknown[][], expectedName: string): void {
-  const serialized = JSON.stringify(calls);
-  expect(serialized).toContain(expectedName);
-  for (const fragment of forbiddenLogSubstrings) {
-    expect(serialized).not.toContain(fragment);
+function logSurfaces(arg: unknown): string[] {
+  const surfaces = [String(arg)];
+  if (typeof arg === "object" && arg !== null && "stack" in arg) {
+    surfaces.push(String((arg as { stack?: unknown }).stack));
   }
+  return surfaces;
+}
+
+function assertIndexingErrorLogsSafe(
+  calls: unknown[][],
+  options: { expectedNames?: string[] } = {},
+): void {
   for (const call of calls) {
     for (const arg of call) {
-      if (arg instanceof Error) {
-        expect(arg.message).toContain("api_key");
+      expect(arg).not.toBeInstanceOf(Error);
+      const surfaces = logSurfaces(arg);
+      if (typeof arg === "object" && arg !== null) {
+        surfaces.push(JSON.stringify(arg));
+        if ("error" in arg) {
+          surfaces.push(String((arg as { error: unknown }).error));
+        }
+      }
+      for (const surface of surfaces) {
+        for (const fragment of forbiddenLogSubstrings) {
+          expect(surface).not.toContain(fragment);
+        }
+      }
+      if (typeof arg === "object" && arg !== null && "error" in arg) {
+        const errorField = (arg as { error: unknown }).error;
+        expect(typeof errorField).toBe("string");
+        if (options.expectedNames) {
+          expect(options.expectedNames).toContain(errorField);
+        }
       }
     }
   }
@@ -73,7 +96,11 @@ describe("indexing error logs", () => {
       env,
     );
 
-    expectLogsOnlyErrorName(errorSpy.mock.calls, "FixtureIndexingError");
+    const queueLogs = errorSpy.mock.calls.filter((call) =>
+      String(call[0]).includes("Indexing queue message failed"),
+    );
+    expect(queueLogs.length).toBeGreaterThan(0);
+    assertIndexingErrorLogsSafe(queueLogs, { expectedNames: ["FixtureIndexingError"] });
   });
 
   it("logs only the error name when config load fails on the final attempt", async () => {
@@ -102,7 +129,46 @@ describe("indexing error logs", () => {
       env,
     );
 
-    expectLogsOnlyErrorName(errorSpy.mock.calls, "ConfigError");
+    const queueLogs = errorSpy.mock.calls.filter((call) =>
+      String(call[0]).includes("Indexing queue message failed"),
+    );
+    assertIndexingErrorLogsSafe(queueLogs, { expectedNames: ["ConfigError"] });
+  });
+
+  it("logs only the error name when final error mark fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const env = {
+      ...withTestConfigEnv(),
+      DB: {} as D1Database,
+      VECTORIZE: {} as VectorizeIndex,
+      INDEXING_QUEUE: { send: vi.fn() },
+    } as unknown as import("../src/env.js").Env;
+
+    vi.spyOn(pipeline, "indexKnowledgeSource").mockRejectedValue(
+      new FixtureIndexingError(),
+    );
+    vi.spyOn(pipeline, "markKnowledgeSourceIndexingError").mockRejectedValue(
+      new FixtureIndexingError(),
+    );
+
+    const message = {
+      body: { source_id: SOURCE_ID },
+      attempts: INDEXING_QUEUE_MAX_RETRIES + 1,
+      ack: vi.fn(),
+      retry: vi.fn(),
+    };
+
+    await handleIndexingQueueBatch(
+      { messages: [message] } as unknown as MessageBatch<{ source_id: string }>,
+      env,
+    );
+
+    const markLogs = errorSpy.mock.calls.filter((call) =>
+      String(call[0]).includes("Indexing final error mark failed"),
+    );
+    expect(markLogs.length).toBeGreaterThan(0);
+    assertIndexingErrorLogsSafe(markLogs, { expectedNames: ["FixtureIndexingError"] });
   });
 
   it("logs only the error name when indexing a source fails in the pipeline", async () => {
@@ -111,14 +177,12 @@ describe("indexing error logs", () => {
     const userId = "00000000-0000-4000-8000-000000000011";
     const connectionId = "00000000-0000-4000-8000-000000000021";
 
-    const statements: Array<{ sql: string; args: unknown[] }> = [];
     const db = {
       prepare(sql: string) {
         return {
-          bind(...args: unknown[]) {
+          bind(..._args: unknown[]) {
             return {
               first: async () => {
-                statements.push({ sql, args });
                 if (sql.includes("FROM knowledge_sources")) {
                   return {
                     id: SOURCE_ID,
@@ -161,6 +225,6 @@ describe("indexing error logs", () => {
     );
     expect(pipelineLogs.length).toBeGreaterThan(0);
     expect(String(pipelineLogs[0]?.[2])).toBe("FixtureIndexingError");
-    expectLogsOnlyErrorName(pipelineLogs, "FixtureIndexingError");
+    assertIndexingErrorLogsSafe(pipelineLogs);
   });
 });

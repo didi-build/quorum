@@ -40,9 +40,18 @@ function baseFetchImpl(
       });
     }
     for (const [sha, body] of Object.entries(blobBodies)) {
-      if (url.includes(`/git/blobs/${sha}`)) {
+      if (sha && url.includes(`/git/blobs/${sha}`)) {
         return new Response(JSON.stringify(body), { status: 200 });
       }
+    }
+    if (url.match(/\/git\/blobs\/?$/)) {
+      return new Response(
+        JSON.stringify({
+          encoding: "base64",
+          content: btoa("# empty-sha fallback\n"),
+        }),
+        { status: 200 },
+      );
     }
     if (url.includes("/git/blobs/")) {
       return new Response("missing", { status: 404 });
@@ -62,11 +71,20 @@ describe("fetchGithubRepoDocuments v1 skip paths (table)", () => {
   it.each([
     {
       label: "non-blob tree entries",
-      extraTree: [{ type: "tree", path: "src/nested", sha: "tree-sha" }],
+      extraTree: [{ type: "tree", path: "src/nested.md", sha: "tree-sha" }],
+      blobBodies: {
+        "tree-sha": { encoding: "base64", content: btoa("# tree-as-blob\n") },
+      },
     },
     {
       label: "empty blob paths",
-      extraTree: [{ type: "blob", path: "", sha: "empty-path", size: 4 }],
+      extraTree: [{ type: "blob", path: "", sha: "empty-path-sha", size: 10 }],
+      blobBodies: {
+        "empty-path-sha": {
+          encoding: "base64",
+          content: btoa("# empty path would index\n"),
+        },
+      },
     },
     {
       label: "paths without a text extension",
@@ -80,13 +98,13 @@ describe("fetchGithubRepoDocuments v1 skip paths (table)", () => {
       extraTree: [
         {
           type: "blob",
-          path: ".git/config",
-          sha: "git-config",
+          path: ".git/notes.md",
+          sha: "git-notes-sha",
           size: 4,
         },
       ],
       blobBodies: {
-        "git-config": { encoding: "base64", content: btoa("git metadata") },
+        "git-notes-sha": { encoding: "base64", content: btoa("git notes") },
       },
     },
     {
@@ -200,5 +218,30 @@ describe("fetchGithubRepoDocuments v1 skip paths (table)", () => {
     });
 
     expect(result.documents.map((doc) => doc.document_id)).toEqual([KEEP_PATH]);
+  });
+});
+
+describe("github blob path guard (v1 mirror for empty path)", () => {
+  function shouldSkipPath(path: string): boolean {
+    return (
+      path.startsWith(".git/") ||
+      path.includes("/node_modules/") ||
+      path.includes("/.venv/")
+    );
+  }
+
+  function skipBlobPath(
+    path: string,
+    hasTextExtension: (candidate: string) => boolean,
+  ): boolean {
+    return !path || !hasTextExtension(path) || shouldSkipPath(path);
+  }
+
+  it("skips an empty path even when extension check would pass", () => {
+    const path = "";
+    const extensionAlways = (_candidate: string) => true;
+
+    expect(skipBlobPath(path, extensionAlways)).toBe(true);
+    expect(!extensionAlways(path)).toBe(false);
   });
 });

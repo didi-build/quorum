@@ -6,6 +6,9 @@ import { withTestConfigEnv } from "./fixtures/config-env.js";
 
 const config = loadConfig(withTestConfigEnv());
 
+const CAP_BYTES = 524288;
+const OVER_CAP_BYTES = 524289;
+
 function requestUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") {
     return input;
@@ -17,15 +20,19 @@ function requestUrl(input: RequestInfo | URL): string {
 }
 
 describe("GITHUB_MAX_FILE_BYTES boundary (512 KiB)", () => {
+  it("pins the literal 512 KiB cap constant", () => {
+    expect(GITHUB_MAX_FILE_BYTES).toBe(CAP_BYTES);
+  });
+
   it.each([
     {
       label: "tree size exactly at cap",
-      treeSize: GITHUB_MAX_FILE_BYTES,
+      treeSize: CAP_BYTES,
       expectIndexed: true,
     },
     {
       label: "tree size one byte over cap",
-      treeSize: GITHUB_MAX_FILE_BYTES + 1,
+      treeSize: OVER_CAP_BYTES,
       expectIndexed: false,
     },
   ])("$label", async ({ treeSize, expectIndexed }) => {
@@ -77,12 +84,12 @@ describe("GITHUB_MAX_FILE_BYTES boundary (512 KiB)", () => {
   it.each([
     {
       label: "decoded content exactly at cap",
-      byteLength: GITHUB_MAX_FILE_BYTES,
+      byteLength: CAP_BYTES,
       expectIndexed: true,
     },
     {
       label: "decoded content one byte over cap",
-      byteLength: GITHUB_MAX_FILE_BYTES + 1,
+      byteLength: OVER_CAP_BYTES,
       expectIndexed: false,
     },
   ])("$label", async ({ byteLength, expectIndexed }) => {
