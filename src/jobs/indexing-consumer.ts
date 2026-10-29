@@ -76,7 +76,3 @@ export async function handleIndexingQueueBatch(
     }
   }
 }
-
-export function isIndexingConfigError(error: unknown): boolean {
-  return error instanceof ConfigError;
-}
