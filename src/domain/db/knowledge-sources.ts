@@ -168,6 +168,7 @@ export async function revertKnowledgeSourceAfterFailedRefreshEnqueue(
   mintedRunId: string,
   prior: KnowledgeSourceReindexSnapshot,
 ): Promise<boolean> {
+  // Callers ignore the return value: false means a newer refresh owns the row.
   const now = new Date().toISOString();
   const result = await db
     .prepare(

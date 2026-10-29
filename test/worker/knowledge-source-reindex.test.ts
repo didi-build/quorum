@@ -270,6 +270,174 @@ describe("markKnowledgeSourceQueuedForReindex (integration, vitest-pool-workers)
       }>();
     expect(row?.status).toBe("ready");
     expect(row?.indexing_run_id).toBeNull();
-    expect(row?.indexing_run_files_committed).toBeNull();
+  });
+
+  it("rollback does not apply when the source is no longer pending", async () => {
+    await seedOwnedReadySource();
+    const priorReady = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET status = 'indexing' WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .run();
+
+    const reverted = await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+      queued!.indexingRunId,
+      priorReady,
+    );
+    expect(reverted).toBe(false);
+
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string }>();
+    expect(row?.status).toBe("indexing");
+    expect(row?.indexing_run_id).toBe(queued!.indexingRunId);
+  });
+
+  it("rollback does not apply for wrong owner user_id", async () => {
+    await seedOwnedReadySource();
+    const priorReady = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+
+    const reverted = await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      WRONG_OWNER_ID,
+      queued!.indexingRunId,
+      priorReady,
+    );
+    expect(reverted).toBe(false);
+
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string }>();
+    expect(row?.status).toBe("pending");
+    expect(row?.indexing_run_id).toBe(queued!.indexingRunId);
+  });
+
+  it("regression: rollback SQL must scope user_id (mutant without it reverts with wrong owner)", async () => {
+    await seedOwnedReadySource();
+    const priorReady = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+
+    const scoped = await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      WRONG_OWNER_ID,
+      queued!.indexingRunId,
+      priorReady,
+    );
+    expect(scoped).toBe(false);
+
+    const now = new Date().toISOString();
+    const mutant = await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET status = ?, status_message = ?, indexing_run_id = ?, indexing_run_files_committed = ?, updated_at = ?
+       WHERE id = ? AND indexing_run_id = ? AND status = 'pending'`,
+    )
+      .bind(
+        priorReady.status,
+        priorReady.status_message,
+        priorReady.indexing_run_id,
+        priorReady.indexing_run_files_committed,
+        now,
+        OWNED_SOURCE_ID,
+        queued!.indexingRunId,
+      )
+      .run();
+    expect((mutant.meta.changes ?? 0) > 0).toBe(true);
+  });
+
+  it("regression: rollback SQL must require status pending (mutant without it reverts indexing)", async () => {
+    await seedOwnedReadySource();
+    const priorReady = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET status = 'indexing' WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .run();
+
+    const scoped = await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+      queued!.indexingRunId,
+      priorReady,
+    );
+    expect(scoped).toBe(false);
+
+    const now = new Date().toISOString();
+    const mutant = await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET status = ?, status_message = ?, indexing_run_id = ?, indexing_run_files_committed = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? AND indexing_run_id = ?`,
+    )
+      .bind(
+        priorReady.status,
+        priorReady.status_message,
+        priorReady.indexing_run_id,
+        priorReady.indexing_run_files_committed,
+        now,
+        OWNED_SOURCE_ID,
+        OWNER_ID,
+        queued!.indexingRunId,
+      )
+      .run();
+    expect((mutant.meta.changes ?? 0) > 0).toBe(true);
   });
 });

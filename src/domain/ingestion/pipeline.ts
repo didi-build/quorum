@@ -130,24 +130,36 @@ async function setIndexingRunFilesCommitted(
   sourceId: string,
   runId: string,
   filesCommitted: number,
-  expectedFilesCommitted: number,
+  expectedFilesCommitted: number | null,
 ): Promise<boolean> {
+  if (expectedFilesCommitted === null) {
+    const now = new Date().toISOString();
+    const result = await db
+      .prepare(
+        `UPDATE knowledge_sources
+         SET indexing_run_files_committed = ?, updated_at = ?
+         WHERE id = ? AND indexing_run_id = ?`,
+      )
+      .bind(filesCommitted, now, sourceId, runId)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
   if (filesCommitted === expectedFilesCommitted) {
     const row = await db
       .prepare(
         `SELECT indexing_run_files_committed FROM knowledge_sources
-         WHERE id = ? AND indexing_run_id = ?`,
+         WHERE id = ? AND indexing_run_id = ? AND COALESCE(indexing_run_files_committed, 0) = ?`,
       )
-      .bind(sourceId, runId)
+      .bind(sourceId, runId, expectedFilesCommitted)
       .first<{ indexing_run_files_committed: number | null }>();
-    return (row?.indexing_run_files_committed ?? 0) === expectedFilesCommitted;
+    return row !== null;
   }
   const now = new Date().toISOString();
   const result = await db
     .prepare(
       `UPDATE knowledge_sources
        SET indexing_run_files_committed = ?, updated_at = ?
-       WHERE id = ? AND indexing_run_id = ? AND indexing_run_files_committed = ?`,
+       WHERE id = ? AND indexing_run_id = ? AND COALESCE(indexing_run_files_committed, 0) = ?`,
     )
     .bind(filesCommitted, now, sourceId, runId, expectedFilesCommitted)
     .run();
@@ -186,6 +198,41 @@ async function sourceStillOnRun(
   return row?.indexing_run_id === runId;
 }
 
+function progressCommitExpectedValue(message: IndexingQueueMessage): number | null {
+  return message.indexing_run_id != null ? (message.github_files_processed ?? 0) : null;
+}
+
+function tryResendContinuationAfterFailedSend(
+  source: KnowledgeSourceRow,
+  message: IndexingQueueMessage,
+  sourceId: string,
+  filesAlreadyProcessed: number,
+  queueAttempt: number,
+): IndexKnowledgeSourceResult | null {
+  if (queueAttempt <= 1) {
+    return null;
+  }
+  const progress = source.indexing_run_files_committed ?? 0;
+  const msgRun = message.indexing_run_id ?? null;
+  const srcRun = source.indexing_run_id ?? null;
+  if (
+    source.status === "indexing" &&
+    progress > filesAlreadyProcessed &&
+    msgRun !== null &&
+    srcRun !== null &&
+    msgRun === srcRun
+  ) {
+    return {
+      done: false,
+      continuation: withIndexingRunId(
+        { source_id: sourceId, github_files_processed: progress },
+        srcRun,
+      ),
+    };
+  }
+  return null;
+}
+
 async function setSourceStatus(
   db: D1Database,
   sourceId: string,
@@ -202,15 +249,6 @@ async function setSourceStatus(
     )
     .bind(status, statusMessage, lastIndexedAt ?? null, now, sourceId)
     .run();
-}
-
-/** Used by integration tests to assert the pre-vector run guard. */
-export async function isActiveIndexingRunOnSource(
-  db: D1Database,
-  sourceId: string,
-  runId: string,
-): Promise<boolean> {
-  return await sourceStillOnRun(db, sourceId, runId);
 }
 
 export async function markKnowledgeSourceIndexingError(
@@ -343,25 +381,15 @@ export async function indexKnowledgeSource(
     return { done: true, continuation: null };
   }
 
-  if (isFreshRun && queueAttempt > 1) {
-    const progress = source.indexing_run_files_committed ?? 0;
-    const msgRun = message.indexing_run_id ?? null;
-    const srcRun = source.indexing_run_id ?? null;
-    if (
-      source.status === "indexing" &&
-      progress > 0 &&
-      msgRun !== null &&
-      srcRun !== null &&
-      msgRun === srcRun
-    ) {
-      return {
-        done: false,
-        continuation: withIndexingRunId(
-          { source_id: sourceId, github_files_processed: progress },
-          srcRun,
-        ),
-      };
-    }
+  const resend = tryResendContinuationAfterFailedSend(
+    source,
+    message,
+    sourceId,
+    filesAlreadyProcessed,
+    queueAttempt,
+  );
+  if (resend !== null) {
+    return resend;
   }
 
   const claimResult = await ensureIndexingRunClaimed(
@@ -378,6 +406,7 @@ export async function indexKnowledgeSource(
     return { done: true, continuation: null, stale: true };
   }
   const runId = claimResult.runId;
+  const progressExpected = progressCommitExpectedValue(message);
 
   const connection = await getConnectionById(db, source.connection_id);
   if (connection === null) {
@@ -482,7 +511,7 @@ export async function indexKnowledgeSource(
         sourceId,
         runId,
         githubFilesProcessed,
-        filesAlreadyProcessed,
+        progressExpected,
       );
       if (!progressUpdated) {
         return { done: true, continuation: null, stale: true };
@@ -530,6 +559,8 @@ export async function indexKnowledgeSource(
       await deps.afterChunkRowsBuilt();
     }
 
+    // Best-effort guard: the run can advance between chunk writes and this read;
+    // vector upsert may briefly race a superseding run (see deploy runbook edge cases).
     if (!(await sourceStillOnRun(db, sourceId, runId))) {
       return { done: true, continuation: null, stale: true };
     }
@@ -542,7 +573,7 @@ export async function indexKnowledgeSource(
         sourceId,
         runId,
         githubFilesProcessed,
-        filesAlreadyProcessed,
+        progressExpected,
       );
       if (!progressUpdated) {
         return { done: true, continuation: null, stale: true };

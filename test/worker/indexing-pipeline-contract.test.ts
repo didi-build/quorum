@@ -1745,6 +1745,116 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(resend.continuation?.indexing_run_id).toBe(runId);
   });
 
+  it("DIDI-985 QA: continuation leg retry resends after progress commit when send failed", async () => {
+    await seedGithubSource("pending");
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    const first = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: documentContent }],
+          has_more: true,
+          files_processed: 25,
+        }),
+        voyageFetch,
+        clearSourceIndex: async () => {},
+        upsertChunkVectors: async () => {},
+      },
+    );
+    const runId = first.continuation?.indexing_run_id;
+    expect(runId).toBeTruthy();
+
+    const leg2Message = {
+      source_id: SOURCE_ID,
+      github_files_processed: 25,
+      indexing_run_id: runId!,
+    };
+
+    const leg2 = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      leg2Message,
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "leg2.md", content: documentContent }],
+          has_more: true,
+          files_processed: 50,
+        }),
+        voyageFetch,
+        upsertChunkVectors: async () => {},
+      },
+    );
+    expect(leg2.continuation?.github_files_processed).toBe(50);
+
+    let fetchCalled = false;
+    const leg2Retry = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      leg2Message,
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return { documents: [], has_more: false, files_processed: 0 };
+        },
+      },
+      { queueAttempt: 2 },
+    );
+
+    expect(fetchCalled).toBe(false);
+    expect(leg2Retry.continuation?.github_files_processed).toBe(50);
+    expect(leg2Retry.continuation?.indexing_run_id).toBe(runId);
+  });
+
+  it("DIDI-985 QA: run-id-less continuation keeps unconditional progress write", async () => {
+    const runId = "00000000-0000-4000-8000-000000000076";
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 25
+       WHERE id = ?`,
+    )
+      .bind(runId, SOURCE_ID)
+      .run();
+
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 25 },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "legacy-cont.md", content: documentContent }],
+          has_more: true,
+          files_processed: 50,
+        }),
+        voyageFetch,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(result.stale).not.toBe(true);
+    expect(result.continuation?.github_files_processed).toBe(50);
+    expect(result.continuation?.indexing_run_id).toBe(runId);
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_files_committed, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_files_committed: number; status: string }>();
+    expect(row?.indexing_run_files_committed).toBe(50);
+    expect(row?.status).toBe("indexing");
+  });
+
   it("DIDI-985 QA: run-id-less create message at attempt 2 does not resend continuation", async () => {
     await seedGithubSource("pending");
     const voyageFetch = mockVoyageFetch();
@@ -1787,7 +1897,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(resend.stale).toBe(true);
   });
 
-  it("DIDI-985 QA: duplicate continuation chain dies on progress compare-and-set", async () => {
+  it("DIDI-985 QA: duplicate leg commit dies on progress compare-and-set", async () => {
     await seedGithubSource("pending");
     const voyageFetch = mockVoyageFetch();
     const documentContent = "# Title\n\n" + "word ".repeat(200);
@@ -1835,16 +1945,6 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
         upsertChunkVectors: async () => {},
       },
     );
-
-    const resend = await indexKnowledgeSource(
-      env.DB,
-      env.VECTORIZE,
-      config,
-      { source_id: SOURCE_ID, indexing_run_id: activeRunId },
-      {},
-      { queueAttempt: 2 },
-    );
-    expect(resend.continuation?.github_files_processed).toBe(50);
 
     const leg3Message = {
       source_id: SOURCE_ID,

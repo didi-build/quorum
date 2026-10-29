@@ -233,6 +233,7 @@ async function handleRefreshSource(
       queued.indexingRunId,
       prior,
     );
+    // Rollback boolean ignored: false is OK when a newer refresh superseded this mint.
     return workerErrorResponse(error);
   }
   return Response.json(knowledgeSourceRowToRead(queued.row));
