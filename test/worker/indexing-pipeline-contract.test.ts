@@ -223,6 +223,50 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(chunk?.content).toBe("stay");
   });
 
+  it("does not clear existing chunks when a continuation batch is empty but more files remain", async () => {
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'prior.md', 0, 'keep-me', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    let clearInvoked = false;
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 40 },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: true,
+          files_processed: 90,
+        }),
+        clearSourceIndex: async () => {
+          clearInvoked = true;
+        },
+      },
+    );
+
+    expect(result.done).toBe(false);
+    expect(result.continuation).toEqual({
+      source_id: SOURCE_ID,
+      github_files_processed: 90,
+    });
+    expect(clearInvoked).toBe(false);
+
+    const prior = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'prior.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(prior?.content).toBe("keep-me");
+  });
+
   it("clears stale chunks on a fresh run when the first batch has no chunks but more files remain", async () => {
     await seedGithubSource("ready");
     await env.DB.prepare(
