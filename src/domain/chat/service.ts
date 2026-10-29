@@ -289,6 +289,8 @@ interface HistoryMessageRow extends ChatMessageRow {
 
 export const HISTORY_MESSAGES_USER_SCOPE_SQL = "m.user_id = ?";
 
+export const HISTORY_MESSAGES_ROLE_SCOPE_SQL = "m.role IN ('user', 'assistant')";
+
 const HISTORY_SELECT = `
   SELECT
     m.id, m.session_id, m.user_id, m.project_id, m.role, m.content,
@@ -370,6 +372,7 @@ export async function getSessionMessages(
       .prepare(
         `${HISTORY_SELECT}
          WHERE m.session_id = ? AND ${HISTORY_MESSAGES_USER_SCOPE_SQL}
+           AND ${HISTORY_MESSAGES_ROLE_SCOPE_SQL}
          ORDER BY m.created_at ASC, m.id ASC
          LIMIT ?`,
       )
@@ -380,6 +383,7 @@ export async function getSessionMessages(
       .prepare(
         `${HISTORY_SELECT}
          WHERE m.session_id = ? AND ${HISTORY_MESSAGES_USER_SCOPE_SQL}
+           AND ${HISTORY_MESSAGES_ROLE_SCOPE_SQL}
            AND (
              m.created_at > ?
              OR (m.created_at = ? AND m.id > ?)

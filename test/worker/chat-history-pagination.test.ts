@@ -92,13 +92,14 @@ describe("chat history pagination (worker integration)", () => {
     expect(allContents[149]).toBe("m-149");
   });
 
-  it("returns 400 when limit=1000", async () => {
+  it("clamps limit=1000 to 100 messages per page", async () => {
     const cfg = loadConfig(testEnv());
     const userId = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
-      .bind(userId, 999031, "pager-limit")
+      .bind(userId, 999031, "pager-limit-clamp")
       .run();
     const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+    await seedMessages(userId, 120);
 
     const request = new Request(
       `http://test/chat/sessions/${SESSION_ID}/messages?limit=1000`,
@@ -109,6 +110,12 @@ describe("chat history pagination (worker integration)", () => {
     const ctx = createExecutionContext();
     const response = await worker.fetch(request, testEnv(), ctx);
     await waitOnExecutionContext(ctx);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      messages: unknown[];
+      next_cursor: string | null;
+    };
+    expect(body.messages).toHaveLength(100);
+    expect(body.next_cursor).not.toBeNull();
   });
 });

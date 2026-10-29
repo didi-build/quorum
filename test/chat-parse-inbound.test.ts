@@ -32,6 +32,20 @@ describe("parseChatMessageIn (unit)", () => {
     ).toThrow(ChatInboundParseError);
   });
 
+  it("accepts content of exactly 32768 UTF-8 bytes", () => {
+    const content = "a".repeat(CHAT_CONTENT_MAX_BYTES);
+    expect(new TextEncoder().encode(content).byteLength).toBe(32768);
+    parseChatMessageIn(JSON.stringify({ session_id: "s1", content }));
+  });
+
+  it("rejects content of 32769 UTF-8 bytes", () => {
+    const content = "a".repeat(CHAT_CONTENT_MAX_BYTES + 1);
+    expect(new TextEncoder().encode(content).byteLength).toBe(32769);
+    expect(() =>
+      parseChatMessageIn(JSON.stringify({ session_id: "s1", content })),
+    ).toThrow(ChatInboundParseError);
+  });
+
   it("rejects content over the byte cap when char count is below 32K", () => {
     const emoji = "\u{1F600}";
     const content = emoji.repeat(8193);

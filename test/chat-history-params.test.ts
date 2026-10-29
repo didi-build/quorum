@@ -4,7 +4,7 @@ import {
   parseChatSessionMessagesPathResult,
   parseHistoryLimitParam,
 } from "../src/routes/chat-history.js";
-import { decodeHistoryCursor } from "../src/domain/chat/service.js";
+import { decodeHistoryCursor, HISTORY_MAX_LIMIT } from "../src/domain/chat/service.js";
 
 describe("parseChatSessionMessagesPath (unit)", () => {
   it("parses valid session ids", () => {
@@ -42,17 +42,24 @@ describe("parseHistoryLimitParam (unit)", () => {
     expect(parseHistoryLimitParam("100")).toBe(100);
   });
 
-  it("rejects non-integers and out-of-range values", () => {
+  it("clamps values above 100 to the max page size", () => {
+    expect(parseHistoryLimitParam("101")).toBe(HISTORY_MAX_LIMIT);
+    expect(parseHistoryLimitParam("1000")).toBe(HISTORY_MAX_LIMIT);
+  });
+
+  it("rejects non-integers and values below 1", () => {
     expect(parseHistoryLimitParam("0")).toBe("invalid");
-    expect(parseHistoryLimitParam("101")).toBe("invalid");
-    expect(parseHistoryLimitParam("1000")).toBe("invalid");
+    expect(parseHistoryLimitParam("-5")).toBe("invalid");
     expect(parseHistoryLimitParam("10.5")).toBe("invalid");
     expect(parseHistoryLimitParam("nope")).toBe("invalid");
+    expect(parseHistoryLimitParam("abc")).toBe("invalid");
   });
 });
 
 describe("decodeHistoryCursor (unit)", () => {
   it("returns null when the cursor does not decode", () => {
     expect(decodeHistoryCursor("not-a-valid-cursor")).toBeNull();
+    expect(decodeHistoryCursor("|only-separator")).toBeNull();
+    expect(decodeHistoryCursor("no-separator-here")).toBeNull();
   });
 });

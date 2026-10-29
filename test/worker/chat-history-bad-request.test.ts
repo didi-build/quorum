@@ -20,6 +20,9 @@ const testEnv = () =>
 describe("chat history bad request (worker integration)", () => {
   beforeEach(async () => {
     resetBootstrapApiKeyGuard();
+    await env.DB.prepare("DELETE FROM chat_messages").run();
+    await env.DB.prepare("DELETE FROM sessions").run();
+    await env.DB.prepare("DELETE FROM users").run();
   });
 
   async function authedGet(pathWithQuery: string): Promise<Response> {
@@ -45,11 +48,26 @@ describe("chat history bad request (worker integration)", () => {
     expect(response.status).toBe(400);
   });
 
-  it("returns 400 when limit is not an integer from 1 to 100", async () => {
-    const response = await authedGet(
-      `/chat/sessions/${TEST_CHAT_SESSION_ID}/messages?limit=1000`,
-    );
-    expect(response.status).toBe(400);
+  it("returns 400 when limit is not an integer or is below 1", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 999031, "history-limit-400")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    for (const query of ["limit=abc", "limit=0", "limit=-5"]) {
+      const request = new Request(
+        `http://test/chat/sessions/${TEST_CHAT_SESSION_ID}/messages?${query}`,
+        {
+          headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+        },
+      );
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(request, testEnv(), ctx);
+      await waitOnExecutionContext(ctx);
+      expect(response.status).toBe(400);
+    }
   });
 
   it("returns 400 when decodeURIComponent throws on the session id", async () => {

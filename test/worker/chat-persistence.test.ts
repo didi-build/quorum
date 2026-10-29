@@ -1,9 +1,11 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config/index.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
 import { resetChatWebSocketRegistry } from "../../src/domain/auth/chat-ws-registry.js";
 import { createBrowserSession } from "../../src/domain/auth/browser-session.js";
+import type { RouteMessageParams } from "../../src/domain/chat/router.js";
+import * as routerModule from "../../src/domain/chat/router.js";
 import worker from "../../src/index";
 import {
   chatWsPayload,
@@ -48,6 +50,31 @@ describe("chat persistence and history (worker integration)", () => {
   }
 
   it("persists messages and returns ordered history with proposals", async () => {
+    const sampleCitations = [
+      {
+        document_id: "00000000-0000-4000-8000-000000000090",
+        chunk_index: 0,
+        knowledge_source_id: "00000000-0000-4000-8000-000000000091",
+        excerpt: "Fixture excerpt",
+      },
+    ];
+    const sampleCouncil = {
+      persona_opinions: [],
+      overall_verdict: "comment" as const,
+      synthesis: "Fixture synthesis",
+    };
+
+    vi.spyOn(routerModule, "routeMessage").mockImplementation(
+      async (params: RouteMessageParams) => ({
+        session_id: params.sessionId,
+        content: "Answer with citations",
+        classified_intent: "greeting",
+        response_kind: "direct_answer",
+        citations: sampleCitations,
+        council_decision: sampleCouncil,
+      }),
+    );
+
     const cfg = loadConfig(testEnv());
     const userId = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
@@ -123,8 +150,8 @@ describe("chat persistence and history (worker integration)", () => {
     expect(history.messages[0]?.classified_intent).toBe("greeting");
     expect(history.messages[1]?.classified_intent).toBe("greeting");
     expect(history.messages[1]?.response_kind).toBe("direct_answer");
-    expect(history.messages[1]?.citations).toEqual([]);
-    expect(history.messages[1]?.council_decision).toBeNull();
+    expect(history.messages[1]?.citations).toEqual(sampleCitations);
+    expect(history.messages[1]?.council_decision).toEqual(sampleCouncil);
     expect(history.messages[1]?.write_back_proposal?.chat_message_id).toBe(assistantId);
   });
 

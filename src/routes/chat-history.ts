@@ -3,7 +3,6 @@ import {
   clampHistoryLimit,
   decodeHistoryCursor,
   getSessionMessages,
-  HISTORY_MAX_LIMIT,
 } from "../domain/chat/service.js";
 import { CHAT_SESSION_ID_PATTERN } from "../domain/chat/parse-inbound.js";
 import type { ChatHistoryResponse } from "../domain/schemas/chat.js";
@@ -54,10 +53,10 @@ export function parseHistoryLimitParam(raw: string | null): number | "invalid" {
     return clampHistoryLimit(undefined);
   }
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > HISTORY_MAX_LIMIT) {
+  if (!Number.isInteger(parsed) || parsed < 1) {
     return "invalid";
   }
-  return parsed;
+  return clampHistoryLimit(parsed);
 }
 
 function historyBadRequest(): Response {

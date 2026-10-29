@@ -113,6 +113,70 @@ describe("chat WebSocket inbound limits (unit)", () => {
     expect((await waitForClose(client2)).code).toBe(CHAT_WS_INVALID_FRAME_CLOSE_CODE);
   });
 
+  it("accepts inbound content of exactly 32768 UTF-8 bytes", async () => {
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+    client.accept();
+
+    const deliverSpy = vi.fn(async () => ({
+      id: "x",
+      session_id: "s1",
+      content: "ok",
+      classified_intent: "greeting" as const,
+      response_kind: "direct_answer" as const,
+      citations: [],
+      council_decision: null,
+    }));
+
+    attachChatWsInboundHandler(
+      server,
+      {
+        env: testEnv(),
+        config: loadConfig(testEnv()),
+        actor: actorContext("00000000-0000-4000-8000-000000000025"),
+      },
+      { sessionToken: null, apiKey: "key" },
+      {
+        clock: { nowMs: () => Date.now() },
+        recheckAuth: async () => true,
+        deliverTurn: deliverSpy,
+      },
+    );
+
+    const exact = "a".repeat(CHAT_CONTENT_MAX_BYTES);
+    client.send(JSON.stringify({ session_id: "s1", content: exact }));
+    await vi.waitFor(() => {
+      expect(deliverSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("closes with 1007 when content is 32769 UTF-8 bytes", async () => {
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+    client.accept();
+
+    attachChatWsInboundHandler(
+      server,
+      {
+        env: testEnv(),
+        config: loadConfig(testEnv()),
+        actor: actorContext("00000000-0000-4000-8000-000000000026"),
+      },
+      { sessionToken: null, apiKey: "key" },
+      {
+        clock: { nowMs: () => Date.now() },
+        recheckAuth: async () => true,
+        deliverTurn: deliverChatWsTurn,
+      },
+    );
+
+    const tooBig = "a".repeat(CHAT_CONTENT_MAX_BYTES + 1);
+    client.send(JSON.stringify({ session_id: "s1", content: tooBig }));
+    expect((await waitForClose(client)).code).toBe(CHAT_WS_INVALID_FRAME_CLOSE_CODE);
+  });
+
   it("ignores binary frames without calling deliverTurn", async () => {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
