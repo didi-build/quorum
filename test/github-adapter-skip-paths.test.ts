@@ -220,28 +220,3 @@ describe("fetchGithubRepoDocuments v1 skip paths (table)", () => {
     expect(result.documents.map((doc) => doc.document_id)).toEqual([KEEP_PATH]);
   });
 });
-
-describe("github blob path guard (v1 mirror for empty path)", () => {
-  function shouldSkipPath(path: string): boolean {
-    return (
-      path.startsWith(".git/") ||
-      path.includes("/node_modules/") ||
-      path.includes("/.venv/")
-    );
-  }
-
-  function skipBlobPath(
-    path: string,
-    hasTextExtension: (candidate: string) => boolean,
-  ): boolean {
-    return !path || !hasTextExtension(path) || shouldSkipPath(path);
-  }
-
-  it("skips an empty path even when extension check would pass", () => {
-    const path = "";
-    const extensionAlways = (_candidate: string) => true;
-
-    expect(skipBlobPath(path, extensionAlways)).toBe(true);
-    expect(!extensionAlways(path)).toBe(false);
-  });
-});

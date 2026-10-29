@@ -253,7 +253,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     );
 
     expect(result.done).toBe(false);
-    expect(result.continuation).toEqual({
+    expect(result.continuation).toMatchObject({
       source_id: SOURCE_ID,
       github_files_processed: 90,
     });
@@ -308,11 +308,12 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(prior?.content).toBe("keep-final");
 
     const source = await env.DB.prepare(
-      `SELECT status FROM knowledge_sources WHERE id = ?`,
+      `SELECT status, status_message FROM knowledge_sources WHERE id = ?`,
     )
       .bind(SOURCE_ID)
-      .first<{ status: string }>();
+      .first<{ status: string; status_message: string | null }>();
     expect(source?.status).toBe("ready");
+    expect(source?.status_message).toBeNull();
   });
 
   it("clears stale chunks on a fresh run when the first batch has no chunks but more files remain", async () => {

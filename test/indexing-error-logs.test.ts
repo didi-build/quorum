@@ -34,13 +34,20 @@ function logSurfaces(arg: unknown): string[] {
   return surfaces;
 }
 
+function assertNoLoggedErrorInstances(calls: unknown[][]): void {
+  for (const call of calls) {
+    for (const arg of call) {
+      expect(arg).not.toBeInstanceOf(Error);
+    }
+  }
+}
+
 function assertIndexingErrorLogsSafe(
   calls: unknown[][],
   options: { expectedNames?: string[] } = {},
 ): void {
   for (const call of calls) {
     for (const arg of call) {
-      expect(arg).not.toBeInstanceOf(Error);
       const surfaces = logSurfaces(arg);
       if (typeof arg === "object" && arg !== null) {
         surfaces.push(JSON.stringify(arg));
@@ -100,6 +107,7 @@ describe("indexing error logs", () => {
       String(call[0]).includes("Indexing queue message failed"),
     );
     expect(queueLogs.length).toBeGreaterThan(0);
+    assertNoLoggedErrorInstances(errorSpy.mock.calls);
     assertIndexingErrorLogsSafe(queueLogs, { expectedNames: ["FixtureIndexingError"] });
   });
 
@@ -132,6 +140,8 @@ describe("indexing error logs", () => {
     const queueLogs = errorSpy.mock.calls.filter((call) =>
       String(call[0]).includes("Indexing queue message failed"),
     );
+    expect(queueLogs.length).toBeGreaterThan(0);
+    assertNoLoggedErrorInstances(errorSpy.mock.calls);
     assertIndexingErrorLogsSafe(queueLogs, { expectedNames: ["ConfigError"] });
   });
 
@@ -168,6 +178,7 @@ describe("indexing error logs", () => {
       String(call[0]).includes("Indexing final error mark failed"),
     );
     expect(markLogs.length).toBeGreaterThan(0);
+    assertNoLoggedErrorInstances(errorSpy.mock.calls);
     assertIndexingErrorLogsSafe(markLogs, { expectedNames: ["FixtureIndexingError"] });
   });
 
@@ -225,6 +236,7 @@ describe("indexing error logs", () => {
     );
     expect(pipelineLogs.length).toBeGreaterThan(0);
     expect(String(pipelineLogs[0]?.[2])).toBe("FixtureIndexingError");
+    assertNoLoggedErrorInstances(errorSpy.mock.calls);
     assertIndexingErrorLogsSafe(pipelineLogs);
   });
 });
