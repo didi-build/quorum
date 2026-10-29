@@ -16,6 +16,7 @@
    - When possible, wait until none are `indexing`, then **apply migration 0003**, then **deploy** the matching Worker commit (migration before code).
    - If the deploy overlapped an in-flight index, wait until the indexing queue has drained, then `POST /sources/{id}/refresh` each affected source (owner only; others get 404). Refreshing before the queue drains can start a new run while old run-id-less continuations are still in flight (edge case 2).
    - If a source still shows stale or partial index data after the queue drains, `POST /sources/{id}/refresh` that source (owner only). Confirm it reaches `ready` ([DIDI-980](https://linear.app/didi-build/issue/DIDI-980)).
+   - **DIDI-980:** Deploy the Worker that mints `indexing_run_id` on refresh before relying on refresh to complete when older indexing legs are still queued.
 
    **Edge cases during the deploy window (accepted while the fallbacks remain):**
    1. A source that was mid-run before the migration can have null or zero `indexing_run_files_committed`, so a late **first** message in that window can still run `clearIndex` on the fresh path in `pipeline.ts` (even though other late first messages are normally dropped when `progress > 0` while the source is `indexing`, or when the source is `ready` with a run id per `indexing-run.ts`).

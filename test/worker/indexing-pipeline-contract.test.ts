@@ -10,6 +10,7 @@ import {
   upsertVectors,
 } from "../../src/domain/ingestion/pipeline.js";
 import { loadConfig } from "../../src/config/load-config.js";
+import { markKnowledgeSourceQueuedForReindex } from "../../src/domain/db/knowledge-sources.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000010";
@@ -1075,5 +1076,149 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       .bind(SOURCE_ID)
       .first<{ c: number }>();
     expect(count?.c).toBe(expectedChunks);
+  });
+
+  async function completeGithubIndexInOneBatch(
+    message: Parameters<typeof indexKnowledgeSource>[3],
+  ): Promise<Awaited<ReturnType<typeof indexKnowledgeSource>>> {
+    return indexKnowledgeSource(env.DB, env.VECTORIZE, config, message, {
+      fetchGithubRepoDocuments: async () => ({
+        documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+        has_more: false,
+        files_processed: 1,
+      }),
+      voyageFetch: mockVoyageFetch(),
+      upsertChunkVectors: async () => {},
+    });
+  }
+
+  it("DIDI-980: refresh completes when the prior run final leg is processed first", async () => {
+    await seedIndexingWithRun(RUN1, 25);
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const refreshRunId = queued!.indexingRunId;
+
+    let oldLegFetchCalled = false;
+    const oldFinal = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 25,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          oldLegFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "stale" }],
+            has_more: false,
+            files_processed: 26,
+          };
+        },
+        voyageFetch: mockVoyageFetch(),
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(oldFinal.stale).toBe(true);
+    expect(oldLegFetchCalled).toBe(false);
+
+    const afterOldLeg = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterOldLeg?.indexing_run_id).toBe(refreshRunId);
+    expect(afterOldLeg?.status).toBe("pending");
+
+    const refreshResult = await completeGithubIndexInOneBatch({
+      source_id: SOURCE_ID,
+      indexing_run_id: refreshRunId,
+    });
+    expect(refreshResult.stale).not.toBe(true);
+    expect(refreshResult.continuation).toBeNull();
+
+    const afterRefresh = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterRefresh?.indexing_run_id).toBe(refreshRunId);
+    expect(afterRefresh?.status).toBe("ready");
+  });
+
+  it("DIDI-980: refresh completes when its first message arrives before the prior final leg", async () => {
+    await seedIndexingWithRun(RUN1, 25);
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const refreshRunId = queued!.indexingRunId;
+
+    const refreshResult = await completeGithubIndexInOneBatch({
+      source_id: SOURCE_ID,
+      indexing_run_id: refreshRunId,
+    });
+    expect(refreshResult.stale).not.toBe(true);
+
+    let oldLegFetchCalled = false;
+    const oldFinal = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 25,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          oldLegFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "stale" }],
+            has_more: false,
+            files_processed: 26,
+          };
+        },
+      },
+    );
+
+    expect(oldFinal.stale).toBe(true);
+    expect(oldLegFetchCalled).toBe(false);
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(row?.indexing_run_id).toBe(refreshRunId);
+    expect(row?.status).toBe("ready");
+  });
+
+  it("DIDI-980: legacy source_id-only first message still indexes on pending", async () => {
+    await seedGithubSource("pending");
+
+    const result = await completeGithubIndexInOneBatch({ source_id: SOURCE_ID });
+
+    expect(result.stale).not.toBe(true);
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string | null }>();
+    expect(row?.status).toBe("ready");
+    expect(row?.indexing_run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
   });
 });

@@ -947,6 +947,21 @@ describe("knowledge sources API (worker integration)", () => {
     const body = (await response.json()) as { status: string; status_message: string };
     expect(body.status).toBe("pending");
     expect(body.status_message).toBe("Queued for re-indexing");
-    expect(queueSend).toHaveBeenCalledWith({ source_id: sourceId });
+    expect(queueSend).toHaveBeenCalledTimes(1);
+    const enqueued = queueSend.mock.calls[0][0] as {
+      source_id: string;
+      indexing_run_id?: string;
+    };
+    expect(enqueued.source_id).toBe(sourceId);
+    expect(enqueued.indexing_run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(sourceId)
+      .first<{ indexing_run_id: string }>();
+    expect(row?.indexing_run_id).toBe(enqueued.indexing_run_id);
   });
 });

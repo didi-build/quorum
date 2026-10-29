@@ -199,17 +199,21 @@ async function handleRefreshSource(
     return knowledgeSourceNotFound();
   }
 
-  const updated = await markKnowledgeSourceQueuedForReindex(
+  const queued = await markKnowledgeSourceQueuedForReindex(
     env.DB,
     sourceId,
     actor.userId,
   );
-  if (updated === null) {
+  if (queued === null) {
     return knowledgeSourceNotFound();
   }
 
-  await enqueueKnowledgeSourceIndexing(env.INDEXING_QUEUE, sourceId);
-  return Response.json(knowledgeSourceRowToRead(updated));
+  await enqueueKnowledgeSourceIndexing(
+    env.INDEXING_QUEUE,
+    sourceId,
+    queued.indexingRunId,
+  );
+  return Response.json(knowledgeSourceRowToRead(queued.row));
 }
 
 export async function handleSourcesRoute(
