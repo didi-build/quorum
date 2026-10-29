@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import worker from "../../preview/worker.js";
 import {
   isAppSpaPath,
+  isGallerySpaPath,
   shouldServeAppShell,
+  shouldServeGalleryShell,
   wantsHtmlDocument,
 } from "../../preview/spa-routing.js";
 
@@ -26,6 +28,15 @@ describe("preview spa-routing", () => {
     expect(isAppSpaPath("/")).toBe(false);
   });
 
+  it("matches /gallery paths", () => {
+    expect(isGallerySpaPath("/gallery")).toBe(true);
+    expect(isGallerySpaPath("/gallery/")).toBe(true);
+    expect(isGallerySpaPath("/gallery/status-chip")).toBe(true);
+    expect(isGallerySpaPath("/app")).toBe(false);
+    expect(isGallerySpaPath("/gallery-x")).toBe(false);
+    expect(isGallerySpaPath("/gallery-x/foo")).toBe(false);
+  });
+
   it("requires text/html Accept for shell fallback", () => {
     const url = new URL("https://preview.example/app/missing");
     const asset404 = new Response(null, { status: 404 });
@@ -33,6 +44,15 @@ describe("preview spa-routing", () => {
       shouldServeAppShell(
         url,
         new Request(url, { headers: { Accept: "text/html" } }),
+        asset404,
+      ),
+    ).toBe(true);
+    expect(
+      shouldServeGalleryShell(
+        new URL("https://preview.example/gallery/missing"),
+        new Request("https://preview.example/gallery/missing", {
+          headers: { Accept: "text/html" },
+        }),
         asset404,
       ),
     ).toBe(true);
@@ -64,6 +84,27 @@ describe("preview worker", () => {
     const env = { ASSETS: mockAssets({}) };
     const response = await worker.fetch(new Request("https://preview.example/"), env);
     expect(response.status).toBe(404);
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+  });
+
+  it("serves the gallery shell for missing /gallery/* HTML navigations", async () => {
+    const env = {
+      ASSETS: mockAssets({
+        "/gallery/index.html": () =>
+          new Response("<!doctype html><html id=gallery-root></html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          }),
+      }),
+    };
+    const response = await worker.fetch(
+      new Request("https://preview.example/gallery/status-chip", {
+        headers: { Accept: "text/html" },
+      }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("id=gallery-root");
     expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 

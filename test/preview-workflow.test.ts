@@ -3,13 +3,69 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workflowPath = join(process.cwd(), ".github/workflows/preview.yml");
+const galleryWorkflowPath = join(
+  process.cwd(),
+  ".github/workflows/gallery-preview.yml",
+);
 const workflow = readFileSync(workflowPath, "utf8");
+const galleryWorkflow = readFileSync(galleryWorkflowPath, "utf8");
 
 /** Matches `uses:` at step or job level, with or without a leading `- `. */
 const USES_RE = /^\s*(?:-\s+)?uses:\s*(.+)$/gm;
 
 /** Marketplace actions and reusable workflow refs must pin a 40-character commit SHA after `@`. */
 const PINNED_ACTION_REF_RE = /^.+@[0-9a-f]{40}(\s+#.*)?$/;
+
+function parseJobPermissions(jobBlock: string): Record<string, string> {
+  const lines = jobBlock.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "permissions:");
+  if (start === -1) {
+    return {};
+  }
+  const perms: Record<string, string> = {};
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.startsWith("      ") || line.trim() === "") {
+      break;
+    }
+    const match = line.match(/^\s+([\w-]+):\s*(.+)$/);
+    if (match) {
+      perms[match[1]] = match[2].trim();
+    }
+  }
+  return perms;
+}
+
+describe("parseJobPermissions (unit)", () => {
+  it("reads hyphenated GitHub Actions permission keys", () => {
+    const block = `
+    permissions:
+      contents: read
+      pull-requests: write
+`;
+    expect(parseJobPermissions(block)).toEqual({
+      contents: "read",
+      "pull-requests": "write",
+    });
+  });
+});
+
+function stepIfLine(jobBlock: string, stepName: string): string {
+  const lines = jobBlock.split("\n");
+  const nameIdx = lines.findIndex((line) => line.trim() === `- name: ${stepName}`);
+  if (nameIdx === -1) {
+    return "";
+  }
+  for (let i = nameIdx + 1; i < lines.length; i += 1) {
+    if (lines[i].trim().startsWith("- name:")) {
+      break;
+    }
+    if (lines[i].trim().startsWith("if:")) {
+      return lines[i];
+    }
+  }
+  return "";
+}
 
 function extractJobBlock(yaml: string, jobId: string): string {
   const marker = `  ${jobId}:`;
@@ -190,5 +246,45 @@ jobs:
     expect(screenshots).toContain(
       "github.event.pull_request.head.repo.full_name == github.repository",
     );
+  });
+
+  it("defines gallery probe and gallery-preview check after deploy", () => {
+    const galleryProbe = extractJobBlock(workflow, "gallery-probe");
+    expect(galleryProbe).toContain("GALLERY_PROBE_MARKER");
+    expect(galleryProbe).toContain("name: 'gallery-preview'");
+    expect(galleryProbe).toContain("Probe gallery route");
+    expect(workflow).toContain("build:frontend:mock-preview");
+  });
+
+  it("locks gallery-probe permissions, same-repo guard, and neutral check metadata", () => {
+    const galleryProbe = extractJobBlock(workflow, "gallery-probe");
+    expect(parseJobPermissions(galleryProbe)).toEqual({
+      contents: "read",
+      checks: "write",
+    });
+    expect(galleryProbe).toContain(
+      "${{ !cancelled() && needs.deploy.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}",
+    );
+    expect(galleryProbe).toContain("conclusion: 'neutral'");
+    expect(galleryProbe).toContain("title: 'Gallery preview not configured'");
+    const failedCheckIf = stepIfLine(galleryProbe, "Gallery preview check (failed)");
+    const failJobIf = stepIfLine(
+      galleryProbe,
+      "Fail if gallery probe did not succeed with creds",
+    );
+    expect(failedCheckIf).toContain("steps.probe.outcome != 'success'");
+    expect(failJobIf).toContain("steps.probe.outcome != 'success'");
+  });
+
+  it("locks gallery-preview.yml triggers, top-level permissions, and job guard", () => {
+    expect(galleryWorkflow.trimStart()).toMatch(/^permissions: \{\}\r?\n/m);
+    expect(galleryWorkflow).toContain("pull_request:");
+    expect(galleryWorkflow).toContain("types: [opened, synchronize, reopened]");
+    const guardsJob = extractJobBlock(galleryWorkflow, "gallery-guards");
+    expect(parseJobPermissions(guardsJob)).toEqual({ contents: "read" });
+    expect(guardsJob).toContain(
+      "github.event.pull_request.head.repo.full_name == github.repository",
+    );
+    expect(guardsJob).toContain("npm run gallery:guards");
   });
 });
