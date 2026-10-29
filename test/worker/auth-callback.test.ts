@@ -94,11 +94,12 @@ describe("GitHub OAuth callback (worker integration)", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("Location")).toBe("http://test/app/");
     const cookies = response.headers.getSetCookie();
-    expect(cookies.some((c) => c.startsWith("quorum_session="))).toBe(true);
+    const sessionCookie = cookies.find((c) => c.startsWith("quorum_session="));
+    expect(sessionCookie).toBeDefined();
+    expect(sessionCookie).toContain(
+      "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000",
+    );
     expectNonceClearCookie(cookies);
-    expect(cookies.some((c) => c.includes("HttpOnly"))).toBe(true);
-    expect(cookies.some((c) => c.includes("Secure"))).toBe(true);
-    expect(cookies.some((c) => c.includes("SameSite=Lax"))).toBe(true);
   });
 
   it("non-allowlisted user gets display cookie and redirect to not-allowed", async () => {
@@ -148,6 +149,26 @@ describe("GitHub OAuth callback (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(400);
+    expectNonceClearCookie(response.headers.getSetCookie());
+  });
+
+  it("rejects callback when OAuth nonce cookie is empty without calling GitHub", async () => {
+    const { state } = await createLoginOauthState("test-session-secret");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const ctx = createExecutionContext();
+    const { oauthLoginNonceCookieHeader } = await import("./oauth-callback-cookies.js");
+    const response = await worker.fetch(
+      new Request(`http://test/auth/github/callback?code=test-code&state=${state}`, {
+        headers: { Cookie: oauthLoginNonceCookieHeader("") },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expectNonceClearCookie(response.headers.getSetCookie());
   });
 

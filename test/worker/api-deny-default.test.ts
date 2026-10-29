@@ -2,6 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as actor from "../../src/domain/auth/actor.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
+import * as authRoutes from "../../src/routes/auth.js";
 import worker from "../../src/index";
 import * as chatWs from "../../src/routes/chat-ws.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
@@ -41,12 +42,21 @@ describe("deny-by-default /api and /council (worker integration)", () => {
       "/api/does-not-exist",
       "/api",
       "/api/",
+      "/api/x",
       "/api/x/",
       "/api?x=1",
       "/api//",
     ]) {
       await expectCanonicalDenyDefault401(path);
     }
+  });
+
+  it("calls resolveWebSocketActor once for canonical /api/x (spy positive control)", async () => {
+    const resolveSpy = vi.spyOn(actor, "resolveWebSocketActor");
+    const ctx = createExecutionContext();
+    await worker.fetch(new Request("http://test/api/x"), testEnv(), ctx);
+    await waitOnExecutionContext(ctx);
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
   });
 
   it("returns exact 401 for canonical unauthenticated /council paths", async () => {
@@ -56,11 +66,13 @@ describe("deny-by-default /api and /council (worker integration)", () => {
   });
 
   it("returns 404 from assets without invoking protected handlers for non-canonical paths", async () => {
-    const resolveSpy = vi.spyOn(actor, "resolveActor");
+    const resolveSpy = vi.spyOn(actor, "resolveWebSocketActor");
+    const authRouteSpy = vi.spyOn(authRoutes, "handleAuthRoute");
     const wsSpy = vi.spyOn(chatWs, "handleChatWebSocket");
 
     for (const path of ["/API/x", "/%61pi/x", "/api%2Fx", "//api/x", "/api;x"]) {
       resolveSpy.mockClear();
+      authRouteSpy.mockClear();
       wsSpy.mockClear();
 
       const ctx = createExecutionContext();
@@ -73,6 +85,7 @@ describe("deny-by-default /api and /council (worker integration)", () => {
 
       expect(response.status).toBe(404);
       expect(resolveSpy).not.toHaveBeenCalled();
+      expect(authRouteSpy).not.toHaveBeenCalled();
       expect(wsSpy).not.toHaveBeenCalled();
     }
   });
