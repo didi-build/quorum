@@ -33,6 +33,8 @@ describe("preview spa-routing", () => {
     expect(isGallerySpaPath("/gallery/")).toBe(true);
     expect(isGallerySpaPath("/gallery/status-chip")).toBe(true);
     expect(isGallerySpaPath("/app")).toBe(false);
+    expect(isGallerySpaPath("/gallery-x")).toBe(false);
+    expect(isGallerySpaPath("/gallery-x/foo")).toBe(false);
   });
 
   it("requires text/html Accept for shell fallback", () => {
@@ -103,6 +105,7 @@ describe("preview worker", () => {
     );
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("id=gallery-root");
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 
   it("serves the SPA shell for missing /app/* HTML navigations", async () => {

@@ -40,10 +40,12 @@ Mock-preview builds (`npm run build:frontend:mock-preview`) run `gallery:build` 
 
 ## PR gallery preview
 
-Same-repo pull requests run **Preview deploy** (`.github/workflows/preview.yml`), which uploads `frontend/dist-preview` (app at `/app/` plus gallery at `/gallery/`) via `wrangler versions upload` and `QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW`. The sticky PR comment links the app preview URL and `/gallery`. A **`gallery-preview`** GitHub Check is posted when the deploy probe passes.
+Same-repo pull requests run **Preview deploy** (`.github/workflows/preview.yml`), which uploads `frontend/dist-preview` (app at `/app/` plus gallery at `/gallery/`) via `wrangler versions upload` and `QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW`. The sticky PR comment links the app preview URL and `/gallery`. Fork pull requests skip Preview deploy gallery probe and the separate guards workflow.
 
-**Gallery preview** (`.github/workflows/gallery-preview.yml`) runs `npm run gallery:guards` on every pull request.
+The **`gallery-preview`** GitHub Check is posted from Preview deploy when credentials are configured: **success** after deploy and `/gallery/` probe pass, **neutral** when preview credentials are missing, **failure** when the probe fails or is skipped while credentials are set.
+
+**Gallery preview** (`.github/workflows/gallery-preview.yml`) runs `npm run gallery:guards` on same-repo pull requests only.
 
 On `workers.dev` preview aliases, Cloudflare may add `X-Robots-Tag: noindex` without `nofollow`; the gallery HTML includes `<meta name="robots" content="noindex, nofollow" />`, which CI probes on deployed previews.
 
-See [ADR 0011](./decisions/0011-component-gallery.md).
+See [ADR 0012](./decisions/0012-component-gallery.md).

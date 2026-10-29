@@ -177,7 +177,7 @@ jobs:
               },
             });
       - name: Gallery preview check (failed)
-        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome != 'success' }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
@@ -194,8 +194,8 @@ jobs:
                   'Deploy or the /gallery probe did not pass. See the Preview deploy workflow log for this pull request.',
               },
             });
-      - name: Fail if gallery probe failed
-        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome == 'failure' }}
+      - name: Fail if gallery probe did not succeed with creds
+        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome != 'success' }}
         run: exit 1
 
   screenshots:

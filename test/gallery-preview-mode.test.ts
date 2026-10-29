@@ -31,4 +31,24 @@ describe("resolveGalleryPreviewMode (unit)", () => {
       }),
     ).toBe("failed");
   });
+
+  it("returns failed when preview failed but probe succeeded", () => {
+    expect(
+      resolveGalleryPreviewMode({
+        credsReady: true,
+        previewOutcome: "failure",
+        probeOutcome: "success",
+      }),
+    ).toBe("failed");
+  });
+
+  it("returns failed when probe was skipped while creds are set", () => {
+    expect(
+      resolveGalleryPreviewMode({
+        credsReady: true,
+        previewOutcome: "success",
+        probeOutcome: "skipped",
+      }),
+    ).toBe("failed");
+  });
 });

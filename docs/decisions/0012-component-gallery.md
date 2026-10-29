@@ -1,4 +1,4 @@
-# 0011. Component gallery on mock-preview deploys
+# 0012. Component gallery on mock-preview deploys
 
 - **Status:** accepted
 - **Date:** 2026-10-29
