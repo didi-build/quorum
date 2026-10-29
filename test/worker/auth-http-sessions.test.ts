@@ -1,12 +1,15 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "../../src/config/index.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
+import * as browserSession from "../../src/domain/auth/browser-session.js";
 import { resetChatWebSocketRegistry } from "../../src/domain/auth/chat-ws-registry.js";
+import * as chatWsRegistry from "../../src/domain/auth/chat-ws-registry.js";
 import {
   createBrowserSession,
   hashSessionToken,
 } from "../../src/domain/auth/browser-session.js";
+import { clearSessionCookieHeader } from "../../src/domain/auth/cookies.js";
 import worker from "../../src/index";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 import { workerEnvWithSecrets } from "./test-env.js";
@@ -25,6 +28,10 @@ describe("HTTP session auth (worker integration)", () => {
   beforeEach(() => {
     resetBootstrapApiKeyGuard();
     resetChatWebSocketRegistry();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("returns 401 for /auth/me with expired session cookie", async () => {
@@ -77,6 +84,53 @@ describe("HTTP session auth (worker integration)", () => {
     expect(response.status).toBe(401);
   });
 
+  it("clears session cookie on 401 when GitHub id is no longer allowlisted", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 424242, "deny-http@example.com")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/auth/me", {
+        headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toContain(clearSessionCookieHeader(cfg));
+  });
+
+  it("does not clear session cookie on plain unauthenticated 401", async () => {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/auth/me"),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
+  it("does not clear session cookie on bad API key 401", async () => {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/chat/history", {
+        headers: { "X-API-Key": "not-a-valid-key" },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toEqual([]);
+  });
+
   it("POST /auth/logout closes open chat WebSockets for the session", async () => {
     const cfg = loadConfig(testEnv());
     const userId = crypto.randomUUID();
@@ -118,6 +172,53 @@ describe("HTTP session auth (worker integration)", () => {
     await waitOnExecutionContext(logoutCtx);
     expect(logoutResponse.status).toBe(204);
     expect(await closed).toBe(1000);
+  });
+
+  it("POST /auth/logout revokes the session row before chat WebSockets close", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 1, "ws-logout-order@example.com")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const callOrder: string[] = [];
+    const revokedAtWhenCloseStarted: Array<string | null> = [];
+    const { revokeBrowserSession: revokeOriginal } = browserSession;
+    const { closeChatWebSocketsForSession: closeOriginal } = chatWsRegistry;
+    vi.spyOn(browserSession, "revokeBrowserSession").mockImplementation(
+      async (db, token) => {
+        callOrder.push("revoke");
+        return revokeOriginal(db, token);
+      },
+    );
+    vi.spyOn(chatWsRegistry, "closeChatWebSocketsForSession").mockImplementation(
+      async (token) => {
+        callOrder.push("close");
+        const row = await env.DB.prepare(
+          "SELECT revoked_at FROM sessions WHERE user_id = ?",
+        )
+          .bind(userId)
+          .first<{ revoked_at: string | null }>();
+        revokedAtWhenCloseStarted.push(row?.revoked_at ?? null);
+        return closeOriginal(token);
+      },
+    );
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/auth/logout", {
+        method: "POST",
+        headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(204);
+    expect(callOrder).toEqual(["revoke", "close"]);
+    expect(revokedAtWhenCloseStarted).toHaveLength(1);
+    expect(revokedAtWhenCloseStarted[0]).not.toBeNull();
   });
 
   it("POST /auth/logout revokes the session row", async () => {
