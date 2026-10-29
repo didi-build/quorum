@@ -140,3 +140,59 @@ export async function markKnowledgeSourceQueuedForReindex(
   }
   return { row, indexingRunId };
 }
+
+export interface KnowledgeSourceReindexSnapshot {
+  status: SourceStatus;
+  status_message: string | null;
+  indexing_run_id: string | null;
+  indexing_run_files_committed: number | null;
+}
+
+export async function loadKnowledgeSourceReindexSnapshot(
+  db: D1Database,
+  sourceId: string,
+): Promise<KnowledgeSourceReindexSnapshot | null> {
+  return await db
+    .prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+    .bind(sourceId)
+    .first<KnowledgeSourceReindexSnapshot>();
+}
+
+export async function revertKnowledgeSourceAfterFailedRefreshEnqueue(
+  db: D1Database,
+  sourceId: string,
+  ownerUserId: string,
+  mintedRunId: string,
+  prior: KnowledgeSourceReindexSnapshot,
+): Promise<boolean> {
+  // Callers ignore the return value: false means a newer refresh owns the row.
+  const now = new Date().toISOString();
+  const result = await db
+    .prepare(
+      `UPDATE knowledge_sources
+       SET status = ?,
+           status_message = ?,
+           indexing_run_id = ?,
+           indexing_run_files_committed = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND user_id = ?
+         AND indexing_run_id = ?
+         AND status = 'pending'`,
+    )
+    .bind(
+      prior.status,
+      prior.status_message,
+      prior.indexing_run_id,
+      prior.indexing_run_files_committed,
+      now,
+      sourceId,
+      ownerUserId,
+      mintedRunId,
+    )
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}

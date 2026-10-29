@@ -13,16 +13,20 @@ import {
 } from "../domain/ingestion/pipeline.js";
 import { isFinalIndexingQueueAttempt } from "./indexing-queue-constants.js";
 
-async function markFinalIndexingError(db: D1Database, sourceId: string): Promise<void> {
+async function markFinalIndexingError(
+  db: D1Database,
+  message: IndexingQueueMessage,
+): Promise<void> {
   try {
     await markKnowledgeSourceIndexingError(
       db,
-      sourceId,
+      message.source_id,
       GENERIC_INDEXING_FAILURE_MESSAGE,
+      message.indexing_run_id ?? null,
     );
   } catch (error) {
     console.error("Indexing final error mark failed", {
-      source_id: sourceId,
+      source_id: message.source_id,
       ...indexingErrorLogFields(error),
     });
   }
@@ -40,7 +44,7 @@ async function handleMessageFailure(
   });
 
   if (isFinalIndexingQueueAttempt(message.attempts)) {
-    await markFinalIndexingError(env.DB, message.body.source_id);
+    await markFinalIndexingError(env.DB, message.body);
     message.ack();
   } else {
     message.retry();
@@ -68,13 +72,20 @@ export async function handleIndexingQueueBatch(
         env.VECTORIZE,
         config,
         message.body,
+        {},
+        { queueAttempt: message.attempts },
       );
       if (result.stale) {
         message.ack();
         continue;
       }
       if (result.continuation !== null) {
-        await env.INDEXING_QUEUE.send(result.continuation);
+        try {
+          await env.INDEXING_QUEUE.send(result.continuation);
+        } catch (error) {
+          await handleMessageFailure(message, env, error);
+          continue;
+        }
       }
       message.ack();
     } catch (error) {
@@ -84,7 +95,7 @@ export async function handleIndexingQueueBatch(
           attempt: message.attempts,
           ...indexingErrorLogFields(error),
         });
-        await markFinalIndexingError(env.DB, message.body.source_id);
+        await markFinalIndexingError(env.DB, message.body);
         message.ack();
         continue;
       }

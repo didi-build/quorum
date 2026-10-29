@@ -55,6 +55,7 @@ describe("indexing mutation guards (DIDI-933)", () => {
       env.DB,
       sourceId,
       GENERIC_INDEXING_FAILURE_MESSAGE,
+      null,
     );
 
     vi.restoreAllMocks();

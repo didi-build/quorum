@@ -54,6 +54,13 @@ export interface IndexKnowledgeSourceDeps {
   voyageFetch?: VoyageFetch;
   clearSourceIndex?: typeof clearSourceIndex;
   upsertChunkVectors?: UpsertChunkVectors;
+  /** Test seam: invoked after chunk rows are built, before the pre-vector run check. */
+  afterChunkRowsBuilt?: () => Promise<void>;
+}
+
+export interface IndexKnowledgeSourceOptions {
+  /** Cloudflare Queue delivery attempt (1 on first delivery). */
+  queueAttempt?: number;
 }
 
 interface KnowledgeSourceRow {
@@ -123,15 +130,38 @@ async function setIndexingRunFilesCommitted(
   sourceId: string,
   runId: string,
   filesCommitted: number,
+  expectedFilesCommitted: number | null,
 ): Promise<boolean> {
+  if (expectedFilesCommitted === null) {
+    const now = new Date().toISOString();
+    const result = await db
+      .prepare(
+        `UPDATE knowledge_sources
+         SET indexing_run_files_committed = ?, updated_at = ?
+         WHERE id = ? AND indexing_run_id = ?`,
+      )
+      .bind(filesCommitted, now, sourceId, runId)
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+  if (filesCommitted === expectedFilesCommitted) {
+    const row = await db
+      .prepare(
+        `SELECT indexing_run_files_committed FROM knowledge_sources
+         WHERE id = ? AND indexing_run_id = ? AND COALESCE(indexing_run_files_committed, 0) = ?`,
+      )
+      .bind(sourceId, runId, expectedFilesCommitted)
+      .first<{ indexing_run_files_committed: number | null }>();
+    return row !== null;
+  }
   const now = new Date().toISOString();
   const result = await db
     .prepare(
       `UPDATE knowledge_sources
        SET indexing_run_files_committed = ?, updated_at = ?
-       WHERE id = ? AND indexing_run_id = ?`,
+       WHERE id = ? AND indexing_run_id = ? AND COALESCE(indexing_run_files_committed, 0) = ?`,
     )
-    .bind(filesCommitted, now, sourceId, runId)
+    .bind(filesCommitted, now, sourceId, runId, expectedFilesCommitted)
     .run();
   return (result.meta.changes ?? 0) > 0;
 }
@@ -156,6 +186,53 @@ async function setSourceStatusForRun(
   return (result.meta.changes ?? 0) > 0;
 }
 
+async function sourceStillOnRun(
+  db: D1Database,
+  sourceId: string,
+  runId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT indexing_run_id FROM knowledge_sources WHERE id = ?`)
+    .bind(sourceId)
+    .first<{ indexing_run_id: string | null }>();
+  return row?.indexing_run_id === runId;
+}
+
+function progressCommitExpectedValue(message: IndexingQueueMessage): number | null {
+  return message.indexing_run_id != null ? (message.github_files_processed ?? 0) : null;
+}
+
+function tryResendContinuationAfterFailedSend(
+  source: KnowledgeSourceRow,
+  message: IndexingQueueMessage,
+  sourceId: string,
+  filesAlreadyProcessed: number,
+  queueAttempt: number,
+): IndexKnowledgeSourceResult | null {
+  if (queueAttempt <= 1) {
+    return null;
+  }
+  const progress = source.indexing_run_files_committed ?? 0;
+  const msgRun = message.indexing_run_id ?? null;
+  const srcRun = source.indexing_run_id ?? null;
+  if (
+    source.status === "indexing" &&
+    progress > filesAlreadyProcessed &&
+    msgRun !== null &&
+    srcRun !== null &&
+    msgRun === srcRun
+  ) {
+    return {
+      done: false,
+      continuation: withIndexingRunId(
+        { source_id: sourceId, github_files_processed: progress },
+        srcRun,
+      ),
+    };
+  }
+  return null;
+}
+
 async function setSourceStatus(
   db: D1Database,
   sourceId: string,
@@ -178,9 +255,14 @@ export async function markKnowledgeSourceIndexingError(
   db: D1Database,
   sourceId: string,
   statusMessage: string,
+  messageRunId?: string | null,
 ): Promise<void> {
   const source = await loadKnowledgeSource(db, sourceId);
   if (source === null) {
+    return;
+  }
+  if (messageRunId != null) {
+    await setSourceStatusForRun(db, sourceId, messageRunId, "error", statusMessage);
     return;
   }
   await setSourceStatus(db, sourceId, "error", statusMessage);
@@ -214,29 +296,52 @@ export async function upsertVectors(
   }
 }
 
-async function upsertChunkRow(
+async function upsertChunkRowForRun(
   db: D1Database,
   sourceId: string,
+  runId: string,
   chunk: {
     document_id: string;
     chunk_index: number;
     content: string;
     heading_hierarchy: string[];
   },
-): Promise<number> {
+): Promise<number | null> {
   const headingJson = JSON.stringify(chunk.heading_hierarchy);
-  await db
+  const upsertResult = await db
     .prepare(
       `INSERT INTO chunks (
         knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
-      ) VALUES (?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM knowledge_sources
+        WHERE id = ? AND indexing_run_id = ?
+      )
       ON CONFLICT(knowledge_source_id, document_id, chunk_index)
       DO UPDATE SET
         content = excluded.content,
-        heading_hierarchy = excluded.heading_hierarchy`,
+        heading_hierarchy = excluded.heading_hierarchy
+      WHERE EXISTS (
+        SELECT 1 FROM knowledge_sources
+        WHERE id = ? AND indexing_run_id = ?
+      )`,
     )
-    .bind(sourceId, chunk.document_id, chunk.chunk_index, chunk.content, headingJson)
+    .bind(
+      sourceId,
+      chunk.document_id,
+      chunk.chunk_index,
+      chunk.content,
+      headingJson,
+      sourceId,
+      runId,
+      sourceId,
+      runId,
+    )
     .run();
+  if ((upsertResult.meta.changes ?? 0) === 0) {
+    return null;
+  }
 
   const row = await db
     .prepare(
@@ -264,14 +369,27 @@ export async function indexKnowledgeSource(
   config: QuorumConfig,
   message: IndexingQueueMessage,
   deps: IndexKnowledgeSourceDeps = {},
+  options: IndexKnowledgeSourceOptions = {},
 ): Promise<IndexKnowledgeSourceResult> {
   const sourceId = message.source_id;
   const filesAlreadyProcessed = message.github_files_processed ?? 0;
   const isFreshRun = filesAlreadyProcessed === 0;
+  const queueAttempt = options.queueAttempt ?? 1;
 
   const source = await loadKnowledgeSource(db, sourceId);
   if (source === null) {
     return { done: true, continuation: null };
+  }
+
+  const resend = tryResendContinuationAfterFailedSend(
+    source,
+    message,
+    sourceId,
+    filesAlreadyProcessed,
+    queueAttempt,
+  );
+  if (resend !== null) {
+    return resend;
   }
 
   const claimResult = await ensureIndexingRunClaimed(
@@ -288,6 +406,7 @@ export async function indexKnowledgeSource(
     return { done: true, continuation: null, stale: true };
   }
   const runId = claimResult.runId;
+  const progressExpected = progressCommitExpectedValue(message);
 
   const connection = await getConnectionById(db, source.connection_id);
   if (connection === null) {
@@ -392,6 +511,7 @@ export async function indexKnowledgeSource(
         sourceId,
         runId,
         githubFilesProcessed,
+        progressExpected,
       );
       if (!progressUpdated) {
         return { done: true, continuation: null, stale: true };
@@ -423,13 +543,26 @@ export async function indexKnowledgeSource(
 
     for (let i = 0; i < flatChunks.length; i++) {
       const chunk = flatChunks[i];
-      const chunkRowid = await upsertChunkRow(db, sourceId, chunk);
+      const chunkRowid = await upsertChunkRowForRun(db, sourceId, runId, chunk);
+      if (chunkRowid === null) {
+        return { done: true, continuation: null, stale: true };
+      }
       vectorRows.push({
         chunk_rowid: chunkRowid,
         document_id: chunk.document_id,
         chunk_index: chunk.chunk_index,
         embedding: embeddings[i],
       });
+    }
+
+    if (deps.afterChunkRowsBuilt) {
+      await deps.afterChunkRowsBuilt();
+    }
+
+    // Best-effort guard: the run can advance between chunk writes and this read;
+    // vector upsert may briefly race a superseding run (see deploy runbook edge cases).
+    if (!(await sourceStillOnRun(db, sourceId, runId))) {
+      return { done: true, continuation: null, stale: true };
     }
 
     await upsertVectorsImpl(vectorize, sourceId, vectorRows);
@@ -440,6 +573,7 @@ export async function indexKnowledgeSource(
         sourceId,
         runId,
         githubFilesProcessed,
+        progressExpected,
       );
       if (!progressUpdated) {
         return { done: true, continuation: null, stale: true };
