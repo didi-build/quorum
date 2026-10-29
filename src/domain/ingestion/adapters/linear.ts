@@ -1,4 +1,5 @@
 import type { LinearFetch } from "../../oauth/linear.js";
+import { LINEAR_MAX_ISSUES_PER_RUN } from "../constants.js";
 import { IndexingHttpError } from "../errors.js";
 import type { FetchedDocument } from "./types.js";
 
@@ -66,6 +67,9 @@ export async function fetchLinearTeamDocuments(
 
     const issues = team.issues?.nodes ?? [];
     for (const issue of issues) {
+      if (documents.length >= LINEAR_MAX_ISSUES_PER_RUN) {
+        break;
+      }
       const description =
         typeof issue.description === "string" ? issue.description : "";
       const identifier = String(issue.identifier ?? "");
@@ -78,6 +82,10 @@ export async function fetchLinearTeamDocuments(
         document_id: String(issue.id),
         content,
       });
+    }
+
+    if (documents.length >= LINEAR_MAX_ISSUES_PER_RUN) {
+      break;
     }
 
     const pageInfo = team.issues?.pageInfo;

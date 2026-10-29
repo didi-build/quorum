@@ -1,10 +1,11 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeleteChunkVectors } from "../../src/domain/ingestion/delete-vectors.js";
 import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
 import { deleteKnowledgeSource } from "../../src/domain/knowledge-sources/delete.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000010";
+const WRONG_OWNER_ID = "00000000-0000-4000-8000-000000000011";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000020";
 const SOURCE_ID = "00000000-0000-4000-8000-000000000030";
 
@@ -79,9 +80,16 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
       .first<{ count: number }>();
     expect(ftsBefore?.count).toBe(1);
 
-    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
-      deleteChunkVectors: async () => {},
-    });
+    const deleted = await deleteKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      SOURCE_ID,
+      USER_ID,
+      {
+        deleteChunkVectors: async () => {},
+      },
+    );
+    expect(deleted).toBe(true);
 
     const sourceRow = await env.DB.prepare(
       `SELECT id FROM knowledge_sources WHERE id = ?`,
@@ -120,9 +128,16 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
       sourceExistedDuringVectors = row !== null;
     };
 
-    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
-      deleteChunkVectors: trackVectors,
-    });
+    const deleted = await deleteKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      SOURCE_ID,
+      USER_ID,
+      {
+        deleteChunkVectors: trackVectors,
+      },
+    );
+    expect(deleted).toBe(true);
 
     expect(vectorChunkIds).toEqual([vectorId]);
     expect(sourceExistedDuringVectors).toBe(true);
@@ -136,7 +151,7 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
     };
 
     await expect(
-      deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
+      deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, USER_ID, {
         deleteChunkVectors: failVectors,
       }),
     ).rejects.toThrow(/vector delete failed/);
@@ -154,25 +169,55 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
     expect(chunkRow).not.toBeNull();
   });
 
-  it("resolves when deleting twice or when the source id is missing", async () => {
+  it("returns false when owner user_id does not match without deleting rows", async () => {
+    const chunkId = await seedKnowledgeSourceWithChunk();
+    const deleteChunkVectors = vi.fn();
+
+    const deleted = await deleteKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      SOURCE_ID,
+      WRONG_OWNER_ID,
+      { deleteChunkVectors },
+    );
+    expect(deleted).toBe(false);
+    expect(deleteChunkVectors).not.toHaveBeenCalled();
+
+    const sourceRow = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first();
+    expect(sourceRow).not.toBeNull();
+
+    const chunkRow = await env.DB.prepare(`SELECT id FROM chunks WHERE id = ?`)
+      .bind(chunkId)
+      .first();
+    expect(chunkRow).not.toBeNull();
+  });
+
+  it("returns false when deleting twice or when the source id is missing", async () => {
     await seedKnowledgeSourceWithChunk();
 
-    await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
-      deleteChunkVectors: async () => {},
-    });
-    await expect(
-      deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, {
+    expect(
+      await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, USER_ID, {
         deleteChunkVectors: async () => {},
       }),
-    ).resolves.toBeUndefined();
+    ).toBe(true);
+    expect(
+      await deleteKnowledgeSource(env.DB, env.VECTORIZE, SOURCE_ID, USER_ID, {
+        deleteChunkVectors: async () => {},
+      }),
+    ).toBe(false);
 
-    await expect(
-      deleteKnowledgeSource(
+    expect(
+      await deleteKnowledgeSource(
         env.DB,
         env.VECTORIZE,
         "00000000-0000-4000-8000-000000009999",
+        USER_ID,
         { deleteChunkVectors: async () => {} },
       ),
-    ).resolves.toBeUndefined();
+    ).toBe(false);
   });
 });
