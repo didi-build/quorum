@@ -28,12 +28,43 @@ function parseJobPermissions(jobBlock: string): Record<string, string> {
     if (!line.startsWith("      ") || line.trim() === "") {
       break;
     }
-    const match = line.match(/^\s+(\w+):\s*(.+)$/);
+    const match = line.match(/^\s+([\w-]+):\s*(.+)$/);
     if (match) {
       perms[match[1]] = match[2].trim();
     }
   }
   return perms;
+}
+
+describe("parseJobPermissions (unit)", () => {
+  it("reads hyphenated GitHub Actions permission keys", () => {
+    const block = `
+    permissions:
+      contents: read
+      pull-requests: write
+`;
+    expect(parseJobPermissions(block)).toEqual({
+      contents: "read",
+      "pull-requests": "write",
+    });
+  });
+});
+
+function stepIfLine(jobBlock: string, stepName: string): string {
+  const lines = jobBlock.split("\n");
+  const nameIdx = lines.findIndex((line) => line.trim() === `- name: ${stepName}`);
+  if (nameIdx === -1) {
+    return "";
+  }
+  for (let i = nameIdx + 1; i < lines.length; i += 1) {
+    if (lines[i].trim().startsWith("- name:")) {
+      break;
+    }
+    if (lines[i].trim().startsWith("if:")) {
+      return lines[i];
+    }
+  }
+  return "";
 }
 
 function extractJobBlock(yaml: string, jobId: string): string {
@@ -236,10 +267,19 @@ jobs:
     );
     expect(galleryProbe).toContain("conclusion: 'neutral'");
     expect(galleryProbe).toContain("title: 'Gallery preview not configured'");
-    expect(galleryProbe).toContain("steps.probe.outcome != 'success'");
+    const failedCheckIf = stepIfLine(galleryProbe, "Gallery preview check (failed)");
+    const failJobIf = stepIfLine(
+      galleryProbe,
+      "Fail if gallery probe did not succeed with creds",
+    );
+    expect(failedCheckIf).toContain("steps.probe.outcome != 'success'");
+    expect(failJobIf).toContain("steps.probe.outcome != 'success'");
   });
 
-  it("locks gallery-preview.yml job permissions and same-repo guard", () => {
+  it("locks gallery-preview.yml triggers, top-level permissions, and job guard", () => {
+    expect(galleryWorkflow.trimStart()).toMatch(/^permissions: \{\}\r?\n/m);
+    expect(galleryWorkflow).toContain("pull_request:");
+    expect(galleryWorkflow).toContain("types: [opened, synchronize, reopened]");
     const guardsJob = extractJobBlock(galleryWorkflow, "gallery-guards");
     expect(parseJobPermissions(guardsJob)).toEqual({ contents: "read" });
     expect(guardsJob).toContain(

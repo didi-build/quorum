@@ -149,6 +149,13 @@ describe("runGalleryGuards (unit)", () => {
     }
   });
 
+  it("passes on a minimal valid fixture root", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root);
+    expect(runGalleryGuards(root)).toEqual([]);
+  });
+
   it("passes on the real repository layout", () => {
     expect(runGalleryGuards()).toEqual([]);
   });
@@ -157,10 +164,12 @@ describe("runGalleryGuards (unit)", () => {
     const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
     tempRoots.push(root);
     writeGalleryFixtureRoot(root, {
-      galleryWorkflow: `${MIN_GALLERY_WORKFLOW}\n      - run: npx wrangler deploy --config wrangler.gallery.jsonc`,
+      galleryWorkflow: `${MIN_GALLERY_WORKFLOW}\n      - run: npx wrangler deploy\n`,
     });
     const errors = runGalleryGuards(root);
-    expect(errors.some((e) => e.includes("must not run wrangler deploy"))).toBe(true);
+    expect(errors).toContain(
+      ".github/workflows/gallery-preview.yml must not run wrangler deploy.",
+    );
   });
 
   it("fails when a script runs wrangler deploy with wrangler.gallery.jsonc", () => {

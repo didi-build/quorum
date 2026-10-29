@@ -40,9 +40,9 @@ Mock-preview builds (`npm run build:frontend:mock-preview`) run `gallery:build` 
 
 ## PR gallery preview
 
-Same-repo pull requests run **Preview deploy** (`.github/workflows/preview.yml`), which uploads `frontend/dist-preview` (app at `/app/` plus gallery at `/gallery/`) via `wrangler versions upload` and `QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW`. The sticky PR comment links the app preview URL and `/gallery`. Fork pull requests skip Preview deploy gallery probe and the separate guards workflow.
+Same-repo pull requests run **Preview deploy** (`.github/workflows/preview.yml`), which uploads `frontend/dist-preview` (app at `/app/` plus gallery at `/gallery/`) via `wrangler versions upload` and `QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW`. The sticky PR comment links the app preview URL and `/gallery`. Fork pull requests skip Preview deploy and the Gallery preview guards workflow (same-repo guard on both).
 
-The **`gallery-preview`** GitHub Check is posted from Preview deploy when credentials are configured: **success** after deploy and `/gallery/` probe pass, **neutral** when preview credentials are missing, **failure** when the probe fails or is skipped while credentials are set.
+The **`gallery-preview`** GitHub Check is posted from the Preview deploy **gallery-probe** job on same-repo pull requests when preview credentials are configured: **success** after deploy and `/gallery/` probe pass, **neutral** when `QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW` or `QUORUM_CLOUDFLARE_ACCOUNT_ID` is missing, **failure** when credentials are set and the probe fails or is skipped.
 
 **Gallery preview** (`.github/workflows/gallery-preview.yml`) runs `npm run gallery:guards` on same-repo pull requests only.
 
