@@ -29,14 +29,15 @@ Created from [Launchpad](https://github.com/didi-build/launchpad) by Didi Build 
 | `.github/workflows/ci.yml`, `dependabot-automerge.yml`, `.github/dependabot.yml` | CI (`npm run check`), Dependabot config, and green Dependabot auto-merge                                  |
 | `.husky/`                                                                        | Fast pre-commit checks + secret scan                                                                      |
 
-## Indexing limits (GitHub)
+## Indexing limits (GitHub and Linear)
 
-The indexing queue consumer caps GitHub repo walks so a single invocation stays within Worker CPU and memory limits (see DIDI-775):
+The indexing queue consumer caps provider fetches so a single invocation stays within Worker CPU and memory limits (see DIDI-775 and DIDI-777):
 
 | Constant                         | Value   | Meaning                                              |
 | -------------------------------- | ------- | ---------------------------------------------------- |
 | `GITHUB_MAX_INDEX_FILES_PER_RUN` | 150     | Max text files fetched and indexed per queue message |
 | `GITHUB_MAX_FILE_BYTES`          | 512 KiB | Skip larger blobs                                    |
+| `LINEAR_MAX_ISSUES_PER_RUN`      | 150     | Max Linear issues fetched per team per queue message |
 
 When a repo has more eligible files than the per-run cap, the consumer enqueues a continuation message with `github_files_processed` until the tree is exhausted.
 
