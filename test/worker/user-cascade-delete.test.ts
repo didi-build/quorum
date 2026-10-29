@@ -1,5 +1,8 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DeleteChunkVectors } from "../../src/domain/ingestion/delete-vectors.js";
+import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
+import { deleteUserAccount } from "../../src/domain/users/delete-account.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000050";
 const SESSION_ID = "00000000-0000-4000-8000-000000000051";
@@ -114,5 +117,127 @@ describe("user delete cascade (integration, vitest-pool-workers)", () => {
     for (const row of counts) {
       expect(row?.c).toBe(0);
     }
+  });
+});
+
+async function seedUserWithIndexedSource(): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 50, 'vector-user')`,
+  )
+    .bind(USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO connections (
+        id, user_id, provider, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', 'acct', 'Account')`,
+  )
+    .bind(CONNECTION_ID, USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO knowledge_sources (
+        id, user_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, ?, 'github_repo', 'org/repo', ?, 'Repo', 'ready')`,
+  )
+    .bind(SOURCE_ID, USER_ID, CONNECTION_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, 'doc.md', 0, 'chunk', '[]')`,
+  )
+    .bind(SOURCE_ID)
+    .run();
+}
+
+describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
+  beforeEach(async () => {
+    await env.DB.prepare("DELETE FROM write_back_proposals").run();
+    await env.DB.prepare("DELETE FROM chat_messages").run();
+    await env.DB.prepare("DELETE FROM chunks").run();
+    await env.DB.prepare("DELETE FROM knowledge_sources").run();
+    await env.DB.prepare("DELETE FROM connections").run();
+    await env.DB.prepare("DELETE FROM sessions").run();
+    await env.DB.prepare("DELETE FROM api_keys").run();
+    await env.DB.prepare("DELETE FROM users").run();
+  });
+
+  it("calls deleteByIds for chunk vectors then removes the user and owned D1 rows", async () => {
+    await seedUserWithIndexedSource();
+    const expectedVectorId = await chunkVectorId(SOURCE_ID, "doc.md", 0);
+    const deletedVectorIds: string[] = [];
+    const vectorize = {
+      deleteByIds: vi.fn(async (ids: string[]) => {
+        deletedVectorIds.push(...ids);
+      }),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deletedVectorIds).toEqual([expectedVectorId]);
+    expect(vectorize.deleteByIds).toHaveBeenCalledOnce();
+
+    const userRow = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+      .bind(USER_ID)
+      .first();
+    expect(userRow).toBeNull();
+
+    const sourceRow = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first();
+    expect(sourceRow).toBeNull();
+  });
+
+  it("deletes vectors before D1 rows and leaves the user row when vector delete fails", async () => {
+    await seedUserWithIndexedSource();
+    let userExistedDuringVectors = false;
+
+    const trackVectors: DeleteChunkVectors = async () => {
+      const userRow = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+        .bind(USER_ID)
+        .first();
+      userExistedDuringVectors = userRow !== null;
+
+      const sourceRow = await env.DB.prepare(
+        `SELECT id FROM knowledge_sources WHERE id = ?`,
+      )
+        .bind(SOURCE_ID)
+        .first();
+      expect(sourceRow).not.toBeNull();
+    };
+
+    await deleteUserAccount(env.DB, env.VECTORIZE, USER_ID, {
+      deleteChunkVectors: trackVectors,
+    });
+
+    expect(userExistedDuringVectors).toBe(true);
+
+    const failVectors: DeleteChunkVectors = async () => {
+      throw new Error("vector delete failed");
+    };
+
+    await seedUserWithIndexedSource();
+
+    await expect(
+      deleteUserAccount(env.DB, env.VECTORIZE, USER_ID, {
+        deleteChunkVectors: failVectors,
+      }),
+    ).rejects.toThrow(/vector delete failed/);
+
+    const userAfterFailure = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+      .bind(USER_ID)
+      .first();
+    expect(userAfterFailure).not.toBeNull();
+
+    const sourceAfterFailure = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first();
+    expect(sourceAfterFailure).not.toBeNull();
   });
 });
