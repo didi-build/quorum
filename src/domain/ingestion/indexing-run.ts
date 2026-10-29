@@ -30,6 +30,9 @@ export function resolveIndexingRun(
       return { stale: false, runId, mustClaimRun: false };
     }
     if (msgRun !== null) {
+      if (source.status !== "indexing") {
+        return { stale: true, runId: null, mustClaimRun: false };
+      }
       return { stale: false, runId: msgRun, mustClaimRun: true };
     }
     if (source.status === "indexing") {
