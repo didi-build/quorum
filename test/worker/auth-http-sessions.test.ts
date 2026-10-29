@@ -7,6 +7,7 @@ import {
   createBrowserSession,
   hashSessionToken,
 } from "../../src/domain/auth/browser-session.js";
+import { clearSessionCookieHeader } from "../../src/domain/auth/cookies.js";
 import worker from "../../src/index";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 import { workerEnvWithSecrets } from "./test-env.js";
@@ -75,6 +76,27 @@ describe("HTTP session auth (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(401);
+  });
+
+  it("clears session cookie on 401 when GitHub id is no longer allowlisted", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 424242, "deny-http@example.com")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/auth/me", {
+        headers: { Cookie: `${cfg.sessionCookieName}=${rawToken}` },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(response.headers.getSetCookie()).toContain(clearSessionCookieHeader(cfg));
   });
 
   it("POST /auth/logout closes open chat WebSockets for the session", async () => {

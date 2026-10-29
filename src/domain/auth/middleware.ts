@@ -1,4 +1,6 @@
+import type { QuorumConfig } from "../../config/types.js";
 import { jsonDetail } from "../../http/api-error.js";
+import { clearSessionCookieHeader } from "./cookies.js";
 
 /** Public API paths (normalized, no trailing slash except root). v1 `PUBLIC_PATHS`. */
 export const PUBLIC_API_PATHS = new Set([
@@ -58,6 +60,14 @@ export function requiresAuthentication(pathname: string): boolean {
   return !isPublicApiPath(pathname);
 }
 
-export function notAuthenticatedResponse(): Response {
+export function notAuthenticatedResponse(
+  config?: QuorumConfig,
+  options?: { clearSessionCookie?: boolean },
+): Response {
+  if (options?.clearSessionCookie && config) {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    headers.append("Set-Cookie", clearSessionCookieHeader(config));
+    return Response.json({ detail: "Not authenticated" }, { status: 401, headers });
+  }
   return jsonDetail("Not authenticated", 401);
 }

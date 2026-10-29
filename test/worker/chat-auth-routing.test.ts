@@ -1,5 +1,7 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { loadConfig } from "../../src/config/index.js";
+import { createBrowserSession } from "../../src/domain/auth/browser-session.js";
 import { resetBootstrapApiKeyGuard } from "../../src/domain/auth/api-key.js";
 import worker from "../../src/index";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
@@ -71,6 +73,78 @@ describe("chat route auth routing (worker integration)", () => {
     const response = await worker.fetch(
       new Request("http://test/chat/ws", {
         headers: { Upgrade: "websocket" },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Not authenticated");
+  });
+
+  it("returns plain-text 401 from handleChatWebSocket for unauthenticated /chat/ws/", async () => {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/chat/ws/", {
+        headers: { Upgrade: "websocket" },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Not authenticated");
+  });
+
+  it("rejects /chat/ws with session cookie and missing Origin", async () => {
+    const cfg = loadConfig(testEnv());
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 1, "ws-origin-user@example.com")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/chat/ws", {
+        headers: {
+          Upgrade: "websocket",
+          Cookie: `${cfg.sessionCookieName}=${rawToken}`,
+        },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("Origin not allowed");
+  });
+
+  it("rejects non-allowlisted session at /chat/ws", async () => {
+    const cfg = loadConfig(
+      workerEnvWithSecrets({
+        ...env,
+        ...withTestConfigEnv({
+          APP_BASE_URL: "http://test",
+          WS_ALLOWED_ORIGINS: "http://test",
+          AUTH_ALLOWED_GITHUB_IDS: "1",
+        }),
+      }),
+    );
+    const userId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
+      .bind(userId, 424242, "deny-ws@example.com")
+      .run();
+    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/chat/ws", {
+        headers: {
+          Upgrade: "websocket",
+          Origin: "http://test",
+          Cookie: `${cfg.sessionCookieName}=${rawToken}`,
+        },
       }),
       testEnv(),
       ctx,
