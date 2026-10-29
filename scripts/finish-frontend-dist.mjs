@@ -13,6 +13,7 @@ import {
   MOCK_PREVIEW_HEADERS,
   MOCK_PREVIEW_REDIRECTS,
 } from "./lib/mock-preview-static.mjs";
+import { assertNoReservedWorkerPathShadowsInFrontendDist } from "./lib/frontend-dist-worker-route-guard.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distRel = process.env.FRONTEND_DIST ?? "frontend/dist";
@@ -60,4 +61,5 @@ if (mockPreview) {
   console.log(
     `finish-frontend-dist: SPA at ${distRel}/app/, landing at ${distRel}/index.html`,
   );
+  assertNoReservedWorkerPathShadowsInFrontendDist(dist);
 }

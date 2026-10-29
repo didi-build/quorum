@@ -160,8 +160,8 @@ export async function handleAuthRoute(
     const cookies = parseCookieHeader(request.headers.get("Cookie"));
     const rawToken = cookies.get(config.sessionCookieName);
     if (rawToken) {
-      await closeChatWebSocketsForSession(rawToken);
       await revokeBrowserSession(env.DB, rawToken);
+      await closeChatWebSocketsForSession(rawToken);
     }
     const headers = new Headers();
     headers.append("Set-Cookie", clearSessionCookieHeader(config));
