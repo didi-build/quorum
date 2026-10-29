@@ -68,6 +68,20 @@ describe("chat route auth routing (worker integration)", () => {
     });
   }
 
+  it("does not treat GET /chat/wsX as the chat WebSocket route", async () => {
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("http://test/chat/wsX", {
+        headers: { Upgrade: "websocket" },
+      }),
+      testEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual(MIDDLEWARE_JSON_401);
+  });
+
   it("returns plain-text 401 from handleChatWebSocket for unauthenticated /chat/ws", async () => {
     const ctx = createExecutionContext();
     const response = await worker.fetch(
