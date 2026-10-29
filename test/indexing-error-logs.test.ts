@@ -200,6 +200,9 @@ describe("indexing error logs", () => {
                     source_type: "github_repo",
                     external_ref: "owner/repo",
                     connection_id: connectionId,
+                    indexing_run_id: null,
+                    indexing_run_files_committed: null,
+                    status: "pending",
                   };
                 }
                 if (sql.includes("FROM connections")) {
@@ -212,31 +215,41 @@ describe("indexing error logs", () => {
                 }
                 return null;
               },
-              run: async () => ({}),
+              run: async () => ({ meta: { changes: 1 } }),
             };
           },
         };
       },
     } as unknown as D1Database;
 
-    await pipeline.indexKnowledgeSource(
-      db,
-      {} as VectorizeIndex,
-      config,
-      { source_id: SOURCE_ID },
-      {
-        fetchGithubRepoDocuments: async () => {
-          throw new FixtureIndexingError();
+    await expect(
+      pipeline.indexKnowledgeSource(
+        db,
+        {} as VectorizeIndex,
+        config,
+        { source_id: SOURCE_ID },
+        {
+          fetchGithubRepoDocuments: async () => {
+            throw new FixtureIndexingError();
+          },
         },
-      },
-    );
+      ),
+    ).rejects.toBeInstanceOf(FixtureIndexingError);
 
-    const pipelineLogs = errorSpy.mock.calls.filter((call) =>
-      String(call[0]).includes("Indexing failed for source"),
-    );
+    const pipelineLogs = errorSpy.mock.calls.filter((call) => {
+      const prefix = String(call[0]);
+      return (
+        prefix.includes("Indexing temporary failure") ||
+        prefix.includes("Indexing permanent failure")
+      );
+    });
     expect(pipelineLogs.length).toBeGreaterThan(0);
-    expect(String(pipelineLogs[0]?.[2])).toBe("FixtureIndexingError");
+    expect((pipelineLogs[0]?.[1] as { error: string }).error).toBe(
+      "FixtureIndexingError",
+    );
     assertNoLoggedErrorInstances(errorSpy.mock.calls);
-    assertIndexingErrorLogsSafe(pipelineLogs);
+    assertIndexingErrorLogsSafe(pipelineLogs, {
+      expectedNames: ["FixtureIndexingError"],
+    });
   });
 });

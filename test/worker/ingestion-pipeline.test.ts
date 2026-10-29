@@ -108,18 +108,23 @@ describe("indexKnowledgeSource (integration, vitest-pool-workers)", () => {
     expect(result.done).toBe(true);
 
     const source = await env.DB.prepare(
-      `SELECT status, status_message, last_indexed_at FROM knowledge_sources WHERE id = ?`,
+      `SELECT status, status_message, last_indexed_at, indexing_run_id
+       FROM knowledge_sources WHERE id = ?`,
     )
       .bind(SOURCE_ID)
       .first<{
         status: string;
         status_message: string | null;
         last_indexed_at: string | null;
+        indexing_run_id: string | null;
       }>();
 
     expect(source?.status).toBe("ready");
     expect(source?.status_message).toBeNull();
     expect(source?.last_indexed_at).not.toBeNull();
+    expect(source?.indexing_run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
 
     const chunkCount = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM chunks WHERE knowledge_source_id = ?`,
@@ -164,20 +169,54 @@ describe("indexKnowledgeSource (integration, vitest-pool-workers)", () => {
     expect(source?.status_message).toBe(RECONNECT_WORKSPACE_MESSAGE);
   });
 
-  it("sets generic message on other failures", async () => {
+  it("rethrows generic fetch errors without marking error", async () => {
     await seedGithubSource();
 
-    await indexKnowledgeSource(
-      env.DB,
-      env.VECTORIZE,
-      config,
-      { source_id: SOURCE_ID },
-      {
-        fetchGithubRepoDocuments: async () => {
-          throw new Error("provider timeout");
+    await expect(
+      indexKnowledgeSource(
+        env.DB,
+        env.VECTORIZE,
+        config,
+        { source_id: SOURCE_ID },
+        {
+          fetchGithubRepoDocuments: async () => {
+            throw new Error("provider timeout");
+          },
         },
-      },
-    );
+      ),
+    ).rejects.toThrow("provider timeout");
+
+    const source = await env.DB.prepare(
+      `SELECT status, status_message FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string; status_message: string | null }>();
+
+    expect(source?.status).toBe("indexing");
+    expect(source?.status_message).toBe("Indexing in progress");
+  });
+
+  it("marks error on missing GitHub installation id without retrying", async () => {
+    await seedGithubSource();
+    await env.DB.prepare(`UPDATE connections SET installation_id = NULL WHERE id = ?`)
+      .bind(CONNECTION_ID)
+      .run();
+
+    await expect(
+      indexKnowledgeSource(
+        env.DB,
+        env.VECTORIZE,
+        config,
+        { source_id: SOURCE_ID },
+        {
+          fetchGithubRepoDocuments: async () => ({
+            documents: [{ document_id: "README.md", content: "hello" }],
+            has_more: false,
+            files_processed: 1,
+          }),
+        },
+      ),
+    ).resolves.toMatchObject({ done: true });
 
     const source = await env.DB.prepare(
       `SELECT status, status_message FROM knowledge_sources WHERE id = ?`,

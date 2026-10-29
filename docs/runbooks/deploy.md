@@ -5,8 +5,9 @@
 ## Production Worker (`quorum`)
 
 1. CI green on the commit you deploy.
-2. **D1 `database_id` (committed config):** `wrangler.jsonc` keeps a placeholder `database_id` for `quorum-db`. Never commit the real Cloudflare id.
-3. **Before `wrangler deploy` or `wrangler d1 migrations apply` on production:** generate a deploy config in the repo root (for example `wrangler.ci.jsonc`, gitignored) using the prepare and guard scripts in this repo:
+2. **D1 migrations:** Apply pending D1 migrations to the target database **before** `wrangler deploy` in each environment (development, staging, production). Indexing and other Worker code expect the schema that matches the deployed commit. After migration 0003, queue messages without an `indexing_run_id` still run while a source is `indexing` with a null `indexing_run_id` (the consumer adopts a run id once). During the deploy window (DIDI-966), run-id-less continuations attach to the source's current run. If they arrive after the source is `ready`, they attach to that current run and continue indexing; committed progress can regress while status stays `ready`. Late **first** messages (no continuation offset) are **dropped** without clearing when a run finished (`ready` with a run id) or when a continuation already committed progress. Two edge cases to watch: an old run's run-id-less continuation can attach to a newer run and leave a partial index, and a late first message can re-clear a source whose `indexing_run_files_committed` is null. Workaround: re-index the affected source after the queue drains.
+3. **D1 `database_id` (committed config):** `wrangler.jsonc` keeps a placeholder `database_id` for `quorum-db`. Never commit the real Cloudflare id.
+4. **Before `wrangler deploy` or `wrangler d1 migrations apply` on production:** generate a deploy config in the repo root (for example `wrangler.ci.jsonc`, gitignored) using the prepare and guard scripts in this repo:
 
    ```bash
    node scripts/check-deploy-guards.mjs --target committed --config wrangler.jsonc
@@ -16,8 +17,8 @@
 
    Set environment variable **`QUORUM_D1_DATABASE_ID`** from the GitHub Actions secret of the same name in CI (never commit or log the value). Do not use a repository variable for the id (variables can appear in logs).
 
-4. **Production deploy workflow:** A separate privileged ticket will add the GitHub Actions pipeline; until then, maintainers run the steps above from a trusted process.
-5. Record where to watch logs and metrics.
+5. **Production deploy workflow:** A separate privileged ticket will add the GitHub Actions pipeline; until then, maintainers run the steps above from a trusted process.
+6. Record where to watch logs and metrics.
 
 ### One-time: Vectorize metadata index for retrieval
 
