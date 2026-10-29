@@ -436,6 +436,179 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(source?.indexing_run_files_committed).toBe(25);
   });
 
+  it("adopts a deploy-time continuation with no run id and does not clear", async () => {
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'keep.md', 0, 'stay', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    const clearSpy = vi.fn(async () => {});
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 10 },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "hello" }],
+          has_more: false,
+          files_processed: 11,
+        }),
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(result.stale).not.toBe(true);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const chunk = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'keep.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(chunk?.content).toBe("stay");
+  });
+
+  it("does not clear on an empty continuation batch when more files remain", async () => {
+    const runId = "00000000-0000-4000-8000-000000000046";
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET indexing_run_id = ? WHERE id = ?`,
+    )
+      .bind(runId, SOURCE_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'keep.md', 0, 'stay', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    const clearSpy = vi.fn(async () => {});
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 40, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: true,
+          files_processed: 50,
+        }),
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(result.continuation).not.toBeNull();
+    expect(clearSpy).not.toHaveBeenCalled();
+    const chunk = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'keep.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(chunk?.content).toBe("stay");
+  });
+
+  it("does not clear on an empty continuation batch that completes the walk", async () => {
+    const runId = "00000000-0000-4000-8000-000000000047";
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET indexing_run_id = ? WHERE id = ?`,
+    )
+      .bind(runId, SOURCE_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'keep.md', 0, 'stay', '[]')`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    const clearSpy = vi.fn(async () => {});
+
+    await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 40, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: false,
+          files_processed: 41,
+        }),
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(clearSpy).not.toHaveBeenCalled();
+    const chunk = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'keep.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(chunk?.content).toBe("stay");
+  });
+
+  it("returns stale when a superseded run cannot update progress or status", async () => {
+    const run1 = "00000000-0000-4000-8000-000000000048";
+    const run2 = "00000000-0000-4000-8000-000000000049";
+    await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 0, status = 'indexing'
+       WHERE id = ?`,
+    )
+      .bind(run2, SOURCE_ID)
+      .run();
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 20,
+        indexing_run_id: run1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: true,
+          files_processed: 30,
+        }),
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(result.continuation).toBeNull();
+
+    const source = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed, status
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_id: string;
+        indexing_run_files_committed: number | null;
+        status: string;
+      }>();
+    expect(source?.indexing_run_id).toBe(run2);
+    expect(source?.indexing_run_files_committed).toBe(0);
+    expect(source?.status).toBe("indexing");
+  });
+
   it("is idempotent when a continuation message is redelivered", async () => {
     await seedGithubSource("indexing");
     const runId = "00000000-0000-4000-8000-000000000043";

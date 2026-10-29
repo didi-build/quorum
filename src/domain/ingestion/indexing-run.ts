@@ -22,10 +22,21 @@ export function resolveIndexingRun(
   const progress = source.indexing_run_files_committed ?? 0;
 
   if (!isFreshRun) {
-    if (msgRun === null || srcRun === null || msgRun !== srcRun) {
+    if (msgRun !== null && srcRun !== null && msgRun !== srcRun) {
       return { stale: true, runId: null, mustClaimRun: false };
     }
-    return { stale: false, runId: srcRun, mustClaimRun: false };
+    if (srcRun !== null) {
+      const runId = msgRun ?? srcRun;
+      return { stale: false, runId, mustClaimRun: false };
+    }
+    if (msgRun !== null) {
+      return { stale: false, runId: msgRun, mustClaimRun: true };
+    }
+    if (source.status === "indexing") {
+      const runId = crypto.randomUUID();
+      return { stale: false, runId, mustClaimRun: true };
+    }
+    return { stale: true, runId: null, mustClaimRun: false };
   }
 
   if (msgRun !== null && srcRun !== null && msgRun !== srcRun) {

@@ -121,15 +121,39 @@ async function ensureIndexingRunClaimed(
 async function setIndexingRunFilesCommitted(
   db: D1Database,
   sourceId: string,
+  runId: string,
   filesCommitted: number,
-): Promise<void> {
+): Promise<boolean> {
   const now = new Date().toISOString();
-  await db
+  const result = await db
     .prepare(
-      `UPDATE knowledge_sources SET indexing_run_files_committed = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE knowledge_sources
+       SET indexing_run_files_committed = ?, updated_at = ?
+       WHERE id = ? AND indexing_run_id = ?`,
     )
-    .bind(filesCommitted, now, sourceId)
+    .bind(filesCommitted, now, sourceId, runId)
     .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+async function setSourceStatusForRun(
+  db: D1Database,
+  sourceId: string,
+  runId: string,
+  status: string,
+  statusMessage: string | null,
+  lastIndexedAt?: string | null,
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const result = await db
+    .prepare(
+      `UPDATE knowledge_sources
+       SET status = ?, status_message = ?, last_indexed_at = COALESCE(?, last_indexed_at), updated_at = ?
+       WHERE id = ? AND indexing_run_id = ?`,
+    )
+    .bind(status, statusMessage, lastIndexedAt ?? null, now, sourceId, runId)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 async function setSourceStatus(
@@ -267,7 +291,7 @@ export async function indexKnowledgeSource(
 
   const connection = await getConnectionById(db, source.connection_id);
   if (connection === null) {
-    await setSourceStatus(db, sourceId, "error", "Connection not found");
+    await setSourceStatusForRun(db, sourceId, runId, "error", "Connection not found");
     return { done: true, continuation: null };
   }
 
@@ -279,7 +303,16 @@ export async function indexKnowledgeSource(
   const voyageFetch = deps.voyageFetch ?? fetch;
 
   if (isFreshRun) {
-    await setSourceStatus(db, sourceId, "indexing", "Indexing in progress");
+    const indexingStarted = await setSourceStatusForRun(
+      db,
+      sourceId,
+      runId,
+      "indexing",
+      "Indexing in progress",
+    );
+    if (!indexingStarted) {
+      return { done: true, continuation: null, stale: true };
+    }
   }
 
   try {
@@ -336,7 +369,17 @@ export async function indexKnowledgeSource(
       }
       const now = new Date().toISOString();
       const messageText = isFreshRun ? "No indexable content found" : null;
-      await setSourceStatus(db, sourceId, "ready", messageText, now);
+      const readyUpdated = await setSourceStatusForRun(
+        db,
+        sourceId,
+        runId,
+        "ready",
+        messageText,
+        now,
+      );
+      if (!readyUpdated) {
+        return { done: true, continuation: null, stale: true };
+      }
       return { done: true, continuation: null };
     }
 
@@ -344,7 +387,15 @@ export async function indexKnowledgeSource(
       if (isFreshRun) {
         await clearIndex(db, vectorize, sourceId);
       }
-      await setIndexingRunFilesCommitted(db, sourceId, githubFilesProcessed);
+      const progressUpdated = await setIndexingRunFilesCommitted(
+        db,
+        sourceId,
+        runId,
+        githubFilesProcessed,
+      );
+      if (!progressUpdated) {
+        return { done: true, continuation: null, stale: true };
+      }
       return {
         done: false,
         continuation: withIndexingRunId(
@@ -384,7 +435,15 @@ export async function indexKnowledgeSource(
     await upsertVectorsImpl(vectorize, sourceId, vectorRows);
 
     if (githubHasMore) {
-      await setIndexingRunFilesCommitted(db, sourceId, githubFilesProcessed);
+      const progressUpdated = await setIndexingRunFilesCommitted(
+        db,
+        sourceId,
+        runId,
+        githubFilesProcessed,
+      );
+      if (!progressUpdated) {
+        return { done: true, continuation: null, stale: true };
+      }
       return {
         done: false,
         continuation: withIndexingRunId(
@@ -398,7 +457,17 @@ export async function indexKnowledgeSource(
     }
 
     const now = new Date().toISOString();
-    await setSourceStatus(db, sourceId, "ready", null, now);
+    const readyUpdated = await setSourceStatusForRun(
+      db,
+      sourceId,
+      runId,
+      "ready",
+      null,
+      now,
+    );
+    if (!readyUpdated) {
+      return { done: true, continuation: null, stale: true };
+    }
     return { done: true, continuation: null };
   } catch (error) {
     if (isIndexingTemporaryError(error)) {
@@ -412,7 +481,13 @@ export async function indexKnowledgeSource(
       source_id: sourceId,
       ...indexingErrorLogFields(error),
     });
-    await setSourceStatus(db, sourceId, "error", indexingErrorMessage(error));
+    await setSourceStatusForRun(
+      db,
+      sourceId,
+      runId,
+      "error",
+      indexingErrorMessage(error),
+    );
     return { done: true, continuation: null };
   }
 }

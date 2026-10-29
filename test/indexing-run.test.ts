@@ -15,6 +15,37 @@ describe("resolveIndexingRun", () => {
     );
   });
 
+  it("uses the source run id when a continuation omits run id", () => {
+    const runId = "00000000-0000-4000-8000-000000000008";
+    const result = resolveIndexingRun(
+      { source_id: "s1", github_files_processed: 10 },
+      {
+        indexing_run_id: runId,
+        indexing_run_files_committed: 10,
+        status: "indexing",
+      },
+      false,
+    );
+    expect(result).toEqual({ stale: false, runId, mustClaimRun: false });
+  });
+
+  it("adopts a continuation with no run id when the source run id is still null", () => {
+    const result = resolveIndexingRun(
+      { source_id: "s1", github_files_processed: 10 },
+      {
+        indexing_run_id: null,
+        indexing_run_files_committed: null,
+        status: "indexing",
+      },
+      false,
+    );
+    expect(result.stale).toBe(false);
+    expect(result.mustClaimRun).toBe(true);
+    expect(result.runId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it("drops continuation messages with a stale run id", () => {
     const result = resolveIndexingRun(
       {
