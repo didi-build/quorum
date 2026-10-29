@@ -10,7 +10,9 @@ import {
 } from "../../src/domain/auth/api-key.js";
 import { resetChatWebSocketRegistry } from "../../src/domain/auth/chat-ws-registry.js";
 import { createBrowserSession } from "../../src/domain/auth/browser-session.js";
+import { parseChatMessageIn } from "../../src/domain/chat/parse-inbound.js";
 import worker from "../../src/index";
+import * as chatWsPipelineModule from "../../src/routes/chat-ws-pipeline.js";
 import * as chatWsInbound from "../../src/routes/chat-ws-inbound.js";
 import { attachChatWsInboundHandler } from "../../src/routes/chat-ws-inbound.js";
 import {
@@ -22,11 +24,19 @@ import {
   chatWsRecheckDue,
   resetChatWsClockForTests,
 } from "../../src/routes/chat-ws-recheck.js";
+import * as chatWsRecheckModule from "../../src/routes/chat-ws-recheck.js";
 import type { ChatWsInboundDeps } from "../../src/routes/chat-ws-inbound.js";
 import type { ChatWsAuthRecheck } from "../../src/routes/chat-ws-recheck.js";
 import type { Env } from "../../src/env.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
 import { workerEnvWithSecrets } from "./test-env.js";
+import {
+  chatWsPayload,
+  mockChatClassifierGreeting,
+  TEST_CHAT_SESSION_ID,
+  ensureDefaultBootstrapUser,
+} from "./chat-test-helpers.js";
+import { actorContext } from "../../src/domain/schemas/actor.js";
 
 const ALLOWED_GITHUB_IDS = "1,999020,999021,999022,999023,999024,999025,999026,999027";
 
@@ -66,7 +76,7 @@ async function openSessionChatWebSocket(
 
 function sendAndWaitForEcho(
   ws: WebSocket,
-  payload: string,
+  content: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -81,7 +91,7 @@ function sendAndWaitForEcho(
       clearTimeout(timer);
       reject(event);
     });
-    ws.send(payload);
+    ws.send(chatWsPayload(content));
   });
 }
 
@@ -159,7 +169,11 @@ function attachChatWsInboundHandlerForCloseTest(
     if (handlerOptions.postRecheckClosedGuard && socketClosed) {
       return;
     }
-    await deps.deliverProbeEcho(server, text);
+    await deps.deliverTurn!(
+      { env: testEnv(), config: loadConfig(testEnv()), actor: actorContext("user") },
+      text,
+      new AbortController().signal,
+    );
   }
 
   async function drainQueue(): Promise<void> {
@@ -213,21 +227,34 @@ async function deliverCountDuringClientCloseWhileRecheckPending(
   server.accept();
   client.accept();
 
-  const deliverSpy = vi.spyOn(chatWsInbound, "deliverChatWsProbeEcho");
+  const deliverSpy = vi.fn().mockResolvedValue({
+    id: "00000000-0000-4000-8000-000000000099",
+    session_id: TEST_CHAT_SESSION_ID,
+    content: "ok",
+    classified_intent: "greeting",
+    response_kind: "direct_answer",
+    citations: [],
+    council_decision: null,
+  });
   const deps: ChatWsInboundDeps = {
     clock: { nowMs: () => Date.now() },
     recheckAuth: async () => recheckBlocked,
-    deliverProbeEcho: chatWsInbound.deliverChatWsProbeEcho,
+    deliverTurn: deliverSpy,
   };
   const authRecheck: ChatWsAuthRecheck = {
     sessionToken: "close-during-recheck",
     apiKey: null,
   };
+  const handlerContext = {
+    env: testEnv(),
+    config: loadConfig(testEnv()),
+    actor: actorContext("00000000-0000-4000-8000-000000000010"),
+  };
 
   const useProductionHandler =
     handlerOptions.postRecheckClosedGuard && handlerOptions.closeListenerClearsQueue;
   if (useProductionHandler) {
-    attachChatWsInboundHandler(server, testEnv(), authRecheck, deps);
+    attachChatWsInboundHandler(server, handlerContext, authRecheck, deps);
   } else {
     attachChatWsInboundHandlerForCloseTest(
       server,
@@ -239,8 +266,8 @@ async function deliverCountDuringClientCloseWhileRecheckPending(
   }
 
   vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-  client.send("in-flight");
-  client.send("queued");
+  client.send(chatWsPayload("in-flight"));
+  client.send(chatWsPayload("queued"));
 
   const serverClosed = new Promise<void>((resolve) => {
     server.addEventListener("close", () => resolve());
@@ -256,20 +283,18 @@ async function deliverCountDuringClientCloseWhileRecheckPending(
   return count;
 }
 
-function collectEchoStrings(ws: WebSocket, count: number): Promise<string[]> {
-  const echoes: string[] = [];
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error("websocket collect timeout")),
-      5000,
-    );
+function collectChatResponses(
+  ws: WebSocket,
+  count: number,
+): Promise<Array<{ content: string }>> {
+  const frames: Array<{ content: string }> = [];
+  return new Promise((resolve) => {
     const onMessage = (event: MessageEvent) => {
-      const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
-      echoes.push(frame.echo as string);
-      if (echoes.length >= count) {
-        clearTimeout(timer);
+      const frame = JSON.parse(String(event.data)) as { content: string };
+      frames.push(frame);
+      if (frames.length >= count) {
         ws.removeEventListener("message", onMessage);
-        resolve(echoes);
+        resolve(frames);
       }
     };
     ws.addEventListener("message", onMessage);
@@ -277,11 +302,13 @@ function collectEchoStrings(ws: WebSocket, count: number): Promise<string[]> {
 }
 
 describe("chat WebSocket session re-check (DIDI-889)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     resetBootstrapApiKeyGuard();
     resetChatWebSocketRegistry();
     resetChatWsClockForTests();
+    mockChatClassifierGreeting();
+    await ensureDefaultBootstrapUser(env.DB);
   });
 
   afterEach(() => {
@@ -310,7 +337,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     for (let i = 0; i < 5; i++) {
       const frame = await sendAndWaitForEcho(ws, `ping-${i}`);
-      expect(frame.authenticated).toBe(true);
+      expect(frame.classified_intent).toBe("greeting");
     }
     expect(resolveSpy).toHaveBeenCalledTimes(1);
 
@@ -350,19 +377,54 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
       .run();
     const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
 
+    const deliverEcho = vi.fn(
+      async (_ctx: chatWsPipelineModule.ChatWsTurnContext, raw: string) => {
+        const inbound = parseChatMessageIn(raw);
+        return {
+          id: crypto.randomUUID(),
+          session_id: inbound.session_id,
+          content: inbound.content,
+          classified_intent: "greeting" as const,
+          response_kind: "direct_answer" as const,
+          citations: [],
+          council_decision: null,
+        };
+      },
+    );
+    const originalAttach = attachChatWsInboundHandler;
+    vi.spyOn(chatWsInbound, "attachChatWsInboundHandler").mockImplementation(
+      (server, handlerContext, authRecheck, deps) => {
+        originalAttach(server, handlerContext, authRecheck, {
+          ...deps,
+          deliverTurn: deliverEcho,
+        });
+      },
+    );
+
+    let fakeNowMs = 0;
+    vi.spyOn(chatWsRecheckModule, "getChatWsClock").mockReturnValue({
+      nowMs: () => fakeNowMs,
+    });
+
     const resolveSpy = vi.spyOn(actorModule, "resolveWebSocketActor");
     const ws = await openSessionChatWebSocket(workerEnv, rawToken);
     expect(resolveSpy).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
+    fakeNowMs = CHAT_WS_SESSION_RECHECK_INTERVAL_MS;
+    vi.useRealTimers();
+
     const expected = Array.from({ length: 20 }, (_, i) => `burst-${i}`);
-    const collect = collectEchoStrings(ws, 20);
-    for (const payload of expected) {
-      ws.send(payload);
+    const collect = collectChatResponses(ws, 20);
+    for (const content of expected) {
+      ws.send(chatWsPayload(content));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    const echoes = await collect;
-    expect(echoes).toEqual(expected);
+    const frames = await collect;
+    expect(frames.map((frame) => frame.content)).toEqual(expected);
+    expect(frames).toHaveLength(20);
     expect(resolveSpy).toHaveBeenCalledTimes(2);
+    expect(deliverEcho).toHaveBeenCalledTimes(20);
+    vi.useFakeTimers();
   });
 
   it("runs one re-check for two messages in the same 30s window after the first interval", async () => {
@@ -384,39 +446,37 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
   });
 
   it("closes with 1008 and auth invalid reason on resolver errors and does not deliver", async () => {
-    const workerEnv = testEnv();
-    const cfg = loadConfig(workerEnv);
-    const userId = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
-      .bind(userId, 999021, "recheck-error")
-      .run();
-    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+    const deliverSpy = vi.fn();
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+    client.accept();
 
-    const deliverSpy = vi.spyOn(chatWsInbound, "deliverChatWsProbeEcho");
-    const originalResolve = actorModule.resolveWebSocketActor;
-    let resolveCallCount = 0;
-    vi.spyOn(actorModule, "resolveWebSocketActor").mockImplementation(
-      async (...args) => {
-        resolveCallCount += 1;
-        if (resolveCallCount === 1) {
-          return originalResolve(...args);
-        }
-        throw new Error("resolver unavailable");
+    attachChatWsInboundHandler(
+      server,
+      {
+        env: testEnv(),
+        config: loadConfig(testEnv()),
+        actor: actorContext("00000000-0000-4000-8000-000000000031"),
+      },
+      { sessionToken: "recheck-error-token", apiKey: null },
+      {
+        clock: { nowMs: () => Date.now() },
+        recheckAuth: async () => {
+          throw new Error("resolver unavailable");
+        },
+        deliverTurn: deliverSpy,
       },
     );
 
-    const ws = await openSessionChatWebSocket(workerEnv, rawToken);
-    const closed = waitForClose(ws);
-
+    const closed = waitForClose(client);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("should-not-echo");
+    client.send(chatWsPayload("should-not-echo"));
 
     const closeEvent = await closed;
     expect(closeEvent.code).toBe(CHAT_WS_AUTH_INVALID_CLOSE_CODE);
     expect(closeEvent.reason).toBe(CHAT_WS_AUTH_INVALID_CLOSE_REASON);
-    await vi.waitFor(() => {
-      expect(deliverSpy).not.toHaveBeenCalledWith(expect.anything(), "should-not-echo");
-    });
+    expect(deliverSpy).not.toHaveBeenCalled();
   });
 
   it("closes with 1008 when recheckAuth throws during re-check", async () => {
@@ -427,20 +487,23 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     attachChatWsInboundHandler(
       server,
-      testEnv(),
+      {
+        env: testEnv(),
+        config: loadConfig(testEnv()),
+        actor: actorContext("00000000-0000-4000-8000-000000000011"),
+      },
       { sessionToken: "inbound-test-token", apiKey: null },
       {
         clock: { nowMs: () => Date.now() },
         recheckAuth: async () => {
           throw new Error("recheck auth threw");
         },
-        deliverProbeEcho: chatWsInbound.deliverChatWsProbeEcho,
       },
     );
 
     const closed = waitForClose(client);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    client.send("after-recheck-throw");
+    client.send(chatWsPayload("after-recheck-throw"));
 
     const closeEvent = await closed;
     expect(closeEvent.code).toBe(CHAT_WS_AUTH_INVALID_CLOSE_CODE);
@@ -462,7 +525,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     });
     const closed = waitForClose(ws);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("after-config-fail");
+    ws.send(chatWsPayload("after-config-fail"));
 
     const closeEvent = await closed;
     expect(closeEvent.code).toBe(CHAT_WS_AUTH_INVALID_CLOSE_CODE);
@@ -487,7 +550,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     const closed = waitForClose(ws);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("after-revoke");
+    ws.send(chatWsPayload("after-revoke"));
 
     expect((await closed).code).toBe(1008);
   });
@@ -511,7 +574,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     const closed = waitForClose(ws);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("after-expire");
+    ws.send(chatWsPayload("after-expire"));
 
     expect((await closed).code).toBe(1008);
   });
@@ -528,7 +591,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     const ws = await openSessionChatWebSocket(handshakeEnv, rawToken);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
     const frame = await sendAndWaitForEcho(ws, "still-on-handshake-env");
-    expect(frame.echo).toBe("still-on-handshake-env");
+    expect(frame.classified_intent).toBe("greeting");
 
     const restrictedEnv = testEnv({ AUTH_ALLOWED_GITHUB_IDS: "1" });
     const blocked = new Request("http://test/chat/ws", {
@@ -566,8 +629,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
     const frame = await sendAndWaitForEcho(ws, "api-with-stale-cookie");
-    expect(frame.authenticated).toBe(true);
-    expect(frame.echo).toBe("api-with-stale-cookie");
+    expect(frame.classified_intent).toBe("greeting");
   });
 
   it("keeps echoing when the session stays valid across the re-check interval", async () => {
@@ -582,8 +644,7 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
     const ws = await openSessionChatWebSocket(workerEnv, rawToken);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
     const frame = await sendAndWaitForEcho(ws, "still-valid");
-    expect(frame.authenticated).toBe(true);
-    expect(frame.echo).toBe("still-valid");
+    expect(frame.classified_intent).toBe("greeting");
   });
 
   it("closes API-key WebSockets with 1008 when the key row is removed", async () => {
@@ -611,35 +672,39 @@ describe("chat WebSocket session re-check (DIDI-889)", () => {
 
     const closed = waitForClose(ws);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("after-key-delete");
+    ws.send(chatWsPayload("after-key-delete"));
 
     expect((await closed).code).toBe(1008);
   });
 
-  it("does not deliver probe echo after a failed re-check", async () => {
-    const workerEnv = testEnv();
-    const cfg = loadConfig(workerEnv);
-    const userId = crypto.randomUUID();
-    await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
-      .bind(userId, 999026, "recheck-no-process")
-      .run();
-    const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
+  it("does not deliver a chat turn after a failed re-check", async () => {
+    const deliverSpy = vi.fn();
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    server.accept();
+    client.accept();
 
-    const deliverSpy = vi.spyOn(chatWsInbound, "deliverChatWsProbeEcho");
-    const ws = await openSessionChatWebSocket(workerEnv, rawToken);
+    attachChatWsInboundHandler(
+      server,
+      {
+        env: testEnv(),
+        config: loadConfig(testEnv()),
+        actor: actorContext("00000000-0000-4000-8000-000000000032"),
+      },
+      { sessionToken: "recheck-no-process-token", apiKey: null },
+      {
+        clock: { nowMs: () => Date.now() },
+        recheckAuth: async () => false,
+        deliverTurn: deliverSpy,
+      },
+    );
 
-    await env.DB.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ?")
-      .bind(new Date().toISOString(), userId)
-      .run();
-
-    const closed = waitForClose(ws);
+    const closed = waitForClose(client);
     vi.advanceTimersByTime(CHAT_WS_SESSION_RECHECK_INTERVAL_MS);
-    ws.send("must-not-echo");
+    client.send(chatWsPayload("must-not-echo"));
 
     expect((await closed).code).toBe(1008);
-    await vi.waitFor(() => {
-      expect(deliverSpy).not.toHaveBeenCalledWith(expect.anything(), "must-not-echo");
-    });
+    expect(deliverSpy).not.toHaveBeenCalled();
   });
 
   it("does not deliver in-flight or queued frames when the client closes during a pending re-check", async () => {

@@ -9,9 +9,13 @@ import {
 } from "../../src/domain/auth/browser-session.js";
 import { ensureBootstrapApiKey } from "../../src/domain/auth/api-key.js";
 import worker from "../../src/index";
-import { CHAT_WS_PROBE_ECHO_MAX_BYTES } from "../../src/routes/chat-ws.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 import { withTestConfigEnv } from "../fixtures/config-env.js";
+import {
+  chatWsPayload,
+  mockChatClassifierGreeting,
+  TEST_CHAT_SESSION_ID,
+} from "./chat-test-helpers.js";
 
 const testEnv = () =>
   workerEnvWithSecrets({
@@ -27,6 +31,7 @@ describe("chat WebSocket auth (worker integration)", () => {
   beforeEach(() => {
     resetBootstrapApiKeyGuard();
     resetChatWebSocketRegistry();
+    mockChatClassifierGreeting();
   });
 
   it("accepts session cookie with allowed Origin", async () => {
@@ -137,7 +142,7 @@ describe("chat WebSocket auth (worker integration)", () => {
     expect(response.status).toBe(403);
   });
 
-  it("probe echo omits user_id and caps UTF-8 payload at 4096 bytes", async () => {
+  it("returns a ChatResponse frame for a greeting turn", async () => {
     const cfg = loadConfig(testEnv());
     const userId = crypto.randomUUID();
     await env.DB.prepare("INSERT INTO users (id, github_id, login) VALUES (?, ?, ?)")
@@ -160,7 +165,6 @@ describe("chat WebSocket auth (worker integration)", () => {
     expect(ws).toBeDefined();
     ws!.accept();
 
-    const overLimit = "a".repeat(CHAT_WS_PROBE_ECHO_MAX_BYTES - 3) + "😀extra";
     const frame = await new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("websocket message timeout")),
@@ -174,16 +178,14 @@ describe("chat WebSocket auth (worker integration)", () => {
         clearTimeout(timer);
         reject(event);
       });
-      ws!.send(overLimit);
+      ws!.send(chatWsPayload("Hello"));
     });
 
-    expect(frame.authenticated).toBe(true);
+    expect(frame.session_id).toBe(TEST_CHAT_SESSION_ID);
+    expect(frame.classified_intent).toBe("greeting");
+    expect(frame.response_kind).toBe("direct_answer");
+    expect(typeof frame.id).toBe("string");
     expect(frame).not.toHaveProperty("user_id");
-    expect(typeof frame.echo).toBe("string");
-    expect(
-      new TextEncoder().encode(frame.echo as string).byteLength,
-    ).toBeLessThanOrEqual(CHAT_WS_PROBE_ECHO_MAX_BYTES);
-    expect(frame.echo).toBe("a".repeat(CHAT_WS_PROBE_ECHO_MAX_BYTES - 3));
   });
 
   it("returns 403 for disallowed Origin before session auth lookup", async () => {

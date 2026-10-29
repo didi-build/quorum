@@ -33,4 +33,5 @@ export const FIXTURE_STUB_RESPONSE: ChatResponse = {
 export const FIXTURE_EMPTY_HISTORY: ChatHistoryResponse = {
   session_id: FIXTURE_SESSION_ID,
   messages: [],
+  next_cursor: null,
 };

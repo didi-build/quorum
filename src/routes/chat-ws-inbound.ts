@@ -1,15 +1,20 @@
+import type { QuorumConfig } from "../config/types.js";
+import type { ActorContext } from "../domain/schemas/actor.js";
 import type { Env } from "../env.js";
-import { truncateUtf8ToMaxBytes } from "../lib/utf8.js";
+import * as chatWsPipeline from "./chat-ws-pipeline.js";
+import { type ChatWsTurnContext } from "./chat-ws-pipeline.js";
 import {
   type ChatWsAuthRecheck,
   type ChatWsClock,
   chatWsRecheckDue,
 } from "./chat-ws-recheck.js";
-
-export const CHAT_WS_PROBE_ECHO_MAX_BYTES = 4096;
+import { isAbortError, type ProcessMessageInjections } from "../domain/chat/service.js";
 
 export const CHAT_WS_AUTH_INVALID_CLOSE_CODE = 1008;
 export const CHAT_WS_AUTH_INVALID_CLOSE_REASON = "auth invalid";
+export const CHAT_WS_QUEUE_FULL_CLOSE_REASON = "queue full";
+export const CHAT_WS_INBOUND_QUEUE_MAX = 16;
+export const CHAT_WS_INVALID_FRAME_CLOSE_CODE = 1007;
 
 export function closeChatWsAuthInvalid(server: WebSocket): void {
   try {
@@ -19,19 +24,37 @@ export function closeChatWsAuthInvalid(server: WebSocket): void {
   }
 }
 
-/** Probe echo after auth gating. Future server-initiated sends must use the same gate. */
-export async function deliverChatWsProbeEcho(
-  server: WebSocket,
-  text: string,
-): Promise<void> {
-  const echo = truncateUtf8ToMaxBytes(text, CHAT_WS_PROBE_ECHO_MAX_BYTES);
-  server.send(JSON.stringify({ authenticated: true, echo }));
+export function closeChatWsQueueFull(server: WebSocket): void {
+  try {
+    server.close(CHAT_WS_AUTH_INVALID_CLOSE_CODE, CHAT_WS_QUEUE_FULL_CLOSE_REASON);
+  } catch {
+    // ignore close errors on already-closed sockets
+  }
 }
+
+export function closeChatWsInvalidFrame(server: WebSocket): void {
+  try {
+    server.close(CHAT_WS_INVALID_FRAME_CLOSE_CODE);
+  } catch {
+    // ignore close errors on already-closed sockets
+  }
+}
+
+export type ChatWsHandlerContext = {
+  env: Env;
+  config: QuorumConfig;
+  actor: ActorContext;
+};
 
 export type ChatWsInboundDeps = {
   clock: ChatWsClock;
   recheckAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boolean>;
-  deliverProbeEcho(server: WebSocket, text: string): Promise<void>;
+  processMessageInjections?: ProcessMessageInjections;
+  deliverTurn?: (
+    ctx: ChatWsTurnContext,
+    rawInbound: string,
+    signal: AbortSignal,
+  ) => ReturnType<typeof chatWsPipeline.deliverChatWsTurn>;
 };
 
 function logChatWsInboundError(error: unknown): void {
@@ -40,19 +63,30 @@ function logChatWsInboundError(error: unknown): void {
 
 export function attachChatWsInboundHandler(
   server: WebSocket,
-  env: Env,
+  handlerContext: ChatWsHandlerContext,
   authRecheck: ChatWsAuthRecheck,
   deps: ChatWsInboundDeps,
 ): void {
+  const deliverTurn =
+    deps.deliverTurn ??
+    ((ctx, raw, signal) =>
+      chatWsPipeline.deliverChatWsTurn(
+        ctx,
+        raw,
+        signal,
+        deps.processMessageInjections,
+      ));
   let lastRecheckAtMs = deps.clock.nowMs();
   let recheckInFlight: Promise<boolean> | null = null;
   let socketClosed = false;
   const queue: string[] = [];
   let draining = false;
+  let activeAbort: AbortController | null = null;
 
   function markSocketClosedAndClearQueue(): void {
     socketClosed = true;
     queue.length = 0;
+    activeAbort?.abort();
   }
 
   async function runRecheckIfDue(nowMs: number): Promise<boolean> {
@@ -66,7 +100,7 @@ export function attachChatWsInboundHandler(
       try {
         let valid: boolean;
         try {
-          valid = await deps.recheckAuth(env, authRecheck);
+          valid = await deps.recheckAuth(handlerContext.env, authRecheck);
         } catch {
           return false;
         }
@@ -95,7 +129,38 @@ export function attachChatWsInboundHandler(
     if (socketClosed) {
       return;
     }
-    await deps.deliverProbeEcho(server, text);
+
+    const abortController = new AbortController();
+    activeAbort = abortController;
+    const turnContext: ChatWsTurnContext = {
+      env: handlerContext.env,
+      config: handlerContext.config,
+      actor: handlerContext.actor,
+    };
+
+    try {
+      const response = await deliverTurn(turnContext, text, abortController.signal);
+      if (socketClosed) {
+        return;
+      }
+      server.send(JSON.stringify(response));
+    } catch (error) {
+      if (isAbortError(error) || socketClosed) {
+        return;
+      }
+      if (chatWsPipeline.isChatInboundParseError(error)) {
+        markSocketClosedAndClearQueue();
+        closeChatWsInvalidFrame(server);
+        return;
+      }
+      logChatWsInboundError(error);
+      markSocketClosedAndClearQueue();
+      chatWsPipeline.closeChatWsInternalError(server);
+    } finally {
+      if (activeAbort === abortController) {
+        activeAbort = null;
+      }
+    }
   }
 
   async function drainQueue(): Promise<void> {
@@ -126,6 +191,11 @@ export function attachChatWsInboundHandler(
         return;
       }
       if (socketClosed) {
+        return;
+      }
+      if (queue.length >= CHAT_WS_INBOUND_QUEUE_MAX) {
+        markSocketClosedAndClearQueue();
+        closeChatWsQueueFull(server);
         return;
       }
       queue.push(event.data);

@@ -4,17 +4,14 @@ import { registerChatWebSocket } from "../domain/auth/chat-ws-registry.js";
 import { resolveWebSocketActor, websocketOriginAllowed } from "../domain/auth/actor.js";
 import { parseCookieHeader } from "../domain/auth/cookies.js";
 import type { Env } from "../env.js";
-import {
-  attachChatWsInboundHandler,
-  deliverChatWsProbeEcho,
-} from "./chat-ws-inbound.js";
+import { attachChatWsInboundHandler } from "./chat-ws-inbound.js";
 import {
   buildChatWsAuthRecheckRequest,
   getChatWsClock,
   type ChatWsAuthRecheck,
 } from "./chat-ws-recheck.js";
 
-export { CHAT_WS_PROBE_ECHO_MAX_BYTES } from "./chat-ws-inbound.js";
+export { CHAT_WS_AUTH_INVALID_CLOSE_CODE } from "./chat-ws-inbound.js";
 
 async function recheckChatWsAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boolean> {
   let config: QuorumConfig;
@@ -33,8 +30,7 @@ async function recheckChatWsAuth(env: Env, auth: ChatWsAuthRecheck): Promise<boo
 }
 
 /**
- * Minimal chat WebSocket endpoint for auth gating (full chat pipeline is a separate ticket).
- * Accepts authenticated clients and echoes a single auth probe frame per inbound message.
+ * Chat WebSocket endpoint: auth gating, session recheck, and chat turn pipeline.
  */
 export async function handleChatWebSocket(
   request: Request,
@@ -70,10 +66,9 @@ export async function handleChatWebSocket(
     await registerChatWebSocket(sessionToken, server);
   }
 
-  attachChatWsInboundHandler(server, env, authRecheck, {
+  attachChatWsInboundHandler(server, { env, config, actor }, authRecheck, {
     clock: getChatWsClock(),
     recheckAuth: recheckChatWsAuth,
-    deliverProbeEcho: deliverChatWsProbeEcho,
   });
 
   return new Response(null, { status: 101, webSocket: client });

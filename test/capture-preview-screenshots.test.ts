@@ -45,7 +45,10 @@ describe("capture-preview-screenshots (integration)", () => {
     });
 
     const screenshotEnv = (outDir: string) => {
-      const env = { ...process.env, PREVIEW_SCREENSHOTS_DIR: outDir };
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        PREVIEW_SCREENSHOTS_DIR: outDir,
+      };
       delete env.PREVIEW_BASE_URL;
       return env;
     };

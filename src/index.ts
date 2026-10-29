@@ -17,6 +17,7 @@ import { purgeExpiredSessions } from "./jobs/session-purge.js";
 import type { IndexingQueueMessage } from "./domain/ingestion/indexing-message.js";
 import { jsonDetail, workerErrorResponse } from "./http/api-error.js";
 import { handleAuthRoute } from "./routes/auth.js";
+import { handleChatHistoryRoute } from "./routes/chat-history.js";
 import { handleChatWebSocket } from "./routes/chat-ws.js";
 import { handleConnectionsRoute } from "./routes/connections.js";
 import { handleHealth, handleReady } from "./routes/health.js";
@@ -107,6 +108,17 @@ async function handleProtectedApi(
   );
   if (retrievalResponse !== null) {
     return retrievalResponse;
+  }
+
+  const chatHistoryResponse = await handleChatHistoryRoute(
+    request,
+    env,
+    config,
+    pathname,
+    actor,
+  );
+  if (chatHistoryResponse !== null) {
+    return chatHistoryResponse;
   }
 
   if (isApiPath(pathname)) {
