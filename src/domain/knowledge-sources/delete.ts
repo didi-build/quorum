@@ -9,16 +9,25 @@ export type DeleteKnowledgeSourceOptions = {
 };
 
 /**
- * Deletes a knowledge source: Vectorize vectors first (hashed namespaced ids), then the D1 row
- * (chunks and FTS rows cascade). Vector-first ordering allows retry if Vectorize fails.
+ * Deletes a knowledge source owned by ownerUserId: Vectorize vectors first (hashed namespaced ids),
+ * then the D1 row (chunks and FTS rows cascade). Returns false when no row matched id and user_id.
  */
 export async function deleteKnowledgeSource(
   db: D1Database,
   vectorize: VectorizeIndex,
   knowledgeSourceId: string,
+  ownerUserId: string,
   options: DeleteKnowledgeSourceOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const removeVectors = options.deleteChunkVectors ?? deleteChunkVectors;
+
+  const owned = await db
+    .prepare(`SELECT id FROM knowledge_sources WHERE id = ? AND user_id = ?`)
+    .bind(knowledgeSourceId, ownerUserId)
+    .first<{ id: string }>();
+  if (owned === null) {
+    return false;
+  }
 
   const chunkRows = await db
     .prepare(
@@ -35,8 +44,10 @@ export async function deleteKnowledgeSource(
     await removeVectors(vectorize, vectorIds);
   }
 
-  await db
-    .prepare("DELETE FROM knowledge_sources WHERE id = ?")
-    .bind(knowledgeSourceId)
+  const result = await db
+    .prepare("DELETE FROM knowledge_sources WHERE id = ? AND user_id = ?")
+    .bind(knowledgeSourceId, ownerUserId)
     .run();
+
+  return result.meta.changes > 0;
 }
