@@ -8,6 +8,11 @@ const USER_ID = "00000000-0000-4000-8000-000000000050";
 const SESSION_ID = "00000000-0000-4000-8000-000000000051";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000052";
 const SOURCE_ID = "00000000-0000-4000-8000-000000000053";
+const SOURCE_ID_B = "00000000-0000-4000-8000-000000000058";
+const OWNERLESS_SOURCE_ID = "00000000-0000-4000-8000-000000000059";
+const OTHER_USER_ID = "00000000-0000-4000-8000-000000000060";
+const OTHER_CONNECTION_ID = "00000000-0000-4000-8000-000000000061";
+const OTHER_SOURCE_ID = "00000000-0000-4000-8000-000000000062";
 const CHAT_ID = "00000000-0000-4000-8000-000000000054";
 const CHAT_SESSION_ID = "00000000-0000-4000-8000-000000000055";
 const PROPOSAL_ID = "00000000-0000-4000-8000-000000000056";
@@ -152,6 +157,118 @@ async function seedUserWithIndexedSource(): Promise<void> {
     .run();
 }
 
+async function seedOtherUserWithIndexedSource(): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 60, 'other-vector-user')`,
+  )
+    .bind(OTHER_USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO connections (
+        id, user_id, provider, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', 'other-acct', 'Other')`,
+  )
+    .bind(OTHER_CONNECTION_ID, OTHER_USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO knowledge_sources (
+        id, user_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, ?, 'github_repo', 'other/org', ?, 'Other repo', 'ready')`,
+  )
+    .bind(OTHER_SOURCE_ID, OTHER_USER_ID, OTHER_CONNECTION_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, 'other-doc.md', 0, 'other chunk', '[]')`,
+  )
+    .bind(OTHER_SOURCE_ID)
+    .run();
+}
+
+async function seedUserWithTwoIndexedSources(): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 50, 'multi-source-user')`,
+  )
+    .bind(USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO connections (
+        id, user_id, provider, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', 'acct', 'Account')`,
+  )
+    .bind(CONNECTION_ID, USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO knowledge_sources (
+        id, user_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, ?, 'github_repo', 'org/repo-a', ?, 'Repo A', 'ready')`,
+  )
+    .bind(SOURCE_ID, USER_ID, CONNECTION_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO knowledge_sources (
+        id, user_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, ?, 'github_repo', 'org/repo-b', ?, 'Repo B', 'ready')`,
+  )
+    .bind(SOURCE_ID_B, USER_ID, CONNECTION_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, 'doc-a.md', 0, 'chunk a', '[]')`,
+  )
+    .bind(SOURCE_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, 'doc-b.md', 0, 'chunk b', '[]')`,
+  )
+    .bind(SOURCE_ID_B)
+    .run();
+}
+
+async function seedUserWithOwnerlessConnectionSource(): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 50, 'ownerless-source-user')`,
+  )
+    .bind(USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO connections (
+        id, user_id, provider, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', 'acct', 'Account')`,
+  )
+    .bind(CONNECTION_ID, USER_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO knowledge_sources (
+        id, user_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, NULL, 'github_repo', 'org/shared', ?, 'Shared', 'ready')`,
+  )
+    .bind(OWNERLESS_SOURCE_ID, CONNECTION_ID)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, 'shared.md', 0, 'shared chunk', '[]')`,
+  )
+    .bind(OWNERLESS_SOURCE_ID)
+    .run();
+}
+
 describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
   beforeEach(async () => {
     await env.DB.prepare("DELETE FROM write_back_proposals").run();
@@ -239,5 +356,83 @@ describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
       .bind(SOURCE_ID)
       .first();
     expect(sourceAfterFailure).not.toBeNull();
+  });
+
+  it("does not delete another user's vectors or D1 rows", async () => {
+    await seedUserWithIndexedSource();
+    await seedOtherUserWithIndexedSource();
+
+    const targetVectorId = await chunkVectorId(SOURCE_ID, "doc.md", 0);
+    const otherVectorId = await chunkVectorId(OTHER_SOURCE_ID, "other-doc.md", 0);
+    const deletedVectorIds: string[] = [];
+    const vectorize = {
+      deleteByIds: vi.fn(async (ids: string[]) => {
+        deletedVectorIds.push(...ids);
+      }),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deletedVectorIds).toEqual([targetVectorId]);
+    expect(deletedVectorIds).not.toContain(otherVectorId);
+
+    const otherUser = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+      .bind(OTHER_USER_ID)
+      .first();
+    expect(otherUser).not.toBeNull();
+
+    const otherSource = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OTHER_SOURCE_ID)
+      .first();
+    expect(otherSource).not.toBeNull();
+
+    const otherChunk = await env.DB.prepare(
+      `SELECT id FROM chunks WHERE knowledge_source_id = ?`,
+    )
+      .bind(OTHER_SOURCE_ID)
+      .first();
+    expect(otherChunk).not.toBeNull();
+  });
+
+  it("deleteByIds receives vector ids for every knowledge source on the account", async () => {
+    await seedUserWithTwoIndexedSources();
+
+    const vectorIdA = await chunkVectorId(SOURCE_ID, "doc-a.md", 0);
+    const vectorIdB = await chunkVectorId(SOURCE_ID_B, "doc-b.md", 0);
+    const deletedVectorIds: string[] = [];
+    const vectorize = {
+      deleteByIds: vi.fn(async (ids: string[]) => {
+        deletedVectorIds.push(...ids);
+      }),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deletedVectorIds.sort()).toEqual([vectorIdA, vectorIdB].sort());
+  });
+
+  it("deletes vectors for connection-scoped sources when user_id is null", async () => {
+    await seedUserWithOwnerlessConnectionSource();
+
+    const ownerlessVectorId = await chunkVectorId(OWNERLESS_SOURCE_ID, "shared.md", 0);
+    const deletedVectorIds: string[] = [];
+    const vectorize = {
+      deleteByIds: vi.fn(async (ids: string[]) => {
+        deletedVectorIds.push(...ids);
+      }),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deletedVectorIds).toEqual([ownerlessVectorId]);
+
+    const ownerlessSource = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNERLESS_SOURCE_ID)
+      .first();
+    expect(ownerlessSource).toBeNull();
   });
 });

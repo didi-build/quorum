@@ -17,8 +17,12 @@ export async function deleteUserAccount(
   options: DeleteUserAccountOptions = {},
 ): Promise<void> {
   const sourceRows = await db
-    .prepare(`SELECT id FROM knowledge_sources WHERE user_id = ?`)
-    .bind(userId)
+    .prepare(
+      `SELECT id FROM knowledge_sources
+       WHERE user_id = ?
+          OR connection_id IN (SELECT id FROM connections WHERE user_id = ?)`,
+    )
+    .bind(userId, userId)
     .all<{ id: string }>();
 
   for (const row of sourceRows.results ?? []) {
