@@ -101,4 +101,41 @@ describe("markKnowledgeSourceQueuedForReindex (integration, vitest-pool-workers)
     expect(row?.status).toBe("ready");
     expect(row?.status_message).toBeNull();
   });
+
+  it("mints a new indexing_run_id and resets committed progress for the owner", async () => {
+    await seedOwnedReadySource();
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 40
+       WHERE id = ?`,
+    )
+      .bind("00000000-0000-4000-8000-000000000099", OWNED_SOURCE_ID)
+      .run();
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+    expect(queued?.indexingRunId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    const row = await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first<{
+        status: string;
+        status_message: string | null;
+        indexing_run_id: string;
+        indexing_run_files_committed: number | null;
+      }>();
+    expect(row?.status).toBe("pending");
+    expect(row?.status_message).toBe("Queued for re-indexing");
+    expect(row?.indexing_run_id).toBe(queued?.indexingRunId);
+    expect(row?.indexing_run_files_committed).toBe(0);
+  });
 });

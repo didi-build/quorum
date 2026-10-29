@@ -10,6 +10,7 @@ import {
   upsertVectors,
 } from "../../src/domain/ingestion/pipeline.js";
 import { loadConfig } from "../../src/config/load-config.js";
+import { markKnowledgeSourceQueuedForReindex } from "../../src/domain/db/knowledge-sources.js";
 import { workerEnvWithSecrets } from "./test-env.js";
 
 const USER_ID = "00000000-0000-4000-8000-000000000010";
@@ -1076,4 +1077,539 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       .first<{ c: number }>();
     expect(count?.c).toBe(expectedChunks);
   });
+
+  async function completeGithubIndexInOneBatch(
+    message: Parameters<typeof indexKnowledgeSource>[3],
+  ): Promise<Awaited<ReturnType<typeof indexKnowledgeSource>>> {
+    return indexKnowledgeSource(env.DB, env.VECTORIZE, config, message, {
+      fetchGithubRepoDocuments: async () => ({
+        documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+        has_more: false,
+        files_processed: 1,
+      }),
+      voyageFetch: mockVoyageFetch(),
+      upsertChunkVectors: async () => {},
+    });
+  }
+
+  it("DIDI-980: refresh completes when the prior run final leg is processed first", async () => {
+    await seedIndexingWithRun(RUN1, 25);
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const refreshRunId = queued!.indexingRunId;
+
+    let oldLegFetchCalled = false;
+    const oldFinal = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 25,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          oldLegFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "stale" }],
+            has_more: false,
+            files_processed: 26,
+          };
+        },
+        voyageFetch: mockVoyageFetch(),
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(oldFinal.stale).toBe(true);
+    expect(oldLegFetchCalled).toBe(false);
+
+    const afterOldLeg = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterOldLeg?.indexing_run_id).toBe(refreshRunId);
+    expect(afterOldLeg?.status).toBe("pending");
+
+    const refreshResult = await completeGithubIndexInOneBatch({
+      source_id: SOURCE_ID,
+      indexing_run_id: refreshRunId,
+    });
+    expect(refreshResult.stale).not.toBe(true);
+    expect(refreshResult.continuation).toBeNull();
+
+    const afterRefresh = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterRefresh?.indexing_run_id).toBe(refreshRunId);
+    expect(afterRefresh?.status).toBe("ready");
+  });
+
+  it("DIDI-980: refresh completes when its first message arrives before the prior final leg", async () => {
+    await seedIndexingWithRun(RUN1, 25);
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const refreshRunId = queued!.indexingRunId;
+
+    const refreshResult = await completeGithubIndexInOneBatch({
+      source_id: SOURCE_ID,
+      indexing_run_id: refreshRunId,
+    });
+    expect(refreshResult.stale).not.toBe(true);
+
+    let oldLegFetchCalled = false;
+    const oldFinal = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 25,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          oldLegFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "stale" }],
+            has_more: false,
+            files_processed: 26,
+          };
+        },
+      },
+    );
+
+    expect(oldFinal.stale).toBe(true);
+    expect(oldLegFetchCalled).toBe(false);
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(row?.indexing_run_id).toBe(refreshRunId);
+    expect(row?.status).toBe("ready");
+  });
+
+  it("DIDI-980: legacy source_id-only first message still indexes on pending", async () => {
+    await seedGithubSource("pending");
+
+    const result = await completeGithubIndexInOneBatch({ source_id: SOURCE_ID });
+
+    expect(result.stale).not.toBe(true);
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string | null }>();
+    expect(row?.status).toBe("ready");
+    expect(row?.indexing_run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+  });
+
+  it("drops a redelivered refresh first message after the run is ready without re-clearing", async () => {
+    await seedGithubSource("ready");
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runId = queued!.indexingRunId;
+
+    await completeGithubIndexInOneBatch({
+      source_id: SOURCE_ID,
+      indexing_run_id: runId,
+    });
+
+    const clearSpy = vi.fn(async () => {});
+    let fetchCalled = false;
+
+    const duplicate = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "again" }],
+            has_more: false,
+            files_processed: 1,
+          };
+        },
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(duplicate.stale).toBe(true);
+    expect(fetchCalled).toBe(false);
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it("drops a redelivered refresh first message mid-run at progress 25 without clearing or forking", async () => {
+    await seedGithubSource("pending");
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runId = queued!.indexingRunId;
+
+    const clearSpy = vi.fn(async () => {});
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    const first = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: documentContent }],
+          has_more: true,
+          files_processed: 25,
+        }),
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(first.stale).not.toBe(true);
+    expect(first.continuation?.indexing_run_id).toBe(runId);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+    clearSpy.mockClear();
+
+    let redeliveryFetchCalled = false;
+    const redelivery = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => {
+          redeliveryFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "fork" }],
+            has_more: false,
+            files_processed: 1,
+          };
+        },
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(redelivery.stale).toBe(true);
+    expect(redelivery.continuation).toBeNull();
+    expect(redeliveryFetchCalled).toBe(false);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_files_committed, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_files_committed: number | null; status: string }>();
+    expect(row?.indexing_run_files_committed).toBe(25);
+    expect(row?.status).toBe("indexing");
+  });
+
+  it("double refresh clears the index once and the latest run reaches ready", async () => {
+    await seedGithubSource("ready");
+    const firstRefresh = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    const runB = firstRefresh!.indexingRunId;
+    const secondRefresh = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    const runC = secondRefresh!.indexingRunId;
+
+    const clearSpy = vi.fn(async () => {});
+
+    const staleB = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runB },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "stale b" }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+    expect(staleB.stale).toBe(true);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const runCResult = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runC },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(runCResult.stale).not.toBe(true);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(row?.indexing_run_id).toBe(runC);
+    expect(row?.status).toBe("ready");
+  });
+
+  it("refresh at progress 25 drops a run-id-less final continuation then B indexes with one clear", async () => {
+    await seedIndexingWithRun(RUN1, 25);
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runB = queued!.indexingRunId;
+
+    const clearSpy = vi.fn(async () => {});
+    let strayFetchCalled = false;
+
+    const stray = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 25 },
+      {
+        fetchGithubRepoDocuments: async () => {
+          strayFetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "stray final" }],
+            has_more: false,
+            files_processed: 26,
+          };
+        },
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(stray.stale).toBe(true);
+    expect(strayFetchCalled).toBe(false);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const afterStray = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterStray?.indexing_run_id).toBe(runB);
+    expect(afterStray?.status).toBe("pending");
+
+    const firstB = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runB },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch: mockVoyageFetch(),
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(firstB.stale).not.toBe(true);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+
+    const afterB = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterB?.indexing_run_id).toBe(runB);
+    expect(afterB?.status).toBe("ready");
+  });
+
+  it("refresh first leg retries after a transient Voyage 503 and reaches ready under run B", async () => {
+    await seedGithubSource("ready");
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runB = queued!.indexingRunId;
+
+    const clearSpy = vi.fn(async () => {});
+    const baseVoyageFetch = mockVoyageFetch();
+    let voyageCalls = 0;
+
+    const voyageFetch = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      voyageCalls++;
+      if (voyageCalls === 1) {
+        return new Response("fail", { status: 503 });
+      }
+      return baseVoyageFetch(...args);
+    });
+
+    await expect(
+      indexKnowledgeSource(
+        env.DB,
+        env.VECTORIZE,
+        config,
+        { source_id: SOURCE_ID, indexing_run_id: runB },
+        {
+          fetchGithubRepoDocuments: async () => ({
+            documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+            has_more: false,
+            files_processed: 1,
+          }),
+          voyageFetch,
+          clearSourceIndex: clearSpy,
+          upsertChunkVectors: async () => {},
+        },
+      ),
+    ).rejects.toMatchObject({ name: "VoyageEmbedError", statusCode: 503 });
+
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const afterFailure = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed, status
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_id: string;
+        indexing_run_files_committed: number | null;
+        status: string;
+      }>();
+    expect(afterFailure?.indexing_run_id).toBe(runB);
+    expect(afterFailure?.indexing_run_files_committed).toBe(0);
+    expect(afterFailure?.status).toBe("indexing");
+
+    const retry = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runB },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch,
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(retry.stale).not.toBe(true);
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+
+    const afterRetry = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(afterRetry?.indexing_run_id).toBe(runB);
+    expect(afterRetry?.status).toBe("ready");
+  });
+
+  it.each([
+    ["ready", "ready"],
+    ["error", "error"],
+    ["pending", "pending"],
+  ] as const)(
+    "refresh from %s status clears the index exactly once on the first message",
+    async (seedStatus, _label) => {
+      await seedGithubSource(seedStatus);
+      await env.DB.prepare(
+        `UPDATE knowledge_sources
+         SET indexing_run_id = ?, indexing_run_files_committed = 40
+         WHERE id = ?`,
+      )
+        .bind(RUN1, SOURCE_ID)
+        .run();
+
+      const queued = await markKnowledgeSourceQueuedForReindex(
+        env.DB,
+        SOURCE_ID,
+        USER_ID,
+      );
+      expect(queued).not.toBeNull();
+      const runId = queued!.indexingRunId;
+
+      const clearSpy = vi.fn(async () => {});
+
+      const result = await indexKnowledgeSource(
+        env.DB,
+        env.VECTORIZE,
+        config,
+        { source_id: SOURCE_ID, indexing_run_id: runId },
+        {
+          fetchGithubRepoDocuments: async () => ({
+            documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+            has_more: false,
+            files_processed: 1,
+          }),
+          voyageFetch: mockVoyageFetch(),
+          clearSourceIndex: clearSpy,
+          upsertChunkVectors: async () => {},
+        },
+      );
+
+      expect(result.stale).not.toBe(true);
+      expect(clearSpy).toHaveBeenCalledTimes(1);
+
+      const row = await env.DB.prepare(
+        `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+      )
+        .bind(SOURCE_ID)
+        .first<{ indexing_run_id: string; status: string }>();
+      expect(row?.indexing_run_id).toBe(runId);
+      expect(row?.status).toBe("ready");
+    },
+  );
 });

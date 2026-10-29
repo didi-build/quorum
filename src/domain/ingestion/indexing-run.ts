@@ -26,6 +26,9 @@ export function resolveIndexingRun(
       return { stale: true, runId: null, mustClaimRun: false };
     }
     if (srcRun !== null) {
+      if (msgRun === null && source.status === "pending") {
+        return { stale: true, runId: null, mustClaimRun: false };
+      }
       const runId = msgRun ?? srcRun;
       return { stale: false, runId, mustClaimRun: false };
     }
@@ -47,7 +50,7 @@ export function resolveIndexingRun(
   }
 
   if (source.status === "indexing") {
-    if (progress > 0 && msgRun === null) {
+    if (progress > 0) {
       return { stale: true, runId: null, mustClaimRun: false };
     }
     if (srcRun === null) {
@@ -58,7 +61,7 @@ export function resolveIndexingRun(
   }
 
   if (source.status === "ready") {
-    if (msgRun === null && srcRun !== null) {
+    if (srcRun !== null) {
       return { stale: true, runId: null, mustClaimRun: false };
     }
     const runId = msgRun ?? crypto.randomUUID();

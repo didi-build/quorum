@@ -107,22 +107,36 @@ export async function insertKnowledgeSource(
   return row;
 }
 
+export interface QueuedForReindexResult {
+  row: KnowledgeSourceRow;
+  indexingRunId: string;
+}
+
 export async function markKnowledgeSourceQueuedForReindex(
   db: D1Database,
   sourceId: string,
   ownerUserId: string,
-): Promise<KnowledgeSourceRow | null> {
+): Promise<QueuedForReindexResult | null> {
   const now = new Date().toISOString();
+  const indexingRunId = crypto.randomUUID();
   const result = await db
     .prepare(
       `UPDATE knowledge_sources
-       SET status = 'pending', status_message = ?, updated_at = ?
+       SET status = 'pending',
+           status_message = ?,
+           updated_at = ?,
+           indexing_run_id = ?,
+           indexing_run_files_committed = 0
        WHERE id = ? AND user_id = ?`,
     )
-    .bind("Queued for re-indexing", now, sourceId, ownerUserId)
+    .bind("Queued for re-indexing", now, indexingRunId, sourceId, ownerUserId)
     .run();
   if (result.meta.changes === 0) {
     return null;
   }
-  return await getKnowledgeSourceRowById(db, sourceId);
+  const row = await getKnowledgeSourceRowById(db, sourceId);
+  if (row === null) {
+    return null;
+  }
+  return { row, indexingRunId };
 }
