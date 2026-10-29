@@ -1,4 +1,3 @@
-import { ConfigError } from "../config/errors.js";
 import { loadConfig } from "../config/load-config.js";
 import type { QuorumConfig } from "../config/types.js";
 import type { Env } from "../env.js";
