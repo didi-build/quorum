@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeleteChunkVectors } from "../../src/domain/ingestion/delete-vectors.js";
 import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
 import { deleteKnowledgeSource } from "../../src/domain/knowledge-sources/delete.js";
@@ -171,15 +171,17 @@ describe("deleteKnowledgeSource (integration, vitest-pool-workers)", () => {
 
   it("returns false when owner user_id does not match without deleting rows", async () => {
     const chunkId = await seedKnowledgeSourceWithChunk();
+    const deleteChunkVectors = vi.fn();
 
     const deleted = await deleteKnowledgeSource(
       env.DB,
       env.VECTORIZE,
       SOURCE_ID,
       WRONG_OWNER_ID,
-      { deleteChunkVectors: async () => {} },
+      { deleteChunkVectors },
     );
     expect(deleted).toBe(false);
+    expect(deleteChunkVectors).not.toHaveBeenCalled();
 
     const sourceRow = await env.DB.prepare(
       `SELECT id FROM knowledge_sources WHERE id = ?`,

@@ -101,13 +101,29 @@ async function insertReadySource(
   userId: string,
   connectionId: string,
   externalRef = "org/repo",
+  projectId: string | null = null,
 ): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO knowledge_sources (
-        id, user_id, source_type, external_ref, connection_id, name, status
-      ) VALUES (?, ?, 'github_repo', ?, ?, 'Repo', 'ready')`,
+        id, user_id, project_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, ?, ?, 'github_repo', ?, ?, 'Repo', 'ready')`,
   )
-    .bind(sourceId, userId, externalRef, connectionId)
+    .bind(sourceId, userId, projectId, externalRef, connectionId)
+    .run();
+}
+
+async function insertOwnerlessProjectSource(
+  sourceId: string,
+  connectionId: string,
+  projectId: string,
+  externalRef = "org/shared-p",
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO knowledge_sources (
+        id, user_id, project_id, source_type, external_ref, connection_id, name, status
+      ) VALUES (?, NULL, ?, 'github_repo', ?, ?, 'Shared P', 'ready')`,
+  )
+    .bind(sourceId, projectId, externalRef, connectionId)
     .run();
 }
 
@@ -201,6 +217,66 @@ describe("knowledge sources API (worker integration)", () => {
           "X-API-Key": cfg.bootstrapApiKey,
         },
         body: JSON.stringify({ ...payload, connection_id: foreignConnectionId }),
+      }),
+      bindings,
+      foreignCtx,
+    );
+    await waitOnExecutionContext(foreignCtx);
+
+    expect(missingResponse.status).toBe(404);
+    expect(foreignResponse.status).toBe(404);
+    const missingJson = await missingResponse.json();
+    const foreignJson = await foreignResponse.json();
+    expect(missingJson).toEqual(CONNECTION_NOT_FOUND_BODY);
+    expect(foreignJson).toEqual(CONNECTION_NOT_FOUND_BODY);
+    expect(foreignJson).toEqual(missingJson);
+    expect(queueSend).not.toHaveBeenCalled();
+  });
+
+  it("POST /sources returns identical 404 for missing connection and foreign connection with mismatched source_type", async () => {
+    const queueSend = vi.fn();
+    const bindings = await testBindings(queueSend);
+    const cfg = loadConfig(bindings);
+    const foreignConnectionId = crypto.randomUUID();
+    await insertGithubConnection(foreignConnectionId, OTHER_USER_ID);
+
+    const mismatchedPayload = {
+      connection_id: "",
+      source_type: "linear",
+      external_ref: "team-id",
+      name: "Team",
+    };
+
+    const missingCtx = createExecutionContext();
+    const missingResponse = await worker.fetch(
+      new Request("http://test/sources", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": cfg.bootstrapApiKey,
+        },
+        body: JSON.stringify({
+          ...mismatchedPayload,
+          connection_id: MISSING_CONNECTION_ID,
+        }),
+      }),
+      bindings,
+      missingCtx,
+    );
+    await waitOnExecutionContext(missingCtx);
+
+    const foreignCtx = createExecutionContext();
+    const foreignResponse = await worker.fetch(
+      new Request("http://test/sources", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": cfg.bootstrapApiKey,
+        },
+        body: JSON.stringify({
+          ...mismatchedPayload,
+          connection_id: foreignConnectionId,
+        }),
       }),
       bindings,
       foreignCtx,
@@ -419,6 +495,135 @@ describe("knowledge sources API (worker integration)", () => {
       sources: Array<{ id: string }>;
     };
     expect(listPayload.sources.map((s) => s.id)).toEqual([ownSourceId]);
+  });
+
+  it("with a project P scoped API key, GET list includes own and ownerless P rows but not other users P or own Q rows", async () => {
+    const bindings = await testBindings();
+    await seedScopedApiKey(PROJECT_P);
+    const connectionId = crypto.randomUUID();
+    const ownProjectPId = crypto.randomUUID();
+    const ownProjectQId = crypto.randomUUID();
+    const otherUserProjectPId = crypto.randomUUID();
+    const ownerlessProjectPId = crypto.randomUUID();
+    await insertGithubConnection(connectionId, DEFAULT_USER_ID);
+    await insertReadySource(
+      ownProjectPId,
+      DEFAULT_USER_ID,
+      connectionId,
+      "org/own-p",
+      PROJECT_P,
+    );
+    await insertReadySource(
+      ownProjectQId,
+      DEFAULT_USER_ID,
+      connectionId,
+      "org/own-q",
+      PROJECT_Q,
+    );
+    await insertReadySource(
+      otherUserProjectPId,
+      OTHER_USER_ID,
+      connectionId,
+      "org/other-p",
+      PROJECT_P,
+    );
+    await insertOwnerlessProjectSource(ownerlessProjectPId, connectionId, PROJECT_P);
+
+    const listCtx = createExecutionContext();
+    const listResponse = await worker.fetch(
+      new Request("http://test/sources", {
+        headers: { "X-API-Key": SCOPED_API_KEY },
+      }),
+      bindings,
+      listCtx,
+    );
+    await waitOnExecutionContext(listCtx);
+
+    expect(listResponse.status).toBe(200);
+    const listPayload = (await listResponse.json()) as {
+      sources: Array<{ id: string }>;
+    };
+    const listedIds = listPayload.sources.map((s) => s.id).sort();
+    expect(listedIds).toEqual([ownProjectPId, ownerlessProjectPId].sort());
+    expect(listedIds).not.toContain(ownProjectQId);
+    expect(listedIds).not.toContain(otherUserProjectPId);
+  });
+
+  it("with a project P scoped API key, own source in project Q returns 404 on GET DELETE and refresh and stays unchanged", async () => {
+    const queueSend = vi.fn();
+    const bindings = await testBindings(queueSend);
+    await seedScopedApiKey(PROJECT_P);
+    const sourceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    await insertGithubConnection(connectionId, DEFAULT_USER_ID);
+    await insertReadySource(
+      sourceId,
+      DEFAULT_USER_ID,
+      connectionId,
+      "org/wrong-project",
+      PROJECT_Q,
+    );
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+        knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+      ) VALUES (?, 'README.md', 0, 'scoped-q-chunk', '[]')`,
+    )
+      .bind(sourceId)
+      .run();
+
+    const getCtx = createExecutionContext();
+    const getResponse = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}`, {
+        headers: { "X-API-Key": SCOPED_API_KEY },
+      }),
+      bindings,
+      getCtx,
+    );
+    await waitOnExecutionContext(getCtx);
+
+    const deleteCtx = createExecutionContext();
+    const deleteResponse = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": SCOPED_API_KEY },
+      }),
+      bindings,
+      deleteCtx,
+    );
+    await waitOnExecutionContext(deleteCtx);
+
+    const refreshCtx = createExecutionContext();
+    const refreshResponse = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}/refresh`, {
+        method: "POST",
+        headers: { "X-API-Key": SCOPED_API_KEY },
+      }),
+      bindings,
+      refreshCtx,
+    );
+    await waitOnExecutionContext(refreshCtx);
+
+    expect(getResponse.status).toBe(404);
+    expect(deleteResponse.status).toBe(404);
+    expect(refreshResponse.status).toBe(404);
+    expect(await getResponse.json()).toEqual(SOURCE_NOT_FOUND_BODY);
+    expect(await deleteResponse.json()).toEqual(SOURCE_NOT_FOUND_BODY);
+    expect(await refreshResponse.json()).toEqual(SOURCE_NOT_FOUND_BODY);
+    expect(queueSend).not.toHaveBeenCalled();
+
+    const sourceRow = await env.DB.prepare(
+      "SELECT status FROM knowledge_sources WHERE id = ?",
+    )
+      .bind(sourceId)
+      .first<{ status: string }>();
+    expect(sourceRow?.status).toBe("ready");
+
+    const chunkRow = await env.DB.prepare(
+      "SELECT content FROM chunks WHERE knowledge_source_id = ?",
+    )
+      .bind(sourceId)
+      .first<{ content: string }>();
+    expect(chunkRow?.content).toBe("scoped-q-chunk");
   });
 
   it("DELETE /sources/{id} returns identical 404 for missing and other users sources", async () => {
