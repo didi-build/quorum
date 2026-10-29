@@ -7,6 +7,7 @@ import {
 } from "../../src/domain/auth/api-key.js";
 import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
 import * as deleteVectors from "../../src/domain/ingestion/delete-vectors.js";
+import * as knowledgeSourceDelete from "../../src/domain/knowledge-sources/delete.js";
 import { clearInstallationTokenCache } from "../../src/domain/oauth/github-app.js";
 import type { Env } from "../../src/env.js";
 import worker from "../../src/index";
@@ -216,7 +217,7 @@ describe("knowledge sources API (worker integration)", () => {
     expect(queueSend).not.toHaveBeenCalled();
   });
 
-  it("POST /sources returns 404 Connection not found for type mismatch on the caller connection", async () => {
+  it("POST /sources returns 400 when source_type does not match the caller connection", async () => {
     const queueSend = vi.fn();
     const bindings = await testBindings(queueSend);
     const cfg = loadConfig(bindings);
@@ -243,8 +244,10 @@ describe("knowledge sources API (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual(CONNECTION_NOT_FOUND_BODY);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      detail: "linear sources require a Linear connection",
+    });
     expect(queueSend).not.toHaveBeenCalled();
   });
 
@@ -550,6 +553,46 @@ describe("knowledge sources API (worker integration)", () => {
       .bind(sourceId)
       .first<{ count: number }>();
     expect(chunkCount?.count).toBe(0);
+  });
+
+  it("DELETE /sources/{id} returns 404 when the owner-scoped delete matches zero rows", async () => {
+    const bindings = await testBindings();
+    const cfg = loadConfig(bindings);
+    const sourceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    await insertGithubConnection(connectionId, DEFAULT_USER_ID);
+    await insertReadySource(sourceId, DEFAULT_USER_ID, connectionId);
+
+    const deleteSpy = vi
+      .spyOn(knowledgeSourceDelete, "deleteKnowledgeSource")
+      .mockResolvedValue(false);
+
+    try {
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(
+        new Request(`http://test/sources/${sourceId}`, {
+          method: "DELETE",
+          headers: { "X-API-Key": cfg.bootstrapApiKey },
+        }),
+        bindings,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual(SOURCE_NOT_FOUND_BODY);
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect(deleteSpy.mock.calls[0]?.[3]).toBe(DEFAULT_USER_ID);
+    } finally {
+      deleteSpy.mockRestore();
+    }
+
+    const sourceRow = await env.DB.prepare(
+      "SELECT id FROM knowledge_sources WHERE id = ?",
+    )
+      .bind(sourceId)
+      .first();
+    expect(sourceRow).not.toBeNull();
   });
 
   it("POST /sources/{id}/refresh returns identical 404 for missing and other users sources", async () => {

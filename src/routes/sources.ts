@@ -136,7 +136,7 @@ async function handleCreateSource(
 
   const mismatch = sourceTypeMismatchDetail(parsed.source_type, connection.provider);
   if (mismatch !== null) {
-    return connectionNotFound();
+    return jsonDetail(mismatch, 400);
   }
 
   const sourceId = crypto.randomUUID();
@@ -177,7 +177,15 @@ async function handleDeleteSource(
     return knowledgeSourceNotFound();
   }
 
-  await deleteKnowledgeSource(env.DB, env.VECTORIZE, sourceId);
+  const deleted = await deleteKnowledgeSource(
+    env.DB,
+    env.VECTORIZE,
+    sourceId,
+    actor.userId,
+  );
+  if (!deleted) {
+    return knowledgeSourceNotFound();
+  }
   return new Response(null, { status: 204 });
 }
 
