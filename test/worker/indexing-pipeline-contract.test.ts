@@ -1817,7 +1817,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     await seedGithubSource("indexing");
     await env.DB.prepare(
       `UPDATE knowledge_sources
-       SET indexing_run_id = ?, indexing_run_files_committed = 25
+       SET indexing_run_id = ?, indexing_run_files_committed = 0
        WHERE id = ?`,
     )
       .bind(runId, SOURCE_ID)
