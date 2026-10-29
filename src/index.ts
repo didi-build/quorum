@@ -3,7 +3,7 @@ import { loadConfig } from "./config/load-config.js";
 import type { QuorumConfig } from "./config/types.js";
 import type { ActorContext } from "./domain/schemas/actor.js";
 import { ensureBootstrapApiKey } from "./domain/auth/api-key.js";
-import { resolveActor } from "./domain/auth/actor.js";
+import { resolveWebSocketActor } from "./domain/auth/actor.js";
 import {
   isApiPath,
   isPublicApiPath,
@@ -197,9 +197,15 @@ export default {
         const config = configOrError;
         await ensureBootstrapApiKey(env.DB, config);
 
-        const actor = await resolveActor(env.DB, config, request);
+        const [actor, sessionCredentialRejected] = await resolveWebSocketActor(
+          env.DB,
+          config,
+          request,
+        );
         if (actor === null) {
-          return notAuthenticatedResponse();
+          return notAuthenticatedResponse(config, {
+            clearSessionCookie: sessionCredentialRejected,
+          });
         }
 
         const protectedResponse = await handleProtectedApi(
