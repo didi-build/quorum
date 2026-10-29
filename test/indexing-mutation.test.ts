@@ -93,4 +93,34 @@ describe("indexing mutation guards (DIDI-933)", () => {
     );
     expect(isIndexingTemporaryError(new VoyageEmbedError(503))).toBe(true);
   });
+
+  it("QA-1: resolveIndexingRun drops a fresh message when indexing progress is committed", () => {
+    const runId = "00000000-0000-4000-8000-000000000070";
+    const result = resolveIndexingRun(
+      { source_id: "s1" },
+      {
+        indexing_run_id: runId,
+        indexing_run_files_committed: 25,
+        status: "indexing",
+      },
+      true,
+    );
+    expect(result).toEqual({ stale: true, runId: null, mustClaimRun: false });
+  });
+
+  it("QA-3: resolveIndexingRun must claim when pending already has another run id", () => {
+    const incumbent = "00000000-0000-4000-8000-000000000071";
+    const result = resolveIndexingRun(
+      { source_id: "s1" },
+      {
+        indexing_run_id: incumbent,
+        indexing_run_files_committed: null,
+        status: "pending",
+      },
+      true,
+    );
+    expect(result.stale).toBe(false);
+    expect(result.mustClaimRun).toBe(true);
+    expect(result.runId).not.toBe(incumbent);
+  });
 });

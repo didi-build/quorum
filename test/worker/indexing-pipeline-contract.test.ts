@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FetchedDocument } from "../../src/domain/ingestion/adapters/types.js";
 import { clearSourceIndex } from "../../src/domain/ingestion/clear-source-index.js";
 import { chunkText } from "../../src/domain/ingestion/chunking.js";
+import * as indexingRun from "../../src/domain/ingestion/indexing-run.js";
 import {
   indexKnowledgeSource,
   upsertVectors,
@@ -559,6 +560,124 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       .bind(SOURCE_ID)
       .first<{ content: string }>();
     expect(chunk?.content).toBe("stay");
+  });
+
+  it("QA-1: drops a late first message after a non-empty batch records progress", async () => {
+    await seedGithubSource("pending");
+    const clearSpy = vi.fn(async () => {});
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    const first = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: documentContent }],
+          has_more: true,
+          files_processed: 25,
+        }),
+        voyageFetch,
+        clearSourceIndex: clearSpy,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(first.continuation).not.toBeNull();
+    expect(first.continuation?.github_files_processed).toBe(25);
+
+    const afterFirst = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed, status
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_id: string | null;
+        indexing_run_files_committed: number | null;
+        status: string;
+      }>();
+    expect(afterFirst?.indexing_run_files_committed).toBe(25);
+    expect(afterFirst?.status).toBe("indexing");
+
+    const chunkCountBefore = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM chunks WHERE knowledge_source_id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ c: number }>();
+
+    clearSpy.mockClear();
+    let fetchCalled = false;
+
+    const late = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return {
+            documents: [{ document_id: "README.md", content: "should not run" }],
+            has_more: false,
+            files_processed: 1,
+          };
+        },
+        clearSourceIndex: clearSpy,
+      },
+    );
+
+    expect(late.stale).toBe(true);
+    expect(late.continuation).toBeNull();
+    expect(fetchCalled).toBe(false);
+    expect(clearSpy).not.toHaveBeenCalled();
+
+    const afterLate = await env.DB.prepare(
+      `SELECT indexing_run_files_committed, status
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_files_committed: number | null;
+        status: string;
+      }>();
+    expect(afterLate?.indexing_run_files_committed).toBe(25);
+    expect(afterLate?.status).toBe("indexing");
+
+    const chunkCountAfter = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM chunks WHERE knowledge_source_id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ c: number }>();
+    expect(chunkCountAfter?.c).toBe(chunkCountBefore?.c);
+  });
+
+  it("QA-3 pipeline: a lost claim race returns stale without fetching", async () => {
+    await seedGithubSource("pending");
+    const claimSpy = vi
+      .spyOn(indexingRun, "claimIndexingRunOnSource")
+      .mockResolvedValue("lost_race");
+
+    let fetchCalled = false;
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return { documents: [], has_more: false, files_processed: 0 };
+        },
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(fetchCalled).toBe(false);
+    expect(claimSpy.mock.calls.length).toBe(2);
+
+    claimSpy.mockRestore();
   });
 
   it("returns stale when a superseded run cannot update progress or status", async () => {
