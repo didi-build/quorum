@@ -4,6 +4,7 @@ import type { FetchedDocument } from "../../src/domain/ingestion/adapters/types.
 import { clearSourceIndex } from "../../src/domain/ingestion/clear-source-index.js";
 import { chunkText } from "../../src/domain/ingestion/chunking.js";
 import * as indexingRun from "../../src/domain/ingestion/indexing-run.js";
+import { claimIndexingRunOnSource } from "../../src/domain/ingestion/indexing-run.js";
 import {
   indexKnowledgeSource,
   upsertVectors,
@@ -15,7 +16,53 @@ const USER_ID = "00000000-0000-4000-8000-000000000010";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000020";
 const SOURCE_ID = "00000000-0000-4000-8000-000000000030";
 
+const RUN1 = "00000000-0000-4000-8000-000000000060";
+const RUN2 = "00000000-0000-4000-8000-000000000061";
+
 const config = loadConfig(workerEnvWithSecrets(env));
+
+async function seedIndexingWithRun(runId: string, filesCommitted = 0): Promise<void> {
+  await seedGithubSource("indexing");
+  await env.DB.prepare(
+    `UPDATE knowledge_sources
+     SET indexing_run_id = ?, indexing_run_files_committed = ?
+     WHERE id = ?`,
+  )
+    .bind(runId, filesCommitted, SOURCE_ID)
+    .run();
+}
+
+async function supersedeRunInFetch(fromRun: string, toRun: string): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE knowledge_sources SET status = 'ready' WHERE id = ? AND indexing_run_id = ?`,
+  )
+    .bind(SOURCE_ID, fromRun)
+    .run();
+  expect(await claimIndexingRunOnSource(env.DB, SOURCE_ID, toRun, fromRun)).toBe(
+    "claimed",
+  );
+  await env.DB.prepare(
+    `UPDATE knowledge_sources SET status = 'indexing' WHERE id = ? AND indexing_run_id = ?`,
+  )
+    .bind(SOURCE_ID, toRun)
+    .run();
+}
+
+async function expectRunScopedWriteBlocked(
+  result: Awaited<ReturnType<typeof indexKnowledgeSource>>,
+): Promise<void> {
+  expect(result.stale).toBe(true);
+  expect(result.continuation).toBeNull();
+
+  const row = await env.DB.prepare(
+    `SELECT indexing_run_files_committed, status
+     FROM knowledge_sources WHERE id = ?`,
+  )
+    .bind(SOURCE_ID)
+    .first<{ indexing_run_files_committed: number | null; status: string }>();
+  expect(row?.indexing_run_files_committed).toBe(0);
+  expect(row?.status).not.toBe("ready");
+}
 
 function mockVoyageFetch(dim = config.embeddingDimensions) {
   return vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
@@ -680,17 +727,53 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     claimSpy.mockRestore();
   });
 
-  it("returns stale when a superseded run cannot update progress or status", async () => {
-    const run1 = "00000000-0000-4000-8000-000000000048";
-    const run2 = "00000000-0000-4000-8000-000000000049";
-    await seedGithubSource("indexing");
-    await env.DB.prepare(
-      `UPDATE knowledge_sources
-       SET indexing_run_id = ?, indexing_run_files_committed = 0, status = 'indexing'
-       WHERE id = ?`,
-    )
-      .bind(run2, SOURCE_ID)
-      .run();
+  it("drops a continuation with no run id when the source is ready and run id is null", async () => {
+    await seedGithubSource("ready");
+    let fetchCalled = false;
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 12 },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return { documents: [], has_more: false, files_processed: 12 };
+        },
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(result.continuation).toBeNull();
+    expect(fetchCalled).toBe(false);
+  });
+
+  it("drops a continuation with no run id when the source is pending and run id is null", async () => {
+    await seedGithubSource("pending");
+    let fetchCalled = false;
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, github_files_processed: 3 },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return { documents: [], has_more: false, files_processed: 3 };
+        },
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it("run-scoped writes: stale when progress cannot commit after run superseded in fetch (more files, with chunks)", async () => {
+    await seedIndexingWithRun(RUN1);
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
 
     const result = await indexKnowledgeSource(
       env.DB,
@@ -698,34 +781,145 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       config,
       {
         source_id: SOURCE_ID,
-        github_files_processed: 20,
-        indexing_run_id: run1,
+        github_files_processed: 10,
+        indexing_run_id: RUN1,
       },
       {
-        fetchGithubRepoDocuments: async () => ({
-          documents: [],
-          has_more: true,
-          files_processed: 30,
-        }),
+        fetchGithubRepoDocuments: async () => {
+          await supersedeRunInFetch(RUN1, RUN2);
+          return {
+            documents: [{ document_id: "README.md", content: documentContent }],
+            has_more: true,
+            files_processed: 25,
+          };
+        },
+        voyageFetch,
+        upsertChunkVectors: async () => {},
       },
     );
 
+    await expectRunScopedWriteBlocked(result);
+  });
+
+  it("run-scoped writes: stale when ready cannot commit after run superseded in fetch (final batch, with chunks)", async () => {
+    await seedIndexingWithRun(RUN1);
+    const voyageFetch = mockVoyageFetch();
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 10,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          await supersedeRunInFetch(RUN1, RUN2);
+          return {
+            documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+            has_more: false,
+            files_processed: 11,
+          };
+        },
+        voyageFetch,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    await expectRunScopedWriteBlocked(result);
+  });
+
+  it("run-scoped writes: stale when progress cannot commit after run superseded in fetch (more files, empty batch)", async () => {
+    await seedIndexingWithRun(RUN1);
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 10,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          await supersedeRunInFetch(RUN1, RUN2);
+          return { documents: [], has_more: true, files_processed: 30 };
+        },
+      },
+    );
+
+    await expectRunScopedWriteBlocked(result);
+  });
+
+  it("run-scoped writes: stale when ready cannot commit after run superseded in fetch (final batch, empty)", async () => {
+    await seedIndexingWithRun(RUN1);
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 10,
+        indexing_run_id: RUN1,
+      },
+      {
+        fetchGithubRepoDocuments: async () => {
+          await supersedeRunInFetch(RUN1, RUN2);
+          return { documents: [], has_more: false, files_processed: 11 };
+        },
+      },
+    );
+
+    await expectRunScopedWriteBlocked(result);
+  });
+
+  it("run-scoped writes: stale when indexing status cannot start after the run is superseded during claim", async () => {
+    await seedGithubSource("pending");
+    const originalClaim = indexingRun.claimIndexingRunOnSource;
+    const claimSpy = vi
+      .spyOn(indexingRun, "claimIndexingRunOnSource")
+      .mockImplementation(async (db, sourceId, runId, expectedCurrentRunId) => {
+        const outcome = await originalClaim(db, sourceId, runId, expectedCurrentRunId);
+        if (outcome === "claimed" && runId === RUN1) {
+          await supersedeRunInFetch(RUN1, RUN2);
+        }
+        return outcome;
+      });
+
+    let fetchCalled = false;
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: RUN1 },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return {
+            documents: [],
+            has_more: false,
+            files_processed: 0,
+          };
+        },
+      },
+    );
+
+    claimSpy.mockRestore();
     expect(result.stale).toBe(true);
     expect(result.continuation).toBeNull();
+    expect(fetchCalled).toBe(false);
 
-    const source = await env.DB.prepare(
-      `SELECT indexing_run_id, indexing_run_files_committed, status
-       FROM knowledge_sources WHERE id = ?`,
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
     )
       .bind(SOURCE_ID)
-      .first<{
-        indexing_run_id: string;
-        indexing_run_files_committed: number | null;
-        status: string;
-      }>();
-    expect(source?.indexing_run_id).toBe(run2);
-    expect(source?.indexing_run_files_committed).toBe(0);
-    expect(source?.status).toBe("indexing");
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(row?.indexing_run_id).toBe(RUN2);
+    expect(row?.status).not.toBe("ready");
   });
 
   it("is idempotent when a continuation message is redelivered", async () => {

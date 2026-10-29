@@ -5,7 +5,7 @@
 ## Production Worker (`quorum`)
 
 1. CI green on the commit you deploy.
-2. **D1 migrations:** Apply pending D1 migrations to the target database **before** `wrangler deploy` in each environment (development, staging, production). Indexing and other Worker code expect the schema that matches the deployed commit. After migration 0003, queue messages without an `indexing_run_id` still run while a source is `indexing` with a null `indexing_run_id` (the consumer adopts a run id once). Messages that arrive after a run finished (`ready` with a run id) or after a continuation committed progress are dropped without clearing data.
+2. **D1 migrations:** Apply pending D1 migrations to the target database **before** `wrangler deploy` in each environment (development, staging, production). Indexing and other Worker code expect the schema that matches the deployed commit. After migration 0003, queue messages without an `indexing_run_id` still run while a source is `indexing` with a null `indexing_run_id` (the consumer adopts a run id once). During the deploy window, run-id-less continuations attach to the source's current run (DIDI-966). Messages that arrive after a run finished (`ready` with a run id) or after a continuation committed progress are dropped without clearing data.
 3. **D1 `database_id` (committed config):** `wrangler.jsonc` keeps a placeholder `database_id` for `quorum-db`. Never commit the real Cloudflare id.
 4. **Before `wrangler deploy` or `wrangler d1 migrations apply` on production:** generate a deploy config in the repo root (for example `wrangler.ci.jsonc`, gitignored) using the prepare and guard scripts in this repo:
 
