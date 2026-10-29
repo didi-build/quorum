@@ -1,0 +1,13 @@
+// Gallery static assets ship inside mock-preview dist (frontend/dist-preview/gallery/).
+// Never run wrangler deploy with this file; PR CI uses wrangler.preview.jsonc only.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quorum-preview",
+  "workers_dev": true,
+  "preview_urls": true,
+  "compatibility_date": "2025-10-11",
+  "assets": {
+    "directory": "./frontend/dist-preview",
+  },
+  "previews": {},
+}

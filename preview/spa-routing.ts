@@ -2,6 +2,10 @@ export function isAppSpaPath(pathname: string): boolean {
   return pathname === "/app" || pathname.startsWith("/app/");
 }
 
+export function isGallerySpaPath(pathname: string): boolean {
+  return pathname === "/gallery" || pathname.startsWith("/gallery/");
+}
+
 export function wantsHtmlDocument(request: Request): boolean {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return false;
@@ -18,12 +22,34 @@ export function appSpaShellRequest(url: URL, request: Request): Request {
   });
 }
 
+export function gallerySpaShellRequest(url: URL, request: Request): Request {
+  const shellUrl = new URL("/gallery/index.html", url.origin);
+  return new Request(shellUrl.toString(), {
+    method: request.method,
+    headers: request.headers,
+  });
+}
+
 export function shouldServeAppShell(
   url: URL,
   request: Request,
   assetResponse: Response,
 ): boolean {
   if (!isAppSpaPath(url.pathname)) {
+    return false;
+  }
+  if (!wantsHtmlDocument(request)) {
+    return false;
+  }
+  return assetResponse.status === 404 || assetResponse.status === 403;
+}
+
+export function shouldServeGalleryShell(
+  url: URL,
+  request: Request,
+  assetResponse: Response,
+): boolean {
+  if (!isGallerySpaPath(url.pathname)) {
     return false;
   }
   if (!wantsHtmlDocument(request)) {
