@@ -126,12 +126,12 @@ async function handleCreateSource(
 
   const scope = resolveRetrievalProjectScope(actor, parsed.project_id);
   if (!scope.ok) {
-    return jsonDetail(scope.detail, scope.status);
+    return connectionNotFound();
   }
 
   const mismatch = sourceTypeMismatchDetail(parsed.source_type, connection.provider);
   if (mismatch !== null) {
-    return jsonDetail(mismatch, 400);
+    return connectionNotFound();
   }
 
   const sourceId = crypto.randomUUID();
