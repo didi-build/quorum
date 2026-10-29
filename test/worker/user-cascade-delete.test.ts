@@ -13,6 +13,8 @@ const OWNERLESS_SOURCE_ID = "00000000-0000-4000-8000-000000000059";
 const OTHER_USER_ID = "00000000-0000-4000-8000-000000000060";
 const OTHER_CONNECTION_ID = "00000000-0000-4000-8000-000000000061";
 const OTHER_SOURCE_ID = "00000000-0000-4000-8000-000000000062";
+const FOREIGN_ON_CONN_SOURCE_ID = "00000000-0000-4000-8000-000000000063";
+const USER_SOURCE_OTHER_CONN_ID = "00000000-0000-4000-8000-000000000064";
 const CHAT_ID = "00000000-0000-4000-8000-000000000054";
 const CHAT_SESSION_ID = "00000000-0000-4000-8000-000000000055";
 const PROPOSAL_ID = "00000000-0000-4000-8000-000000000056";
@@ -307,6 +309,13 @@ describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
       .bind(SOURCE_ID)
       .first();
     expect(sourceRow).toBeNull();
+
+    const connectionRow = await env.DB.prepare(
+      `SELECT id FROM connections WHERE id = ?`,
+    )
+      .bind(CONNECTION_ID)
+      .first();
+    expect(connectionRow).toBeNull();
   });
 
   it("deletes vectors before D1 rows and leaves the user row when vector delete fails", async () => {
@@ -356,6 +365,13 @@ describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
       .bind(SOURCE_ID)
       .first();
     expect(sourceAfterFailure).not.toBeNull();
+
+    const connectionAfterFailure = await env.DB.prepare(
+      `SELECT id FROM connections WHERE id = ?`,
+    )
+      .bind(CONNECTION_ID)
+      .first();
+    expect(connectionAfterFailure).not.toBeNull();
   });
 
   it("does not delete another user's vectors or D1 rows", async () => {
@@ -434,5 +450,129 @@ describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
       .bind(OWNERLESS_SOURCE_ID)
       .first();
     expect(ownerlessSource).toBeNull();
+  });
+
+  it("purges a foreign-owned source on the user's connection", async () => {
+    await env.DB.prepare(
+      `INSERT INTO users (id, github_id, login) VALUES (?, 50, 'conn-host')`,
+    )
+      .bind(USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO users (id, github_id, login) VALUES (?, 61, 'foreign-owner')`,
+    )
+      .bind(OTHER_USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO connections (
+          id, user_id, provider, external_account_id, external_account_name
+        ) VALUES (?, ?, 'github', 'shared-acct', 'Shared')`,
+    )
+      .bind(CONNECTION_ID, USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+          id, user_id, source_type, external_ref, connection_id, name, status
+        ) VALUES (?, ?, 'github_repo', 'org/foreign', ?, 'Foreign repo', 'ready')`,
+    )
+      .bind(FOREIGN_ON_CONN_SOURCE_ID, OTHER_USER_ID, CONNECTION_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'foreign.md', 0, 'foreign chunk', '[]')`,
+    )
+      .bind(FOREIGN_ON_CONN_SOURCE_ID)
+      .run();
+
+    const foreignVectorId = await chunkVectorId(
+      FOREIGN_ON_CONN_SOURCE_ID,
+      "foreign.md",
+      0,
+    );
+    const deletedVectorIds: string[] = [];
+    const vectorize = {
+      deleteByIds: vi.fn(async (ids: string[]) => {
+        deletedVectorIds.push(...ids);
+      }),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deletedVectorIds).toEqual([foreignVectorId]);
+
+    const foreignSource = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(FOREIGN_ON_CONN_SOURCE_ID)
+      .first();
+    expect(foreignSource).toBeNull();
+
+    const foreignOwner = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+      .bind(OTHER_USER_ID)
+      .first();
+    expect(foreignOwner).not.toBeNull();
+  });
+
+  it("purges the user's source on another user's connection (mutant Q10)", async () => {
+    await env.DB.prepare(
+      `INSERT INTO users (id, github_id, login) VALUES (?, 50, 'source-owner')`,
+    )
+      .bind(USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO users (id, github_id, login) VALUES (?, 61, 'conn-owner')`,
+    )
+      .bind(OTHER_USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO connections (
+          id, user_id, provider, external_account_id, external_account_name
+        ) VALUES (?, ?, 'github', 'other-acct', 'Other')`,
+    )
+      .bind(OTHER_CONNECTION_ID, OTHER_USER_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+          id, user_id, source_type, external_ref, connection_id, name, status
+        ) VALUES (?, ?, 'github_repo', 'org/orphan-conn', ?, 'Orphan conn', 'ready')`,
+    )
+      .bind(USER_SOURCE_OTHER_CONN_ID, USER_ID, OTHER_CONNECTION_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'orphan.md', 0, 'orphan chunk', '[]')`,
+    )
+      .bind(USER_SOURCE_OTHER_CONN_ID)
+      .run();
+
+    const orphanVectorId = await chunkVectorId(
+      USER_SOURCE_OTHER_CONN_ID,
+      "orphan.md",
+      0,
+    );
+    const deletedVectorIds: string[] = [];
+    const vectorize = {
+      deleteByIds: vi.fn(async (ids: string[]) => {
+        deletedVectorIds.push(...ids);
+      }),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deletedVectorIds).toEqual([orphanVectorId]);
+
+    const orphanSource = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(USER_SOURCE_OTHER_CONN_ID)
+      .first();
+    expect(orphanSource).toBeNull();
+
+    const connOwner = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+      .bind(OTHER_USER_ID)
+      .first();
+    expect(connOwner).not.toBeNull();
   });
 });
