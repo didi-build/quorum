@@ -183,6 +183,7 @@ describe("HTTP session auth (worker integration)", () => {
     const { rawToken } = await createBrowserSession(env.DB, cfg, userId);
 
     const callOrder: string[] = [];
+    const revokedAtWhenCloseStarted: Array<string | null> = [];
     const { revokeBrowserSession: revokeOriginal } = browserSession;
     const { closeChatWebSocketsForSession: closeOriginal } = chatWsRegistry;
     vi.spyOn(browserSession, "revokeBrowserSession").mockImplementation(
@@ -194,6 +195,12 @@ describe("HTTP session auth (worker integration)", () => {
     vi.spyOn(chatWsRegistry, "closeChatWebSocketsForSession").mockImplementation(
       async (token) => {
         callOrder.push("close");
+        const row = await env.DB.prepare(
+          "SELECT revoked_at FROM sessions WHERE user_id = ?",
+        )
+          .bind(userId)
+          .first<{ revoked_at: string | null }>();
+        revokedAtWhenCloseStarted.push(row?.revoked_at ?? null);
         return closeOriginal(token);
       },
     );
@@ -210,6 +217,8 @@ describe("HTTP session auth (worker integration)", () => {
     await waitOnExecutionContext(ctx);
     expect(response.status).toBe(204);
     expect(callOrder).toEqual(["revoke", "close"]);
+    expect(revokedAtWhenCloseStarted).toHaveLength(1);
+    expect(revokedAtWhenCloseStarted[0]).not.toBeNull();
   });
 
   it("POST /auth/logout revokes the session row", async () => {
