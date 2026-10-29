@@ -56,6 +56,11 @@ export interface IndexKnowledgeSourceDeps {
   upsertChunkVectors?: UpsertChunkVectors;
 }
 
+export interface IndexKnowledgeSourceOptions {
+  /** Cloudflare Queue delivery attempt (1 on first delivery). */
+  queueAttempt?: number;
+}
+
 interface KnowledgeSourceRow {
   id: string;
   source_type: "github_repo" | "linear";
@@ -156,6 +161,18 @@ async function setSourceStatusForRun(
   return (result.meta.changes ?? 0) > 0;
 }
 
+async function sourceStillOnRun(
+  db: D1Database,
+  sourceId: string,
+  runId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT indexing_run_id FROM knowledge_sources WHERE id = ?`)
+    .bind(sourceId)
+    .first<{ indexing_run_id: string | null }>();
+  return row?.indexing_run_id === runId;
+}
+
 async function setSourceStatus(
   db: D1Database,
   sourceId: string,
@@ -178,9 +195,17 @@ export async function markKnowledgeSourceIndexingError(
   db: D1Database,
   sourceId: string,
   statusMessage: string,
+  messageRunId?: string | null,
 ): Promise<void> {
   const source = await loadKnowledgeSource(db, sourceId);
   if (source === null) {
+    return;
+  }
+  if (messageRunId !== undefined && messageRunId !== null) {
+    await setSourceStatusForRun(db, sourceId, messageRunId, "error", statusMessage);
+    return;
+  }
+  if (source.indexing_run_id !== null) {
     return;
   }
   await setSourceStatus(db, sourceId, "error", statusMessage);
@@ -264,14 +289,36 @@ export async function indexKnowledgeSource(
   config: QuorumConfig,
   message: IndexingQueueMessage,
   deps: IndexKnowledgeSourceDeps = {},
+  options: IndexKnowledgeSourceOptions = {},
 ): Promise<IndexKnowledgeSourceResult> {
   const sourceId = message.source_id;
   const filesAlreadyProcessed = message.github_files_processed ?? 0;
   const isFreshRun = filesAlreadyProcessed === 0;
+  const queueAttempt = options.queueAttempt ?? 1;
 
   const source = await loadKnowledgeSource(db, sourceId);
   if (source === null) {
     return { done: true, continuation: null };
+  }
+
+  if (isFreshRun && queueAttempt > 1) {
+    const progress = source.indexing_run_files_committed ?? 0;
+    const msgRun = message.indexing_run_id ?? null;
+    const srcRun = source.indexing_run_id ?? null;
+    if (
+      source.status === "indexing" &&
+      progress > 0 &&
+      srcRun !== null &&
+      (msgRun === null || msgRun === srcRun)
+    ) {
+      return {
+        done: false,
+        continuation: withIndexingRunId(
+          { source_id: sourceId, github_files_processed: progress },
+          srcRun,
+        ),
+      };
+    }
   }
 
   const claimResult = await ensureIndexingRunClaimed(
@@ -410,6 +457,10 @@ export async function indexKnowledgeSource(
 
     const embeddings = await embedChunksFlat(config, flatChunks, voyageFetch);
 
+    if (!(await sourceStillOnRun(db, sourceId, runId))) {
+      return { done: true, continuation: null, stale: true };
+    }
+
     if (isFreshRun) {
       await clearIndex(db, vectorize, sourceId);
     }
@@ -422,6 +473,9 @@ export async function indexKnowledgeSource(
     }> = [];
 
     for (let i = 0; i < flatChunks.length; i++) {
+      if (!(await sourceStillOnRun(db, sourceId, runId))) {
+        return { done: true, continuation: null, stale: true };
+      }
       const chunk = flatChunks[i];
       const chunkRowid = await upsertChunkRow(db, sourceId, chunk);
       vectorRows.push({
@@ -430,6 +484,10 @@ export async function indexKnowledgeSource(
         chunk_index: chunk.chunk_index,
         embedding: embeddings[i],
       });
+    }
+
+    if (!(await sourceStillOnRun(db, sourceId, runId))) {
+      return { done: true, continuation: null, stale: true };
     }
 
     await upsertVectorsImpl(vectorize, sourceId, vectorRows);

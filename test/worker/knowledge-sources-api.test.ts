@@ -964,4 +964,49 @@ describe("knowledge sources API (worker integration)", () => {
       .first<{ indexing_run_id: string }>();
     expect(row?.indexing_run_id).toBe(enqueued.indexing_run_id);
   });
+
+  it("DIDI-985: POST refresh rolls back when indexing enqueue fails", async () => {
+    const queueSend = vi.fn().mockRejectedValue(new Error("queue down"));
+    const bindings = await testBindings(queueSend);
+    const cfg = loadConfig(bindings);
+    const sourceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    await insertGithubConnection(connectionId, DEFAULT_USER_ID);
+    await insertReadySource(sourceId, DEFAULT_USER_ID, connectionId);
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 12
+       WHERE id = ?`,
+    )
+      .bind("00000000-0000-4000-8000-000000000099", sourceId)
+      .run();
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}/refresh`, {
+        method: "POST",
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(response.status).toBe(503);
+    const row = await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(sourceId)
+      .first<{
+        status: string;
+        status_message: string | null;
+        indexing_run_id: string;
+        indexing_run_files_committed: number;
+      }>();
+    expect(row?.status).toBe("ready");
+    expect(row?.status_message).toBeNull();
+    expect(row?.indexing_run_id).toBe("00000000-0000-4000-8000-000000000099");
+    expect(row?.indexing_run_files_committed).toBe(12);
+  });
 });

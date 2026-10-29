@@ -7,6 +7,7 @@ import * as indexingRun from "../../src/domain/ingestion/indexing-run.js";
 import { claimIndexingRunOnSource } from "../../src/domain/ingestion/indexing-run.js";
 import {
   indexKnowledgeSource,
+  markKnowledgeSourceIndexingError,
   upsertVectors,
 } from "../../src/domain/ingestion/pipeline.js";
 import { loadConfig } from "../../src/config/load-config.js";
@@ -1612,4 +1613,181 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       expect(row?.status).toBe("ready");
     },
   );
+
+  it("DIDI-985: refresh first message must carry the minted run id to claim the pending row", async () => {
+    await seedGithubSource("ready");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 40
+       WHERE id = ?`,
+    )
+      .bind(RUN1, SOURCE_ID)
+      .run();
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      SOURCE_ID,
+      USER_ID,
+    );
+    expect(queued).not.toBeNull();
+    const runId = queued!.indexingRunId;
+
+    const withoutRunId = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: false,
+          files_processed: 0,
+        }),
+      },
+    );
+
+    expect(withoutRunId.stale).not.toBe(true);
+
+    const rowAfterWrong = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(rowAfterWrong?.indexing_run_id).not.toBe(runId);
+
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET status = 'pending',
+           indexing_run_id = ?,
+           indexing_run_files_committed = 0,
+           status_message = 'Queued for re-indexing'
+       WHERE id = ?`,
+    )
+      .bind(runId, SOURCE_ID)
+      .run();
+
+    const withRunId = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [],
+          has_more: false,
+          files_processed: 0,
+        }),
+      },
+    );
+
+    expect(withRunId.stale).not.toBe(true);
+    const rowAfterCorrect = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(rowAfterCorrect?.indexing_run_id).toBe(runId);
+    expect(rowAfterCorrect?.status).toBe("ready");
+  });
+
+  it("DIDI-985: queue retry after progress commits resends continuation without refetch", async () => {
+    await seedGithubSource("pending");
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    const first = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: documentContent }],
+          has_more: true,
+          files_processed: 25,
+        }),
+        voyageFetch,
+        clearSourceIndex: async () => {},
+        upsertChunkVectors: async () => {},
+      },
+    );
+    expect(first.continuation?.github_files_processed).toBe(25);
+
+    let fetchCalled = false;
+    const resend = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return { documents: [], has_more: false, files_processed: 0 };
+        },
+      },
+      { queueAttempt: 2 },
+    );
+
+    expect(fetchCalled).toBe(false);
+    expect(resend.continuation?.github_files_processed).toBe(25);
+    expect(resend.continuation?.indexing_run_id).toBeTruthy();
+  });
+
+  it("DIDI-985: superseded run does not write chunks after embed", async () => {
+    await seedIndexingWithRun(RUN1);
+    const voyageFetch = mockVoyageFetch();
+    const content = "# Title\n\n" + "word ".repeat(200);
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: RUN1 },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "orphan.md", content }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch: async (url, init) => {
+          await env.DB.prepare(
+            `UPDATE knowledge_sources SET indexing_run_id = ? WHERE id = ?`,
+          )
+            .bind(RUN2, SOURCE_ID)
+            .run();
+          return voyageFetch(url, init);
+        },
+        clearSourceIndex: async () => {},
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    const chunk = await env.DB.prepare(
+      `SELECT content FROM chunks WHERE knowledge_source_id = ? AND document_id = 'orphan.md'`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ content: string }>();
+    expect(chunk).toBeNull();
+  });
+
+  it("DIDI-985: markKnowledgeSourceIndexingError respects the message run id", async () => {
+    await seedIndexingWithRun(RUN1);
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET indexing_run_id = ?, status = 'indexing'
+       WHERE id = ?`,
+    )
+      .bind(RUN2, SOURCE_ID)
+      .run();
+
+    await markKnowledgeSourceIndexingError(env.DB, SOURCE_ID, "failed", RUN1);
+
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string }>();
+    expect(row?.status).toBe("indexing");
+    expect(row?.indexing_run_id).toBe(RUN2);
+  });
 });

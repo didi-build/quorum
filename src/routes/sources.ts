@@ -5,7 +5,9 @@ import {
   insertKnowledgeSource,
   knowledgeSourceRowToRead,
   listKnowledgeSourceRows,
+  loadKnowledgeSourceReindexSnapshot,
   markKnowledgeSourceQueuedForReindex,
+  revertKnowledgeSourceAfterFailedRefreshEnqueue,
 } from "../domain/db/knowledge-sources.js";
 import { enqueueKnowledgeSourceIndexing } from "../domain/knowledge-sources/enqueue-indexing.js";
 import { deleteKnowledgeSource } from "../domain/knowledge-sources/delete.js";
@@ -199,6 +201,11 @@ async function handleRefreshSource(
     return knowledgeSourceNotFound();
   }
 
+  const prior = await loadKnowledgeSourceReindexSnapshot(env.DB, sourceId);
+  if (prior === null) {
+    return knowledgeSourceNotFound();
+  }
+
   const queued = await markKnowledgeSourceQueuedForReindex(
     env.DB,
     sourceId,
@@ -208,11 +215,20 @@ async function handleRefreshSource(
     return knowledgeSourceNotFound();
   }
 
-  await enqueueKnowledgeSourceIndexing(
-    env.INDEXING_QUEUE,
-    sourceId,
-    queued.indexingRunId,
-  );
+  try {
+    await enqueueKnowledgeSourceIndexing(
+      env.INDEXING_QUEUE,
+      sourceId,
+      queued.indexingRunId,
+    );
+  } catch (error) {
+    console.error("Refresh indexing enqueue failed", {
+      source_id: sourceId,
+      error_name: error instanceof Error ? error.name : "Error",
+    });
+    await revertKnowledgeSourceAfterFailedRefreshEnqueue(env.DB, sourceId, prior);
+    return jsonDetail("Internal error", 503);
+  }
   return Response.json(knowledgeSourceRowToRead(queued.row));
 }
 

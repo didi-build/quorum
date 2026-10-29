@@ -1,6 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { markKnowledgeSourceQueuedForReindex } from "../../src/domain/db/knowledge-sources.js";
+import {
+  markKnowledgeSourceQueuedForReindex,
+  revertKnowledgeSourceAfterFailedRefreshEnqueue,
+  type KnowledgeSourceReindexSnapshot,
+} from "../../src/domain/db/knowledge-sources.js";
 
 const OWNER_ID = "00000000-0000-4000-8000-000000000010";
 const WRONG_OWNER_ID = "00000000-0000-4000-8000-000000000011";
@@ -137,5 +141,52 @@ describe("markKnowledgeSourceQueuedForReindex (integration, vitest-pool-workers)
     expect(row?.status_message).toBe("Queued for re-indexing");
     expect(row?.indexing_run_id).toBe(queued?.indexingRunId);
     expect(row?.indexing_run_files_committed).toBe(0);
+  });
+
+  it("reverts refresh mint when indexing enqueue fails", async () => {
+    await seedOwnedReadySource();
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 40
+       WHERE id = ?`,
+    )
+      .bind("00000000-0000-4000-8000-000000000099", OWNED_SOURCE_ID)
+      .run();
+
+    const prior = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+
+    await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      prior,
+    );
+
+    const row = await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first<{
+        status: string;
+        status_message: string | null;
+        indexing_run_id: string;
+        indexing_run_files_committed: number;
+      }>();
+    expect(row?.status).toBe(prior?.status);
+    expect(row?.status_message).toBe(prior?.status_message);
+    expect(row?.indexing_run_id).toBe(prior?.indexing_run_id);
+    expect(row?.indexing_run_files_committed).toBe(prior?.indexing_run_files_committed);
   });
 });

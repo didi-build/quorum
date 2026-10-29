@@ -113,6 +113,7 @@ describe("handleIndexingQueueBatch", () => {
       env.DB,
       sourceId,
       GENERIC_INDEXING_FAILURE_MESSAGE,
+      null,
     );
 
     vi.restoreAllMocks();
@@ -206,6 +207,7 @@ describe("handleIndexingQueueBatch", () => {
       env.DB,
       sourceId,
       GENERIC_INDEXING_FAILURE_MESSAGE,
+      null,
     );
 
     vi.restoreAllMocks();
@@ -238,6 +240,75 @@ describe("handleIndexingQueueBatch", () => {
 
     expect(finalMessage.ack).toHaveBeenCalled();
     expect(finalMessage.retry).not.toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it("DIDI-985: retries resend continuation when the first send failed after progress was committed", async () => {
+    const sourceId = "00000000-0000-4000-8000-000000000087";
+    const runId = "00000000-0000-4000-8000-000000000088";
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("queue unavailable"))
+      .mockResolvedValue(undefined);
+    const env = {
+      ...withTestConfigEnv(),
+      DB: {} as D1Database,
+      VECTORIZE: {} as VectorizeIndex,
+      INDEXING_QUEUE: { send },
+    } as unknown as import("../src/env.js").Env;
+
+    const indexSpy = vi
+      .spyOn(pipeline, "indexKnowledgeSource")
+      .mockResolvedValueOnce({
+        done: false,
+        continuation: {
+          source_id: sourceId,
+          github_files_processed: 25,
+          indexing_run_id: runId,
+        },
+      })
+      .mockResolvedValueOnce({
+        done: false,
+        continuation: {
+          source_id: sourceId,
+          github_files_processed: 25,
+          indexing_run_id: runId,
+        },
+      });
+
+    const message = mockMessage({ source_id: sourceId }, 1);
+    await handleIndexingQueueBatch(
+      { messages: [message] } as unknown as MessageBatch<{ source_id: string }>,
+      env,
+    );
+    expect(message.ack).not.toHaveBeenCalled();
+    expect(message.retry).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+
+    indexSpy.mockClear();
+    send.mockClear();
+
+    const retryMessage = mockMessage({ source_id: sourceId }, 2);
+    await handleIndexingQueueBatch(
+      { messages: [retryMessage] } as unknown as MessageBatch<{ source_id: string }>,
+      env,
+    );
+
+    expect(indexSpy).toHaveBeenCalledWith(
+      env.DB,
+      env.VECTORIZE,
+      expect.anything(),
+      { source_id: sourceId },
+      {},
+      { queueAttempt: 2 },
+    );
+    expect(send).toHaveBeenCalledWith({
+      source_id: sourceId,
+      github_files_processed: 25,
+      indexing_run_id: runId,
+    });
+    expect(retryMessage.ack).toHaveBeenCalled();
 
     vi.restoreAllMocks();
   });
