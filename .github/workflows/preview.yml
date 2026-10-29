@@ -8,6 +8,9 @@ concurrency:
   group: preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  GALLERY_PROBE_MARKER: quorum-gallery-bundle-probe
+
 permissions: {}
 
 jobs:
@@ -75,6 +78,126 @@ jobs:
             echo "preview_url=$url" >> "$GITHUB_OUTPUT"
           fi
 
+  gallery-probe:
+    name: gallery preview probe
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: write
+    outputs:
+      probe_outcome: ${{ steps.probe.outcome }}
+      creds_ready: ${{ steps.creds.outputs.ready }}
+    steps:
+      - name: Detect preview credentials
+        id: creds
+        env:
+          CF_TOKEN: ${{ secrets.QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW }}
+          CF_ACCOUNT: ${{ vars.QUORUM_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CF_TOKEN}" ] && [ -n "${CF_ACCOUNT}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Probe gallery route
+        id: probe
+        if: steps.creds.outputs.ready == 'true' && needs.deploy.outputs.preview_url != ''
+        env:
+          PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
+        run: |
+          set -euo pipefail
+          origin="${PREVIEW_URL%/app/}"
+          origin="${origin%/app}"
+          origin="${origin%/}"
+          curl_common=(--fail --show-error --silent --location --retry 3 --retry-delay 5 --retry-all-errors)
+          gallery_headers="$(curl "${curl_common[@]}" -sSI "${origin}/gallery/")"
+          if ! grep -qi 'x-robots-tag:.*noindex' <<<"$gallery_headers"; then
+            echo "Expected X-Robots-Tag with noindex on /gallery/."
+            printf '%s\n' "$gallery_headers"
+            exit 1
+          fi
+          gallery_html="$(curl "${curl_common[@]}" "${origin}/gallery/")"
+          if ! grep -qiE 'name="robots"[^>]*content="[^"]*nofollow' <<<"$gallery_html"; then
+            echo "Expected meta robots nofollow in /gallery/ HTML."
+            exit 1
+          fi
+          if grep -q "${GALLERY_PROBE_MARKER}" <<<"$gallery_html"; then
+            echo "Gallery probe marker must not appear in SPA HTML (only in built assets)."
+            exit 1
+          fi
+          js_path="$(grep -oE -m1 '/gallery/assets/index-[^"]+\.js' <<<"$gallery_html")"
+          if [ -z "$js_path" ]; then
+            echo "Could not find gallery JS asset in /gallery/ HTML."
+            exit 1
+          fi
+          js_body="$(curl "${curl_common[@]}" "${origin}${js_path}")"
+          grep -q "${GALLERY_PROBE_MARKER}" <<<"$js_body"
+      - name: Gallery preview check (deployed)
+        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome == 'success' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const appUrl = process.env.PREVIEW_URL.replace(/\/$/, '');
+            const origin = appUrl.replace(/\/app\/?$/, '');
+            const galleryUrl = `${origin}/gallery`;
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'gallery-preview',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'success',
+              output: {
+                title: 'Gallery preview',
+                summary: `[Open component gallery](${galleryUrl})`,
+              },
+            });
+        env:
+          PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
+      - name: Gallery preview check (unconfigured)
+        if: ${{ !cancelled() && steps.creds.outputs.ready != 'true' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'gallery-preview',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'neutral',
+              output: {
+                title: 'Gallery preview not configured',
+                summary:
+                  'Set secret QUORUM_CLOUDFLARE_API_TOKEN_PREVIEW and variable QUORUM_CLOUDFLARE_ACCOUNT_ID to enable mock-preview and gallery on pull requests.',
+              },
+            });
+      - name: Gallery preview check (failed)
+        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome == 'failure' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'gallery-preview',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: 'failure',
+              output: {
+                title: 'Gallery preview failed',
+                summary:
+                  'Deploy or the /gallery probe did not pass. See the Preview deploy workflow log for this pull request.',
+              },
+            });
+      - name: Fail if gallery probe failed
+        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome == 'failure' }}
+        run: exit 1
+
   screenshots:
     name: mock-preview screenshots
     needs: [build, deploy]
@@ -133,13 +256,16 @@ jobs:
 
   comment:
     name: mock-preview comment
-    needs: [deploy, screenshots]
+    needs: [deploy, screenshots, gallery-probe]
     if: ${{ !cancelled() && needs.deploy.result == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       pull-requests: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Find preview comment
         id: find-comment
         uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
@@ -154,8 +280,14 @@ jobs:
           SCREENSHOTS_RESULT: ${{ needs.screenshots.result }}
           SCREENSHOT_ARTIFACT_URL: ${{ needs.screenshots.outputs.artifact_url }}
           CAPTURE_SOURCE: ${{ needs.screenshots.outputs.capture_source }}
+          CREDS_READY: ${{ needs.gallery-probe.outputs.creds_ready }}
+          PROBE_OUTCOME: ${{ needs.gallery-probe.outputs.probe_outcome }}
+          PREVIEW_OUTCOME: ${{ needs.deploy.result }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          preview_mode="$(CREDS_READY="$CREDS_READY" PREVIEW_OUTCOME="$PREVIEW_OUTCOME" PROBE_OUTCOME="$PROBE_OUTCOME" node scripts/gallery-preview-mode.mjs | sed 's/^mode=//')"
+          gallery_body="$(PREVIEW_MODE="$preview_mode" PREVIEW_URL="$PREVIEW_URL" PR_HEAD_SHA="$PR_HEAD_SHA" OUTPUT_MODE=body node scripts/gallery-preview-summary.mjs)"
           {
             echo '<!-- quorum-mock-preview -->'
             echo '## Mock preview deploy'
@@ -169,6 +301,8 @@ jobs:
               echo '_Preview deploy was skipped (missing Cloudflare preview credentials or Worker bootstrap)._'
               echo ''
             fi
+            echo "$gallery_body"
+            echo ''
             echo '## UI screenshots'
             echo ''
             if [ "$SCREENSHOTS_RESULT" = "success" ]; then

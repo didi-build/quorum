@@ -52,3 +52,12 @@ runStepOrExit(
     },
   },
 );
+
+if (mode === "mock-preview") {
+  runStepOrExit(
+    "gallery build",
+    process.execPath,
+    [path.join(scriptsDir, "build-gallery.mjs")],
+    { cwd: root, env: baseEnv },
+  );
+}

@@ -93,6 +93,27 @@ describe("mock-preview static server (unit)", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
   });
 
+  it("serves the gallery shell for unknown /gallery paths when gallery dist exists", async () => {
+    const distRoot = fs.mkdtempSync(path.join(os.tmpdir(), "quorum-mock-preview-"));
+    tempDirs.push(distRoot);
+    fs.mkdirSync(path.join(distRoot, "gallery"), { recursive: true });
+    fs.writeFileSync(
+      path.join(distRoot, "gallery", "index.html"),
+      "<!doctype html><html><head><title>gallery</title></head><body>gallery</body></html>",
+    );
+
+    const started = await startMockPreviewStaticServer({
+      distRoot,
+      port: 0,
+    });
+    server = started;
+    const response = await fetch(`${started.baseUrl}/gallery/status-chip`, {
+      headers: { Accept: "text/html" },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("gallery");
+  });
+
   it("stubs /health for repo landing pages", () => {
     const landingRoot = path.join(process.cwd(), "landing");
     const request = {

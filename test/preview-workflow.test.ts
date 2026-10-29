@@ -191,4 +191,12 @@ jobs:
       "github.event.pull_request.head.repo.full_name == github.repository",
     );
   });
+
+  it("defines gallery probe and gallery-preview check after deploy", () => {
+    const galleryProbe = extractJobBlock(workflow, "gallery-probe");
+    expect(galleryProbe).toContain("GALLERY_PROBE_MARKER");
+    expect(galleryProbe).toContain("name: 'gallery-preview'");
+    expect(galleryProbe).toContain("Probe gallery route");
+    expect(workflow).toContain("build:frontend:mock-preview");
+  });
 });

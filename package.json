@@ -9,7 +9,10 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build:frontend && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution && npm run deploy:guards && npm run workflow-d1-id-secrets && npm run nodrift",
+    "check": "npm run conflict-markers && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run gallery:guards && npm run gallery:build && npm run build:frontend && npm run secrets && npm run secret-usage && npm run placeholders && npm run attribution && npm run deploy:guards && npm run workflow-d1-id-secrets && npm run nodrift",
+    "gallery:guards": "node scripts/check-gallery-guards.mjs",
+    "gallery:build": "node scripts/build-gallery.mjs",
+    "dev:gallery": "vite --config frontend/vite.gallery.config.ts",
     "deploy:guards": "node scripts/check-deploy-guards.mjs --target committed --config wrangler.jsonc",
     "workflow-d1-id-secrets": "node scripts/check-workflow-d1-id-secrets.mjs",
     "dev": "npm run build:frontend && wrangler dev",

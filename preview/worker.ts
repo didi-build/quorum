@@ -1,4 +1,9 @@
-import { appSpaShellRequest, shouldServeAppShell } from "./spa-routing.js";
+import {
+  appSpaShellRequest,
+  gallerySpaShellRequest,
+  shouldServeAppShell,
+  shouldServeGalleryShell,
+} from "./spa-routing.js";
 
 export interface PreviewEnv {
   ASSETS: Fetcher;
@@ -23,6 +28,10 @@ export default {
     const url = new URL(request.url);
 
     const assetResponse = await env.ASSETS.fetch(request);
+
+    if (shouldServeGalleryShell(url, request, assetResponse)) {
+      return withNoIndex(await env.ASSETS.fetch(gallerySpaShellRequest(url, request)));
+    }
 
     if (shouldServeAppShell(url, request, assetResponse)) {
       return withNoIndex(await env.ASSETS.fetch(appSpaShellRequest(url, request)));

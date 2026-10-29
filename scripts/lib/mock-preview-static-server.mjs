@@ -12,6 +12,10 @@ function isAppSpaPath(pathname) {
   return pathname === "/app" || pathname.startsWith("/app/");
 }
 
+function isGallerySpaPath(pathname) {
+  return pathname === "/gallery" || pathname.startsWith("/gallery/");
+}
+
 function wantsHtmlDocument(request) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return false;
@@ -22,6 +26,16 @@ function wantsHtmlDocument(request) {
 
 function shouldServeAppShell(url, request, assetStatus) {
   if (!isAppSpaPath(url.pathname)) {
+    return false;
+  }
+  if (!wantsHtmlDocument(request)) {
+    return false;
+  }
+  return assetStatus === 404 || assetStatus === 403;
+}
+
+function shouldServeGalleryShell(url, request, assetStatus) {
+  if (!isGallerySpaPath(url.pathname)) {
     return false;
   }
   if (!wantsHtmlDocument(request)) {
@@ -134,6 +148,18 @@ export function handleMockPreviewStaticRequest(request, distRoot, options = {}) 
   }
 
   const assetStatus = directPath && !fileExists(directPath) ? 404 : 403;
+  if (shouldServeGalleryShell(url, request, assetStatus)) {
+    const shellPath = path.join(distRoot, "gallery", "index.html");
+    if (!fileExists(shellPath)) {
+      return finish({ status: 404, headers: {}, body: "Not Found" });
+    }
+    return finish({
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+      body: readFile(shellPath),
+    });
+  }
+
   if (shouldServeAppShell(url, request, assetStatus)) {
     const shellPath = path.join(distRoot, "app", "index.html");
     if (!fileExists(shellPath)) {
