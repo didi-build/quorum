@@ -70,6 +70,32 @@ describe("claimIndexingRunOnSource (integration, vitest-pool-workers)", () => {
     expect(row?.indexing_run_files_committed).toBe(0);
   });
 
+  it("QA-2b: resets progress on a null-run claim when progress was committed", async () => {
+    const firstRun = "00000000-0000-4000-8000-000000000057";
+    await seedGithubSource("pending");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources SET indexing_run_files_committed = 55 WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .run();
+
+    expect(await claimIndexingRunOnSource(env.DB, SOURCE_ID, firstRun, null)).toBe(
+      "claimed",
+    );
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{
+        indexing_run_id: string;
+        indexing_run_files_committed: number | null;
+      }>();
+    expect(row?.indexing_run_id).toBe(firstRun);
+    expect(row?.indexing_run_files_committed).toBe(0);
+  });
+
   it("QA-3: a losing replace claim does not overwrite the winning run", async () => {
     const oldRun = "00000000-0000-4000-8000-000000000052";
     const winner = "00000000-0000-4000-8000-000000000053";
