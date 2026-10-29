@@ -2,7 +2,6 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FetchedDocument } from "../../src/domain/ingestion/adapters/types.js";
 import {
-  GENERIC_INDEXING_FAILURE_MESSAGE,
   IndexingHttpError,
   RECONNECT_WORKSPACE_MESSAGE,
 } from "../../src/domain/ingestion/errors.js";
@@ -164,20 +163,22 @@ describe("indexKnowledgeSource (integration, vitest-pool-workers)", () => {
     expect(source?.status_message).toBe(RECONNECT_WORKSPACE_MESSAGE);
   });
 
-  it("sets generic message on other failures", async () => {
+  it("rethrows generic fetch errors without marking error", async () => {
     await seedGithubSource();
 
-    await indexKnowledgeSource(
-      env.DB,
-      env.VECTORIZE,
-      config,
-      { source_id: SOURCE_ID },
-      {
-        fetchGithubRepoDocuments: async () => {
-          throw new Error("provider timeout");
+    await expect(
+      indexKnowledgeSource(
+        env.DB,
+        env.VECTORIZE,
+        config,
+        { source_id: SOURCE_ID },
+        {
+          fetchGithubRepoDocuments: async () => {
+            throw new Error("provider timeout");
+          },
         },
-      },
-    );
+      ),
+    ).rejects.toThrow("provider timeout");
 
     const source = await env.DB.prepare(
       `SELECT status, status_message FROM knowledge_sources WHERE id = ?`,
@@ -185,8 +186,8 @@ describe("indexKnowledgeSource (integration, vitest-pool-workers)", () => {
       .bind(SOURCE_ID)
       .first<{ status: string; status_message: string | null }>();
 
-    expect(source?.status).toBe("error");
-    expect(source?.status_message).toBe(GENERIC_INDEXING_FAILURE_MESSAGE);
+    expect(source?.status).toBe("indexing");
+    expect(source?.status_message).toBe("Indexing in progress");
   });
 
   it("marks ready with no content message when nothing is indexable", async () => {

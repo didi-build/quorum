@@ -11,6 +11,8 @@ import { VECTORIZE_UPSERT_BATCH_SIZE } from "./constants.js";
 import { embedChunksFlat, type VoyageFetch } from "./embedder.js";
 import { indexingErrorMessage } from "./errors.js";
 import type { IndexingQueueMessage } from "./indexing-message.js";
+import { indexingErrorLogFields, isIndexingTemporaryError } from "./indexing-retry.js";
+import { resolveIndexingRun, withIndexingRunId } from "./indexing-run.js";
 import { chunkVectorId } from "./vector-id.js";
 
 export type GithubDocumentsFetcher = (
@@ -55,6 +57,8 @@ interface KnowledgeSourceRow {
   source_type: "github_repo" | "linear";
   external_ref: string;
   connection_id: string;
+  indexing_run_id: string | null;
+  status: string;
 }
 
 async function loadKnowledgeSource(
@@ -63,11 +67,25 @@ async function loadKnowledgeSource(
 ): Promise<KnowledgeSourceRow | null> {
   return await db
     .prepare(
-      `SELECT id, source_type, external_ref, connection_id
+      `SELECT id, source_type, external_ref, connection_id, indexing_run_id, status
        FROM knowledge_sources WHERE id = ?`,
     )
     .bind(sourceId)
     .first<KnowledgeSourceRow>();
+}
+
+async function setIndexingRunId(
+  db: D1Database,
+  sourceId: string,
+  runId: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `UPDATE knowledge_sources SET indexing_run_id = ?, updated_at = ? WHERE id = ?`,
+    )
+    .bind(runId, now, sourceId)
+    .run();
 }
 
 async function setSourceStatus(
@@ -168,6 +186,8 @@ async function upsertChunkRow(
 export interface IndexKnowledgeSourceResult {
   done: boolean;
   continuation: IndexingQueueMessage | null;
+  /** True when the message run id is not the source's current run (late redelivery). */
+  stale?: boolean;
 }
 
 export async function indexKnowledgeSource(
@@ -184,6 +204,19 @@ export async function indexKnowledgeSource(
   const source = await loadKnowledgeSource(db, sourceId);
   if (source === null) {
     return { done: true, continuation: null };
+  }
+
+  const runResolution = resolveIndexingRun(message, source, isFreshRun);
+  if (runResolution.stale) {
+    return { done: true, continuation: null, stale: true };
+  }
+  const runId = runResolution.runId;
+  if (runId === null) {
+    return { done: true, continuation: null, stale: true };
+  }
+
+  if (source.indexing_run_id !== runId) {
+    await setIndexingRunId(db, sourceId, runId);
   }
 
   const connection = await getConnectionById(db, source.connection_id);
@@ -263,10 +296,13 @@ export async function indexKnowledgeSource(
       }
       return {
         done: false,
-        continuation: {
-          source_id: sourceId,
-          github_files_processed: githubFilesProcessed,
-        },
+        continuation: withIndexingRunId(
+          {
+            source_id: sourceId,
+            github_files_processed: githubFilesProcessed,
+          },
+          runId,
+        ),
       };
     }
 
@@ -299,10 +335,13 @@ export async function indexKnowledgeSource(
     if (githubHasMore) {
       return {
         done: false,
-        continuation: {
-          source_id: sourceId,
-          github_files_processed: githubFilesProcessed,
-        },
+        continuation: withIndexingRunId(
+          {
+            source_id: sourceId,
+            github_files_processed: githubFilesProcessed,
+          },
+          runId,
+        ),
       };
     }
 
@@ -310,8 +349,17 @@ export async function indexKnowledgeSource(
     await setSourceStatus(db, sourceId, "ready", null, now);
     return { done: true, continuation: null };
   } catch (error) {
-    const errorName = error instanceof Error ? error.name : "unknown_error";
-    console.error("Indexing failed for source", sourceId, errorName);
+    if (isIndexingTemporaryError(error)) {
+      console.error("Indexing temporary failure", {
+        source_id: sourceId,
+        ...indexingErrorLogFields(error),
+      });
+      throw error;
+    }
+    console.error("Indexing permanent failure", {
+      source_id: sourceId,
+      ...indexingErrorLogFields(error),
+    });
     await setSourceStatus(db, sourceId, "error", indexingErrorMessage(error));
     return { done: true, continuation: null };
   }

@@ -230,6 +230,11 @@ d1_tables:
         data: Last successful index completion timestamp (ISO 8601 UTC)
         purpose: UI freshness and support
         retention: until source deleted
+      indexing_run_id:
+        whose: operational
+        data: UUID identifying the active indexing queue run for this source
+        purpose: ignore stale queue redeliveries (DIDI-933)
+        retention: until source deleted
       created_at:
         whose: operational
         data: Source creation timestamp (ISO 8601 UTC)
@@ -448,7 +453,7 @@ other_items:
   - id: queue.indexing
     binding: INDEXING_QUEUE
     whose: operational
-    data: Knowledge-source indexing job payloads (repo or team ids, connection refs)
+    data: Knowledge-source indexing job payloads (source id, indexing run id, GitHub continuation cursor)
     purpose: async indexing with retries
     processors: [Cloudflare]
     retention: until queue consumer deletes message
