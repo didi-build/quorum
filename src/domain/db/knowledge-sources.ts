@@ -164,10 +164,12 @@ export async function loadKnowledgeSourceReindexSnapshot(
 export async function revertKnowledgeSourceAfterFailedRefreshEnqueue(
   db: D1Database,
   sourceId: string,
+  ownerUserId: string,
+  mintedRunId: string,
   prior: KnowledgeSourceReindexSnapshot,
-): Promise<void> {
+): Promise<boolean> {
   const now = new Date().toISOString();
-  await db
+  const result = await db
     .prepare(
       `UPDATE knowledge_sources
        SET status = ?,
@@ -175,7 +177,10 @@ export async function revertKnowledgeSourceAfterFailedRefreshEnqueue(
            indexing_run_id = ?,
            indexing_run_files_committed = ?,
            updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ?
+         AND user_id = ?
+         AND indexing_run_id = ?
+         AND status = 'pending'`,
     )
     .bind(
       prior.status,
@@ -184,6 +189,9 @@ export async function revertKnowledgeSourceAfterFailedRefreshEnqueue(
       prior.indexing_run_files_committed,
       now,
       sourceId,
+      ownerUserId,
+      mintedRunId,
     )
     .run();
+  return (result.meta.changes ?? 0) > 0;
 }

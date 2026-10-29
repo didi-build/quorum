@@ -22,7 +22,7 @@ import type {
   SourceType,
 } from "../domain/schemas/sources.js";
 import type { Env } from "../env.js";
-import { jsonDetail } from "../http/api-error.js";
+import { jsonDetail, workerErrorResponse } from "../http/api-error.js";
 
 const SOURCE_TYPES = new Set<SourceType>(["github_repo", "linear"]);
 
@@ -226,8 +226,14 @@ async function handleRefreshSource(
       source_id: sourceId,
       error_name: error instanceof Error ? error.name : "Error",
     });
-    await revertKnowledgeSourceAfterFailedRefreshEnqueue(env.DB, sourceId, prior);
-    return jsonDetail("Internal error", 503);
+    await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      sourceId,
+      actor.userId,
+      queued.indexingRunId,
+      prior,
+    );
+    return workerErrorResponse(error);
   }
   return Response.json(knowledgeSourceRowToRead(queued.row));
 }

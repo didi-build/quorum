@@ -9,10 +9,10 @@ import { INDEXING_QUEUE_MAX_RETRIES } from "../src/jobs/indexing-queue-constants
 import { withTestConfigEnv } from "./fixtures/config-env.js";
 
 function mockMessage(
-  body: { source_id: string },
+  body: { source_id: string; indexing_run_id?: string },
   attempts: number,
 ): {
-  body: { source_id: string };
+  body: { source_id: string; indexing_run_id?: string };
   attempts: number;
   ack: ReturnType<typeof vi.fn>;
   retry: ReturnType<typeof vi.fn>;
@@ -289,7 +289,10 @@ describe("handleIndexingQueueBatch", () => {
     indexSpy.mockClear();
     send.mockClear();
 
-    const retryMessage = mockMessage({ source_id: sourceId }, 2);
+    const retryMessage = mockMessage(
+      { source_id: sourceId, indexing_run_id: runId },
+      2,
+    );
     await handleIndexingQueueBatch(
       { messages: [retryMessage] } as unknown as MessageBatch<{ source_id: string }>,
       env,
@@ -299,7 +302,7 @@ describe("handleIndexingQueueBatch", () => {
       env.DB,
       env.VECTORIZE,
       expect.anything(),
-      { source_id: sourceId },
+      { source_id: sourceId, indexing_run_id: runId },
       {},
       { queueAttempt: 2 },
     );
@@ -309,6 +312,42 @@ describe("handleIndexingQueueBatch", () => {
       indexing_run_id: runId,
     });
     expect(retryMessage.ack).toHaveBeenCalled();
+
+    vi.restoreAllMocks();
+  });
+
+  it("DIDI-985 QA: passes message indexing_run_id to markKnowledgeSourceIndexingError", async () => {
+    const sourceId = "00000000-0000-4000-8000-000000000064";
+    const runId = "00000000-0000-4000-8000-000000000065";
+    const env = {
+      ...withTestConfigEnv(),
+      DB: {} as D1Database,
+      VECTORIZE: {} as VectorizeIndex,
+      INDEXING_QUEUE: { send: vi.fn() },
+    } as unknown as import("../src/env.js").Env;
+
+    vi.spyOn(pipeline, "indexKnowledgeSource").mockRejectedValue(
+      new VoyageEmbedError(503),
+    );
+    const markError = vi
+      .spyOn(pipeline, "markKnowledgeSourceIndexingError")
+      .mockResolvedValue(undefined);
+
+    const finalMessage = mockMessage(
+      { source_id: sourceId, indexing_run_id: runId },
+      INDEXING_QUEUE_MAX_RETRIES + 1,
+    );
+    await handleIndexingQueueBatch(
+      { messages: [finalMessage] } as unknown as MessageBatch<{ source_id: string }>,
+      env,
+    );
+
+    expect(markError).toHaveBeenCalledWith(
+      env.DB,
+      sourceId,
+      GENERIC_INDEXING_FAILURE_MESSAGE,
+      runId,
+    );
 
     vi.restoreAllMocks();
   });

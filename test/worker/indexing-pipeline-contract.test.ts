@@ -278,7 +278,15 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
   });
 
   it("does not clear existing chunks when a continuation batch is empty but more files remain", async () => {
+    const runId = "00000000-0000-4000-8000-000000000045";
     await seedGithubSource("indexing");
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 40
+       WHERE id = ?`,
+    )
+      .bind(runId, SOURCE_ID)
+      .run();
     await env.DB.prepare(
       `INSERT INTO chunks (
           knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
@@ -293,7 +301,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       env.DB,
       env.VECTORIZE,
       config,
-      { source_id: SOURCE_ID, github_files_processed: 40 },
+      { source_id: SOURCE_ID, github_files_processed: 40, indexing_run_id: runId },
       {
         fetchGithubRepoDocuments: async () => ({
           documents: [],
@@ -623,7 +631,9 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     const runId = "00000000-0000-4000-8000-000000000046";
     await seedGithubSource("indexing");
     await env.DB.prepare(
-      `UPDATE knowledge_sources SET indexing_run_id = ? WHERE id = ?`,
+      `UPDATE knowledge_sources
+       SET indexing_run_id = ?, indexing_run_files_committed = 40
+       WHERE id = ?`,
     )
       .bind(runId, SOURCE_ID)
       .run();
@@ -1690,7 +1700,7 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(rowAfterCorrect?.status).toBe("ready");
   });
 
-  it("DIDI-985: queue retry after progress commits resends continuation without refetch", async () => {
+  it("DIDI-985: queue retry with message run id resends continuation without refetch", async () => {
     await seedGithubSource("pending");
     const voyageFetch = mockVoyageFetch();
     const documentContent = "# Title\n\n" + "word ".repeat(200);
@@ -1712,6 +1722,50 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       },
     );
     expect(first.continuation?.github_files_processed).toBe(25);
+    const runId = first.continuation?.indexing_run_id;
+    expect(runId).toBeTruthy();
+
+    let fetchCalled = false;
+    const resend = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: runId },
+      {
+        fetchGithubRepoDocuments: async () => {
+          fetchCalled = true;
+          return { documents: [], has_more: false, files_processed: 0 };
+        },
+      },
+      { queueAttempt: 2 },
+    );
+
+    expect(fetchCalled).toBe(false);
+    expect(resend.continuation?.github_files_processed).toBe(25);
+    expect(resend.continuation?.indexing_run_id).toBe(runId);
+  });
+
+  it("DIDI-985 QA: run-id-less create message at attempt 2 does not resend continuation", async () => {
+    await seedGithubSource("pending");
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: documentContent }],
+          has_more: true,
+          files_processed: 25,
+        }),
+        voyageFetch,
+        clearSourceIndex: async () => {},
+        upsertChunkVectors: async () => {},
+      },
+    );
 
     let fetchCalled = false;
     const resend = await indexKnowledgeSource(
@@ -1729,11 +1783,111 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     );
 
     expect(fetchCalled).toBe(false);
-    expect(resend.continuation?.github_files_processed).toBe(25);
-    expect(resend.continuation?.indexing_run_id).toBeTruthy();
+    expect(resend.continuation).toBeNull();
+    expect(resend.stale).toBe(true);
   });
 
-  it("DIDI-985: superseded run does not write chunks after embed", async () => {
+  it("DIDI-985 QA: duplicate continuation chain dies on progress compare-and-set", async () => {
+    await seedGithubSource("pending");
+    const voyageFetch = mockVoyageFetch();
+    const documentContent = "# Title\n\n" + "word ".repeat(200);
+
+    await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "README.md", content: documentContent }],
+          has_more: true,
+          files_processed: 25,
+        }),
+        voyageFetch,
+        clearSourceIndex: async () => {},
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    const afterFirst = await env.DB.prepare(
+      `SELECT indexing_run_id, indexing_run_files_committed FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ indexing_run_id: string; indexing_run_files_committed: number }>();
+    const activeRunId = afterFirst!.indexing_run_id;
+
+    await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      {
+        source_id: SOURCE_ID,
+        github_files_processed: 25,
+        indexing_run_id: activeRunId,
+      },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "leg2.md", content: documentContent }],
+          has_more: true,
+          files_processed: 50,
+        }),
+        voyageFetch,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    const resend = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: activeRunId },
+      {},
+      { queueAttempt: 2 },
+    );
+    expect(resend.continuation?.github_files_processed).toBe(50);
+
+    const leg3Message = {
+      source_id: SOURCE_ID,
+      github_files_processed: 50,
+      indexing_run_id: activeRunId,
+    };
+    const leg3a = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      leg3Message,
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "leg3a.md", content: documentContent }],
+          has_more: true,
+          files_processed: 75,
+        }),
+        voyageFetch,
+        upsertChunkVectors: async () => {},
+      },
+    );
+    const leg3b = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      leg3Message,
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "leg3b.md", content: documentContent }],
+          has_more: true,
+          files_processed: 75,
+        }),
+        voyageFetch,
+        upsertChunkVectors: async () => {},
+      },
+    );
+
+    expect(leg3a.continuation?.github_files_processed).toBe(75);
+    expect(leg3b.stale).toBe(true);
+    expect(leg3b.continuation).toBeNull();
+  });
+
+  it("DIDI-985 QA: chunk upsert guard skips writes when the run id moved on", async () => {
     await seedIndexingWithRun(RUN1);
     const voyageFetch = mockVoyageFetch();
     const content = "# Title\n\n" + "word ".repeat(200);
@@ -1771,6 +1925,40 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
     expect(chunk).toBeNull();
   });
 
+  it("DIDI-985 QA: pre-vector run guard skips vector upsert when the run id moved on", async () => {
+    await seedIndexingWithRun(RUN1);
+    const voyageFetch = mockVoyageFetch();
+    const content = "# Title\n\n" + "word ".repeat(200);
+    const upsertSpy = vi.fn(async () => {});
+
+    const result = await indexKnowledgeSource(
+      env.DB,
+      env.VECTORIZE,
+      config,
+      { source_id: SOURCE_ID, indexing_run_id: RUN1 },
+      {
+        fetchGithubRepoDocuments: async () => ({
+          documents: [{ document_id: "vec-guard.md", content }],
+          has_more: false,
+          files_processed: 1,
+        }),
+        voyageFetch,
+        clearSourceIndex: async () => {},
+        upsertChunkVectors: upsertSpy,
+        afterChunkRowsBuilt: async () => {
+          await env.DB.prepare(
+            `UPDATE knowledge_sources SET indexing_run_id = ? WHERE id = ?`,
+          )
+            .bind(RUN2, SOURCE_ID)
+            .run();
+        },
+      },
+    );
+
+    expect(result.stale).toBe(true);
+    expect(upsertSpy).not.toHaveBeenCalled();
+  });
+
   it("DIDI-985: markKnowledgeSourceIndexingError respects the message run id", async () => {
     await seedIndexingWithRun(RUN1);
     await env.DB.prepare(
@@ -1789,5 +1977,19 @@ describe("indexKnowledgeSource contracts (integration, vitest-pool-workers)", ()
       .first<{ status: string; indexing_run_id: string }>();
     expect(row?.status).toBe("indexing");
     expect(row?.indexing_run_id).toBe(RUN2);
+  });
+
+  it("DIDI-985 QA: create path keeps unscoped error mark when message has no run id", async () => {
+    await seedIndexingWithRun(RUN1);
+
+    await markKnowledgeSourceIndexingError(env.DB, SOURCE_ID, "failed", null);
+
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string }>();
+    expect(row?.status).toBe("error");
+    expect(row?.indexing_run_id).toBe(RUN1);
   });
 });

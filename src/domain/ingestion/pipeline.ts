@@ -54,6 +54,8 @@ export interface IndexKnowledgeSourceDeps {
   voyageFetch?: VoyageFetch;
   clearSourceIndex?: typeof clearSourceIndex;
   upsertChunkVectors?: UpsertChunkVectors;
+  /** Test seam: invoked after chunk rows are built, before the pre-vector run check. */
+  afterChunkRowsBuilt?: () => Promise<void>;
 }
 
 export interface IndexKnowledgeSourceOptions {
@@ -128,15 +130,26 @@ async function setIndexingRunFilesCommitted(
   sourceId: string,
   runId: string,
   filesCommitted: number,
+  expectedFilesCommitted: number,
 ): Promise<boolean> {
+  if (filesCommitted === expectedFilesCommitted) {
+    const row = await db
+      .prepare(
+        `SELECT indexing_run_files_committed FROM knowledge_sources
+         WHERE id = ? AND indexing_run_id = ?`,
+      )
+      .bind(sourceId, runId)
+      .first<{ indexing_run_files_committed: number | null }>();
+    return (row?.indexing_run_files_committed ?? 0) === expectedFilesCommitted;
+  }
   const now = new Date().toISOString();
   const result = await db
     .prepare(
       `UPDATE knowledge_sources
        SET indexing_run_files_committed = ?, updated_at = ?
-       WHERE id = ? AND indexing_run_id = ?`,
+       WHERE id = ? AND indexing_run_id = ? AND indexing_run_files_committed = ?`,
     )
-    .bind(filesCommitted, now, sourceId, runId)
+    .bind(filesCommitted, now, sourceId, runId, expectedFilesCommitted)
     .run();
   return (result.meta.changes ?? 0) > 0;
 }
@@ -191,6 +204,15 @@ async function setSourceStatus(
     .run();
 }
 
+/** Used by integration tests to assert the pre-vector run guard. */
+export async function isActiveIndexingRunOnSource(
+  db: D1Database,
+  sourceId: string,
+  runId: string,
+): Promise<boolean> {
+  return await sourceStillOnRun(db, sourceId, runId);
+}
+
 export async function markKnowledgeSourceIndexingError(
   db: D1Database,
   sourceId: string,
@@ -201,11 +223,8 @@ export async function markKnowledgeSourceIndexingError(
   if (source === null) {
     return;
   }
-  if (messageRunId !== undefined && messageRunId !== null) {
+  if (messageRunId != null) {
     await setSourceStatusForRun(db, sourceId, messageRunId, "error", statusMessage);
-    return;
-  }
-  if (source.indexing_run_id !== null) {
     return;
   }
   await setSourceStatus(db, sourceId, "error", statusMessage);
@@ -239,29 +258,52 @@ export async function upsertVectors(
   }
 }
 
-async function upsertChunkRow(
+async function upsertChunkRowForRun(
   db: D1Database,
   sourceId: string,
+  runId: string,
   chunk: {
     document_id: string;
     chunk_index: number;
     content: string;
     heading_hierarchy: string[];
   },
-): Promise<number> {
+): Promise<number | null> {
   const headingJson = JSON.stringify(chunk.heading_hierarchy);
-  await db
+  const upsertResult = await db
     .prepare(
       `INSERT INTO chunks (
         knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
-      ) VALUES (?, ?, ?, ?, ?)
+      )
+      SELECT ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM knowledge_sources
+        WHERE id = ? AND indexing_run_id = ?
+      )
       ON CONFLICT(knowledge_source_id, document_id, chunk_index)
       DO UPDATE SET
         content = excluded.content,
-        heading_hierarchy = excluded.heading_hierarchy`,
+        heading_hierarchy = excluded.heading_hierarchy
+      WHERE EXISTS (
+        SELECT 1 FROM knowledge_sources
+        WHERE id = ? AND indexing_run_id = ?
+      )`,
     )
-    .bind(sourceId, chunk.document_id, chunk.chunk_index, chunk.content, headingJson)
+    .bind(
+      sourceId,
+      chunk.document_id,
+      chunk.chunk_index,
+      chunk.content,
+      headingJson,
+      sourceId,
+      runId,
+      sourceId,
+      runId,
+    )
     .run();
+  if ((upsertResult.meta.changes ?? 0) === 0) {
+    return null;
+  }
 
   const row = await db
     .prepare(
@@ -308,8 +350,9 @@ export async function indexKnowledgeSource(
     if (
       source.status === "indexing" &&
       progress > 0 &&
+      msgRun !== null &&
       srcRun !== null &&
-      (msgRun === null || msgRun === srcRun)
+      msgRun === srcRun
     ) {
       return {
         done: false,
@@ -439,6 +482,7 @@ export async function indexKnowledgeSource(
         sourceId,
         runId,
         githubFilesProcessed,
+        filesAlreadyProcessed,
       );
       if (!progressUpdated) {
         return { done: true, continuation: null, stale: true };
@@ -457,10 +501,6 @@ export async function indexKnowledgeSource(
 
     const embeddings = await embedChunksFlat(config, flatChunks, voyageFetch);
 
-    if (!(await sourceStillOnRun(db, sourceId, runId))) {
-      return { done: true, continuation: null, stale: true };
-    }
-
     if (isFreshRun) {
       await clearIndex(db, vectorize, sourceId);
     }
@@ -473,17 +513,21 @@ export async function indexKnowledgeSource(
     }> = [];
 
     for (let i = 0; i < flatChunks.length; i++) {
-      if (!(await sourceStillOnRun(db, sourceId, runId))) {
+      const chunk = flatChunks[i];
+      const chunkRowid = await upsertChunkRowForRun(db, sourceId, runId, chunk);
+      if (chunkRowid === null) {
         return { done: true, continuation: null, stale: true };
       }
-      const chunk = flatChunks[i];
-      const chunkRowid = await upsertChunkRow(db, sourceId, chunk);
       vectorRows.push({
         chunk_rowid: chunkRowid,
         document_id: chunk.document_id,
         chunk_index: chunk.chunk_index,
         embedding: embeddings[i],
       });
+    }
+
+    if (deps.afterChunkRowsBuilt) {
+      await deps.afterChunkRowsBuilt();
     }
 
     if (!(await sourceStillOnRun(db, sourceId, runId))) {
@@ -498,6 +542,7 @@ export async function indexKnowledgeSource(
         sourceId,
         runId,
         githubFilesProcessed,
+        filesAlreadyProcessed,
       );
       if (!progressUpdated) {
         return { done: true, continuation: null, stale: true };

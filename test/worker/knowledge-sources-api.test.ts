@@ -6,6 +6,7 @@ import {
   resetBootstrapApiKeyGuard,
 } from "../../src/domain/auth/api-key.js";
 import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
+import { indexKnowledgeSource } from "../../src/domain/ingestion/pipeline.js";
 import * as deleteVectors from "../../src/domain/ingestion/delete-vectors.js";
 import * as knowledgeSourceDelete from "../../src/domain/knowledge-sources/delete.js";
 import { clearInstallationTokenCache } from "../../src/domain/oauth/github-app.js";
@@ -992,7 +993,8 @@ describe("knowledge sources API (worker integration)", () => {
     );
     await waitOnExecutionContext(ctx);
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ detail: "Internal Server Error" });
     const row = await env.DB.prepare(
       `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
        FROM knowledge_sources WHERE id = ?`,
@@ -1008,5 +1010,73 @@ describe("knowledge sources API (worker integration)", () => {
     expect(row?.status_message).toBeNull();
     expect(row?.indexing_run_id).toBe("00000000-0000-4000-8000-000000000099");
     expect(row?.indexing_run_files_committed).toBe(12);
+  });
+
+  it("DIDI-985 QA: refresh enqueued message indexes to ready under the minted run id", async () => {
+    const queueSend = vi.fn();
+    const bindings = await testBindings(queueSend);
+    const cfg = loadConfig(bindings);
+    const sourceId = crypto.randomUUID();
+    const connectionId = crypto.randomUUID();
+    await insertGithubConnection(connectionId, DEFAULT_USER_ID);
+    await insertReadySource(sourceId, DEFAULT_USER_ID, connectionId);
+
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(
+      new Request(`http://test/sources/${sourceId}/refresh`, {
+        method: "POST",
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(response.status).toBe(200);
+    expect(queueSend).toHaveBeenCalledTimes(1);
+
+    const enqueued = queueSend.mock.calls[0][0] as {
+      source_id: string;
+      indexing_run_id: string;
+    };
+    expect(enqueued.source_id).toBe(sourceId);
+    expect(enqueued.indexing_run_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
+    const voyageFetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        inputs?: string[][];
+      };
+      const groups = body.inputs ?? [];
+      const data = groups.map((group, docIndex) => ({
+        index: docIndex,
+        data: group.map((_, chunkIndex) => ({
+          index: chunkIndex,
+          embedding: Array.from({ length: cfg.embeddingDimensions }, () => 0.1),
+        })),
+      }));
+      return new Response(JSON.stringify({ data, model: cfg.voyageModel }), {
+        status: 200,
+      });
+    });
+
+    await indexKnowledgeSource(env.DB, env.VECTORIZE, cfg, enqueued, {
+      fetchGithubRepoDocuments: async () => ({
+        documents: [{ document_id: "README.md", content: "# Title\n\nHello." }],
+        has_more: false,
+        files_processed: 1,
+      }),
+      voyageFetch,
+      clearSourceIndex: async () => {},
+      upsertChunkVectors: async () => {},
+    });
+
+    const row = await env.DB.prepare(
+      `SELECT indexing_run_id, status FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(sourceId)
+      .first<{ indexing_run_id: string; status: string }>();
+    expect(row?.indexing_run_id).toBe(enqueued.indexing_run_id);
+    expect(row?.status).toBe("ready");
   });
 });

@@ -170,6 +170,8 @@ describe("markKnowledgeSourceQueuedForReindex (integration, vitest-pool-workers)
     await revertKnowledgeSourceAfterFailedRefreshEnqueue(
       env.DB,
       OWNED_SOURCE_ID,
+      OWNER_ID,
+      queued!.indexingRunId,
       prior,
     );
 
@@ -188,5 +190,86 @@ describe("markKnowledgeSourceQueuedForReindex (integration, vitest-pool-workers)
     expect(row?.status_message).toBe(prior?.status_message);
     expect(row?.indexing_run_id).toBe(prior?.indexing_run_id);
     expect(row?.indexing_run_files_committed).toBe(prior?.indexing_run_files_committed);
+  });
+
+  it("Q1: refresh 1 failed rollback must not wipe refresh 2 state", async () => {
+    await seedOwnedReadySource();
+    const runB = "00000000-0000-4000-8000-0000000000b1";
+    const runC = "00000000-0000-4000-8000-0000000000c1";
+    const priorReady = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+
+    await env.DB.prepare(
+      `UPDATE knowledge_sources
+       SET status = 'pending',
+           status_message = 'Queued for re-indexing',
+           indexing_run_id = ?,
+           indexing_run_files_committed = 0
+       WHERE id = ?`,
+    )
+      .bind(runC, OWNED_SOURCE_ID)
+      .run();
+
+    const reverted = await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+      runB,
+      priorReady,
+    );
+    expect(reverted).toBe(false);
+
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first<{ status: string; indexing_run_id: string }>();
+    expect(row?.status).toBe("pending");
+    expect(row?.indexing_run_id).toBe(runC);
+  });
+
+  it("rollback restores null prior indexing_run_id when still on the minted pending run", async () => {
+    await seedOwnedReadySource();
+    const prior = (await env.DB.prepare(
+      `SELECT status, status_message, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first()) as KnowledgeSourceReindexSnapshot;
+    expect(prior.indexing_run_id).toBeNull();
+
+    const queued = await markKnowledgeSourceQueuedForReindex(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+    );
+    expect(queued).not.toBeNull();
+
+    const reverted = await revertKnowledgeSourceAfterFailedRefreshEnqueue(
+      env.DB,
+      OWNED_SOURCE_ID,
+      OWNER_ID,
+      queued!.indexingRunId,
+      prior,
+    );
+    expect(reverted).toBe(true);
+
+    const row = await env.DB.prepare(
+      `SELECT status, indexing_run_id, indexing_run_files_committed
+       FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(OWNED_SOURCE_ID)
+      .first<{
+        status: string;
+        indexing_run_id: string | null;
+        indexing_run_files_committed: number | null;
+      }>();
+    expect(row?.status).toBe("ready");
+    expect(row?.indexing_run_id).toBeNull();
+    expect(row?.indexing_run_files_committed).toBeNull();
   });
 });
