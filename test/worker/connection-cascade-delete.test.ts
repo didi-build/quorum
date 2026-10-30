@@ -285,6 +285,51 @@ async function workerBindings() {
   });
 }
 
+async function expectConnectionSourcesAndChunksIntact(
+  connectionId: string,
+  sourceIds: string[],
+): Promise<void> {
+  const connectionRow = await env.DB.prepare(`SELECT id FROM connections WHERE id = ?`)
+    .bind(connectionId)
+    .first();
+  expect(connectionRow).not.toBeNull();
+
+  for (const sourceId of sourceIds) {
+    const sourceRow = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(sourceId)
+      .first();
+    expect(sourceRow).not.toBeNull();
+
+    const chunkRow = await env.DB.prepare(
+      `SELECT id FROM chunks WHERE knowledge_source_id = ?`,
+    )
+      .bind(sourceId)
+      .first();
+    expect(chunkRow).not.toBeNull();
+  }
+}
+
+async function installConnectionDeleteAbortTrigger(
+  connectionId: string,
+): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS qa_block_connection_delete").run();
+  await env.DB.prepare(
+    `CREATE TRIGGER qa_block_connection_delete
+     BEFORE DELETE ON connections
+     FOR EACH ROW
+     WHEN OLD.id = '${connectionId}'
+     BEGIN
+       SELECT RAISE(ABORT, 'qa_block_connection_delete');
+     END`,
+  ).run();
+}
+
+async function removeConnectionDeleteAbortTrigger(): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS qa_block_connection_delete").run();
+}
+
 async function insertRouteConnectionWithSources(options: {
   connectionId: string;
   ownedSourceId: string;
@@ -613,6 +658,31 @@ describe("deleteConnection (integration, vitest-pool-workers)", () => {
     expect(vectorCallOrder).toEqual([[ownedVectorId], [foreignVectorId]]);
   });
 
+  it("rolls back all D1 deletes when the connection row delete fails inside batch", async () => {
+    await seedConnectionWithOwnedAndForeignSources({
+      ownedSourceId: ROUTE_OWNED_SOURCE_ID,
+      foreignSourceId: ROUTE_FOREIGN_SOURCE_ID,
+      insertForeignFirst: true,
+    });
+
+    await installConnectionDeleteAbortTrigger(CONNECTION_ID);
+
+    try {
+      await expect(
+        deleteConnection(env.DB, env.VECTORIZE, CONNECTION_ID, {
+          deleteChunkVectors: async () => {},
+        }),
+      ).rejects.toThrow(/qa_block_connection_delete/);
+
+      await expectConnectionSourcesAndChunksIntact(CONNECTION_ID, [
+        ROUTE_OWNED_SOURCE_ID,
+        ROUTE_FOREIGN_SOURCE_ID,
+      ]);
+    } finally {
+      await removeConnectionDeleteAbortTrigger();
+    }
+  });
+
   it("purges vectors then D1 rows for NULL-owner shared sources on the connection", async () => {
     await seedConnectionWithSharedNullOwnerSource();
     const expectedVectorId = await chunkVectorId(SHARED_SOURCE_ID, "shared.md", 0);
@@ -696,7 +766,15 @@ describe("DELETE /connections/:id vector cleanup (worker integration)", () => {
     const expectedVectorId = await chunkVectorId(sourceId, "route-doc.md", 0);
     const deleteVectorsSpy = vi
       .spyOn(deleteVectors, "deleteChunkVectors")
-      .mockResolvedValue(undefined);
+      .mockImplementation(async (_vectorize, vectorIds) => {
+        const connectionRow = await env.DB.prepare(
+          "SELECT id FROM connections WHERE id = ?",
+        )
+          .bind(connectionId)
+          .first();
+        expect(connectionRow).not.toBeNull();
+        expect(vectorIds).toEqual([expectedVectorId]);
+      });
 
     const ctx = createExecutionContext();
     const response = await worker.fetch(
@@ -804,4 +882,102 @@ describe("DELETE /connections/:id vector cleanup (worker integration)", () => {
       expect(connectionRow).toBeNull();
     },
   );
+
+  it("returns 500 when the second vector delete fails, then 204 on retry after all rows removed", async () => {
+    const bindings = await workerBindings();
+    const cfg = loadConfig(bindings);
+    const connectionId = crypto.randomUUID();
+    const ownedSourceId = ROUTE_OWNED_SOURCE_ID;
+    const foreignSourceId = ROUTE_FOREIGN_SOURCE_ID;
+
+    await insertRouteConnectionWithSources({
+      connectionId,
+      ownedSourceId,
+      foreignSourceId,
+      foreignOwnerId: ROUTE_FOREIGN_OWNER_ID,
+      insertForeignFirst: true,
+    });
+
+    const sortedSourceIds = [ownedSourceId, foreignSourceId].sort();
+    const expectedVectorOrder = await Promise.all(
+      sortedSourceIds.map(async (sourceId) => {
+        const doc = sourceId === ownedSourceId ? "route-owned.md" : "route-foreign.md";
+        return chunkVectorId(sourceId, doc, 0);
+      }),
+    );
+
+    let vectorCallCount = 0;
+    const deleteVectorsSpy = vi
+      .spyOn(deleteVectors, "deleteChunkVectors")
+      .mockImplementation(async (_vectorize, vectorIds) => {
+        vectorCallCount += 1;
+        if (vectorCallCount === 2) {
+          throw new Error("vector delete failed");
+        }
+        expect(vectorIds).toEqual([expectedVectorOrder[vectorCallCount - 1]]);
+      });
+
+    const failCtx = createExecutionContext();
+    const failResponse = await worker.fetch(
+      new Request(`http://test/connections/${connectionId}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      failCtx,
+    );
+    await waitOnExecutionContext(failCtx);
+
+    expect(failResponse.status).toBe(500);
+    expect(deleteVectorsSpy).toHaveBeenCalledTimes(2);
+    await expectConnectionSourcesAndChunksIntact(connectionId, [
+      ownedSourceId,
+      foreignSourceId,
+    ]);
+
+    deleteVectorsSpy.mockRestore();
+    const retryDeletedBatches: string[][] = [];
+    vi.spyOn(deleteVectors, "deleteChunkVectors").mockImplementation(
+      async (_vectorize, vectorIds) => {
+        retryDeletedBatches.push([...vectorIds]);
+      },
+    );
+
+    const retryCtx = createExecutionContext();
+    const retryResponse = await worker.fetch(
+      new Request(`http://test/connections/${connectionId}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": cfg.bootstrapApiKey },
+      }),
+      bindings,
+      retryCtx,
+    );
+    await waitOnExecutionContext(retryCtx);
+
+    expect(retryResponse.status).toBe(204);
+    expect(retryDeletedBatches).toEqual(
+      expectedVectorOrder.map((vectorId) => [vectorId]),
+    );
+
+    const ownedRow = await env.DB.prepare(
+      "SELECT id FROM knowledge_sources WHERE id = ?",
+    )
+      .bind(ownedSourceId)
+      .first();
+    expect(ownedRow).toBeNull();
+
+    const foreignRow = await env.DB.prepare(
+      "SELECT id FROM knowledge_sources WHERE id = ?",
+    )
+      .bind(foreignSourceId)
+      .first();
+    expect(foreignRow).toBeNull();
+
+    const connectionRow = await env.DB.prepare(
+      "SELECT id FROM connections WHERE id = ?",
+    )
+      .bind(connectionId)
+      .first();
+    expect(connectionRow).toBeNull();
+  });
 });

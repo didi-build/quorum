@@ -55,6 +55,8 @@ export async function deleteConnection(
 
   const sourceIds = (sourceRows.results ?? []).map((row) => row.id);
 
+  // A source added after this read but before batch would cascade on connection delete without vector purge.
+
   for (const sourceId of sourceIds) {
     await purgeKnowledgeSourceVectors(db, vectorize, sourceId, removeVectors);
   }
