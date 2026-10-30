@@ -6,7 +6,6 @@ import type { DeleteChunkVectors } from "../../src/domain/ingestion/delete-vecto
 import * as deleteVectors from "../../src/domain/ingestion/delete-vectors.js";
 import { chunkVectorId } from "../../src/domain/ingestion/vector-id.js";
 import { deleteConnection } from "../../src/domain/connections/delete-connection.js";
-import * as knowledgeSourceDelete from "../../src/domain/knowledge-sources/delete.js";
 import { clearInstallationTokenCache } from "../../src/domain/oauth/github-app.js";
 import worker from "../../src/index";
 import { generateTestPrivateKeyBase64 } from "../fixtures/github-app-test-key.js";
@@ -23,6 +22,10 @@ const OTHER_SOURCE_ID = "00000000-0000-4000-8000-000000000076";
 const FOREIGN_ON_CONN_SOURCE_ID = "00000000-0000-4000-8000-000000000077";
 const SHARED_SOURCE_ID = "00000000-0000-4000-8000-000000000078";
 const DEFAULT_USER_ID = "00000000-0000-4000-8000-000000000001";
+const ROUTE_OWNED_SOURCE_ID = "00000000-0000-4000-8000-000000000080";
+const ROUTE_FOREIGN_SOURCE_ID = "00000000-0000-4000-8000-000000000081";
+const ROUTE_FOREIGN_FIRST_SOURCE_ID = "00000000-0000-4000-8000-000000000082";
+const ROUTE_OWNED_SECOND_SOURCE_ID = "00000000-0000-4000-8000-000000000083";
 
 async function seedConnectionWithIndexedSource(options?: {
   skipUser?: boolean;
@@ -174,6 +177,72 @@ async function seedConnectionWithForeignOwnedSource(): Promise<void> {
     .run();
 }
 
+async function seedConnectionWithOwnedAndForeignSources(options: {
+  ownedSourceId: string;
+  foreignSourceId: string;
+  insertForeignFirst: boolean;
+}): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 70, 'conn-host')`,
+  )
+    .bind(USER_ID)
+    .run();
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 74, 'foreign-owner')`,
+  )
+    .bind(OTHER_USER_ID)
+    .run();
+  await env.DB.prepare(
+    `INSERT INTO connections (
+        id, user_id, provider, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', 'shared-acct', 'Shared')`,
+  )
+    .bind(CONNECTION_ID, USER_ID)
+    .run();
+
+  const insertOwned = async (): Promise<void> => {
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+          id, user_id, source_type, external_ref, connection_id, name, status
+        ) VALUES (?, ?, 'github_repo', 'org/owned', ?, 'Owned', 'ready')`,
+    )
+      .bind(options.ownedSourceId, USER_ID, CONNECTION_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'owned.md', 0, 'owned chunk', '[]')`,
+    )
+      .bind(options.ownedSourceId)
+      .run();
+  };
+
+  const insertForeign = async (): Promise<void> => {
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+          id, user_id, source_type, external_ref, connection_id, name, status
+        ) VALUES (?, ?, 'github_repo', 'org/foreign', ?, 'Foreign', 'ready')`,
+    )
+      .bind(options.foreignSourceId, OTHER_USER_ID, CONNECTION_ID)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'foreign-pair.md', 0, 'foreign chunk', '[]')`,
+    )
+      .bind(options.foreignSourceId)
+      .run();
+  };
+
+  if (options.insertForeignFirst) {
+    await insertForeign();
+    await insertOwned();
+  } else {
+    await insertOwned();
+    await insertForeign();
+  }
+}
+
 async function seedConnectionWithSharedNullOwnerSource(): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO users (id, github_id, login) VALUES (?, 70, 'shared-source-user')`,
@@ -214,6 +283,69 @@ async function workerBindings() {
       GITHUB_APP_PRIVATE_KEY_BASE64: privateKeyBase64,
     }),
   });
+}
+
+async function insertRouteConnectionWithSources(options: {
+  connectionId: string;
+  ownedSourceId: string;
+  foreignSourceId: string;
+  foreignOwnerId: string;
+  insertForeignFirst: boolean;
+}): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO users (id, github_id, login) VALUES (?, 2, 'route-foreign-owner')`,
+  )
+    .bind(options.foreignOwnerId)
+    .run();
+  await env.DB.prepare(
+    `INSERT INTO connections (
+        id, user_id, provider, installation_id, external_account_id, external_account_name
+      ) VALUES (?, ?, 'github', '2001', 'acct-own', 'own-user')`,
+  )
+    .bind(options.connectionId, DEFAULT_USER_ID)
+    .run();
+
+  const insertOwned = async (): Promise<void> => {
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+          id, user_id, source_type, external_ref, connection_id, name, status
+        ) VALUES (?, ?, 'github_repo', 'org/route-owned', ?, 'Route owned', 'ready')`,
+    )
+      .bind(options.ownedSourceId, DEFAULT_USER_ID, options.connectionId)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'route-owned.md', 0, 'owned', '[]')`,
+    )
+      .bind(options.ownedSourceId)
+      .run();
+  };
+
+  const insertForeign = async (): Promise<void> => {
+    await env.DB.prepare(
+      `INSERT INTO knowledge_sources (
+          id, user_id, source_type, external_ref, connection_id, name, status
+        ) VALUES (?, ?, 'github_repo', 'org/route-foreign', ?, 'Route foreign', 'ready')`,
+    )
+      .bind(options.foreignSourceId, options.foreignOwnerId, options.connectionId)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO chunks (
+          knowledge_source_id, document_id, chunk_index, content, heading_hierarchy
+        ) VALUES (?, 'route-foreign.md', 0, 'foreign', '[]')`,
+    )
+      .bind(options.foreignSourceId)
+      .run();
+  };
+
+  if (options.insertForeignFirst) {
+    await insertForeign();
+    await insertOwned();
+  } else {
+    await insertOwned();
+    await insertForeign();
+  }
 }
 
 describe("deleteConnection (integration, vitest-pool-workers)", () => {
@@ -258,7 +390,7 @@ describe("deleteConnection (integration, vitest-pool-workers)", () => {
     expect(sourceRow).toBeNull();
   });
 
-  it("deletes vectors before D1 rows and leaves the connection row when vector delete fails", async () => {
+  it("deletes vectors before D1 rows and leaves all rows when vector delete fails", async () => {
     await seedConnectionWithIndexedSource();
     let connectionExistedDuringVectors = false;
 
@@ -368,9 +500,13 @@ describe("deleteConnection (integration, vitest-pool-workers)", () => {
     expect(deletedVectorIds.sort()).toEqual([vectorIdA, vectorIdB].sort());
   });
 
-  it("passes the connection owner to deleteKnowledgeSource so another user's source is not removed", async () => {
+  it("purges foreign-owned sources on the connection", async () => {
     await seedConnectionWithForeignOwnedSource();
-    const deleteSpy = vi.spyOn(knowledgeSourceDelete, "deleteKnowledgeSource");
+    const foreignVectorId = await chunkVectorId(
+      FOREIGN_ON_CONN_SOURCE_ID,
+      "foreign.md",
+      0,
+    );
     const deletedVectorIds: string[] = [];
     const vectorize = {
       deleteByIds: vi.fn(async (ids: string[]) => {
@@ -378,21 +514,50 @@ describe("deleteConnection (integration, vitest-pool-workers)", () => {
       }),
     } as unknown as VectorizeIndex;
 
-    await expect(deleteConnection(env.DB, vectorize, CONNECTION_ID)).rejects.toThrow(
-      /Failed to delete knowledge source/,
-    );
+    await deleteConnection(env.DB, vectorize, CONNECTION_ID);
 
-    expect(deleteSpy).toHaveBeenCalledTimes(1);
-    expect(deleteSpy.mock.calls[0]?.[2]).toBe(FOREIGN_ON_CONN_SOURCE_ID);
-    expect(deleteSpy.mock.calls[0]?.[3]).toBe(USER_ID);
-    expect(deletedVectorIds).toEqual([]);
+    expect(deletedVectorIds).toEqual([foreignVectorId]);
 
     const foreignSource = await env.DB.prepare(
       `SELECT id FROM knowledge_sources WHERE id = ?`,
     )
       .bind(FOREIGN_ON_CONN_SOURCE_ID)
       .first();
-    expect(foreignSource).not.toBeNull();
+    expect(foreignSource).toBeNull();
+
+    const connectionRow = await env.DB.prepare(
+      `SELECT id FROM connections WHERE id = ?`,
+    )
+      .bind(CONNECTION_ID)
+      .first();
+    expect(connectionRow).toBeNull();
+
+    const foreignOwner = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`)
+      .bind(OTHER_USER_ID)
+      .first();
+    expect(foreignOwner).not.toBeNull();
+  });
+
+  it("purges owned and foreign sources without partial D1 deletes when vector delete fails", async () => {
+    await seedConnectionWithOwnedAndForeignSources({
+      ownedSourceId: ROUTE_OWNED_SECOND_SOURCE_ID,
+      foreignSourceId: ROUTE_FOREIGN_FIRST_SOURCE_ID,
+      insertForeignFirst: true,
+    });
+
+    let vectorPassCount = 0;
+    const failOnSecondSource: DeleteChunkVectors = async () => {
+      vectorPassCount += 1;
+      if (vectorPassCount === 2) {
+        throw new Error("vector delete failed");
+      }
+    };
+
+    await expect(
+      deleteConnection(env.DB, env.VECTORIZE, CONNECTION_ID, {
+        deleteChunkVectors: failOnSecondSource,
+      }),
+    ).rejects.toThrow(/vector delete failed/);
 
     const connectionRow = await env.DB.prepare(
       `SELECT id FROM connections WHERE id = ?`,
@@ -401,39 +566,51 @@ describe("deleteConnection (integration, vitest-pool-workers)", () => {
       .first();
     expect(connectionRow).not.toBeNull();
 
-    deleteSpy.mockRestore();
+    const ownedSource = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(ROUTE_OWNED_SECOND_SOURCE_ID)
+      .first();
+    expect(ownedSource).not.toBeNull();
+
+    const foreignSource = await env.DB.prepare(
+      `SELECT id FROM knowledge_sources WHERE id = ?`,
+    )
+      .bind(ROUTE_FOREIGN_FIRST_SOURCE_ID)
+      .first();
+    expect(foreignSource).not.toBeNull();
   });
 
-  it("leaves the connection row when deleteKnowledgeSource returns false", async () => {
-    await seedConnectionWithIndexedSource();
-    const deleteSpy = vi
-      .spyOn(knowledgeSourceDelete, "deleteKnowledgeSource")
-      .mockResolvedValue(false);
+  it("purges vectors in source id order before any D1 batch delete", async () => {
+    await seedConnectionWithOwnedAndForeignSources({
+      ownedSourceId: ROUTE_OWNED_SOURCE_ID,
+      foreignSourceId: ROUTE_FOREIGN_SOURCE_ID,
+      insertForeignFirst: true,
+    });
 
-    try {
-      await expect(
-        deleteConnection(env.DB, env.VECTORIZE, CONNECTION_ID),
-      ).rejects.toThrow(`Failed to delete knowledge source ${SOURCE_ID}`);
-
-      const connectionRow = await env.DB.prepare(
-        `SELECT id FROM connections WHERE id = ?`,
+    const vectorCallOrder: string[][] = [];
+    const trackVectors: DeleteChunkVectors = async (_vectorize, vectorIds) => {
+      vectorCallOrder.push([...vectorIds]);
+      const sourceCount = await env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM knowledge_sources WHERE connection_id = ?`,
       )
         .bind(CONNECTION_ID)
-        .first();
-      expect(connectionRow).not.toBeNull();
+        .first<{ count: number }>();
+      expect(sourceCount?.count).toBe(2);
+    };
 
-      const sourceRow = await env.DB.prepare(
-        `SELECT id FROM knowledge_sources WHERE id = ?`,
-      )
-        .bind(SOURCE_ID)
-        .first();
-      expect(sourceRow).not.toBeNull();
+    await deleteConnection(env.DB, env.VECTORIZE, CONNECTION_ID, {
+      deleteChunkVectors: trackVectors,
+    });
 
-      expect(deleteSpy).toHaveBeenCalledTimes(1);
-      expect(deleteSpy.mock.calls[0]?.[3]).toBe(USER_ID);
-    } finally {
-      deleteSpy.mockRestore();
-    }
+    const ownedVectorId = await chunkVectorId(ROUTE_OWNED_SOURCE_ID, "owned.md", 0);
+    const foreignVectorId = await chunkVectorId(
+      ROUTE_FOREIGN_SOURCE_ID,
+      "foreign-pair.md",
+      0,
+    );
+
+    expect(vectorCallOrder).toEqual([[ownedVectorId], [foreignVectorId]]);
   });
 
   it("purges vectors then D1 rows for NULL-owner shared sources on the connection", async () => {
@@ -467,6 +644,8 @@ describe("deleteConnection (integration, vitest-pool-workers)", () => {
 });
 
 describe("DELETE /connections/:id vector cleanup (worker integration)", () => {
+  const ROUTE_FOREIGN_OWNER_ID = "00000000-0000-4000-8000-000000000090";
+
   beforeEach(async () => {
     resetBootstrapApiKeyGuard();
     clearInstallationTokenCache();
@@ -541,4 +720,88 @@ describe("DELETE /connections/:id vector cleanup (worker integration)", () => {
       .first();
     expect(connectionRow).toBeNull();
   });
+
+  it.each([
+    {
+      label: "owned source inserted before foreign",
+      ownedSourceId: ROUTE_OWNED_SOURCE_ID,
+      foreignSourceId: ROUTE_FOREIGN_SOURCE_ID,
+      insertForeignFirst: false,
+    },
+    {
+      label: "foreign source inserted before owned",
+      ownedSourceId: ROUTE_OWNED_SECOND_SOURCE_ID,
+      foreignSourceId: ROUTE_FOREIGN_FIRST_SOURCE_ID,
+      insertForeignFirst: true,
+    },
+  ])(
+    "DELETE /connections/{id} purges owned and foreign sources ($label)",
+    async ({ ownedSourceId, foreignSourceId, insertForeignFirst }) => {
+      const bindings = await workerBindings();
+      const cfg = loadConfig(bindings);
+      const connectionId = crypto.randomUUID();
+
+      await insertRouteConnectionWithSources({
+        connectionId,
+        ownedSourceId,
+        foreignSourceId,
+        foreignOwnerId: ROUTE_FOREIGN_OWNER_ID,
+        insertForeignFirst,
+      });
+
+      const deletedVectorIdBatches: string[][] = [];
+      const deleteVectorsSpy = vi
+        .spyOn(deleteVectors, "deleteChunkVectors")
+        .mockImplementation(async (_vectorize, vectorIds) => {
+          deletedVectorIdBatches.push([...vectorIds]);
+        });
+
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(
+        new Request(`http://test/connections/${connectionId}`, {
+          method: "DELETE",
+          headers: { "X-API-Key": cfg.bootstrapApiKey },
+        }),
+        bindings,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+
+      expect(response.status).toBe(204);
+
+      const sortedSourceIds = [ownedSourceId, foreignSourceId].sort();
+      const expectedVectorOrder = await Promise.all(
+        sortedSourceIds.map(async (sourceId) => {
+          const doc =
+            sourceId === ownedSourceId ? "route-owned.md" : "route-foreign.md";
+          return chunkVectorId(sourceId, doc, 0);
+        }),
+      );
+      expect(deletedVectorIdBatches).toEqual(
+        expectedVectorOrder.map((vectorId) => [vectorId]),
+      );
+      expect(deleteVectorsSpy).toHaveBeenCalledTimes(2);
+
+      const ownedRow = await env.DB.prepare(
+        "SELECT id FROM knowledge_sources WHERE id = ?",
+      )
+        .bind(ownedSourceId)
+        .first();
+      expect(ownedRow).toBeNull();
+
+      const foreignRow = await env.DB.prepare(
+        "SELECT id FROM knowledge_sources WHERE id = ?",
+      )
+        .bind(foreignSourceId)
+        .first();
+      expect(foreignRow).toBeNull();
+
+      const connectionRow = await env.DB.prepare(
+        "SELECT id FROM connections WHERE id = ?",
+      )
+        .bind(connectionId)
+        .first();
+      expect(connectionRow).toBeNull();
+    },
+  );
 });
