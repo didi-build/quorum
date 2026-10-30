@@ -287,4 +287,43 @@ jobs:
     );
     expect(guardsJob).toContain("npm run gallery:guards");
   });
+
+  it("uses pull_request only with empty top-level permissions on preview.yml", () => {
+    expect(workflow).not.toMatch(/pull_request_target\s*:/);
+    expect(workflow.trimStart()).toMatch(/^permissions: \{\}\r?\n/m);
+    expect(workflow).toMatch(/^on:\r?\n\s+pull_request:\r?\n/m);
+  });
+
+  it("pins gallery-probe step conditions, failure conclusion, and fail step", () => {
+    const galleryProbe = extractJobBlock(workflow, "gallery-probe");
+    expect(stepIfLine(galleryProbe, "Probe gallery route")).toBe(
+      "        if: steps.creds.outputs.ready == 'true' && needs.deploy.outputs.preview_url != ''",
+    );
+    expect(stepIfLine(galleryProbe, "Gallery preview check (deployed)")).toBe(
+      "        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome == 'success' }}",
+    );
+    expect(stepIfLine(galleryProbe, "Gallery preview check (unconfigured)")).toBe(
+      "        if: ${{ !cancelled() && steps.creds.outputs.ready != 'true' }}",
+    );
+    expect(stepIfLine(galleryProbe, "Gallery preview check (failed)")).toBe(
+      "        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome != 'success' }}",
+    );
+    expect(
+      stepIfLine(galleryProbe, "Fail if gallery probe did not succeed with creds"),
+    ).toBe(
+      "        if: ${{ !cancelled() && steps.creds.outputs.ready == 'true' && steps.probe.outcome != 'success' }}",
+    );
+    expect(galleryProbe).toContain("        run: exit 1");
+    expect(galleryProbe).toContain("              conclusion: 'failure',");
+  });
+
+  it("waits for gallery-probe before posting the sticky comment with persist-credentials disabled", () => {
+    const comment = extractJobBlock(workflow, "comment");
+    expect(comment).toContain("needs: [deploy, screenshots, gallery-probe]");
+    const checkoutBlock = comment.slice(
+      comment.indexOf("- uses: actions/checkout@"),
+      comment.indexOf("- name: Find preview comment"),
+    );
+    expect(checkoutBlock).toContain("persist-credentials: false");
+  });
 });

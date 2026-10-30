@@ -172,6 +172,111 @@ describe("runGalleryGuards (unit)", () => {
     );
   });
 
+  it("fails when gallery-preview.yml omits npm run gallery:guards", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root, {
+      galleryWorkflow: `
+jobs:
+  gallery-guards:
+    steps:
+      - run: echo skip guards
+`,
+    });
+    const errors = runGalleryGuards(root);
+    expect(errors).toContain(
+      ".github/workflows/gallery-preview.yml must run npm run gallery:guards on pull requests.",
+    );
+  });
+
+  it("fails when gallery-preview.yml runs wrangler preview", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root, {
+      galleryWorkflow: `${MIN_GALLERY_WORKFLOW}\n      - run: npx wrangler preview\n`,
+    });
+    const errors = runGalleryGuards(root);
+    expect(errors).toContain(
+      ".github/workflows/gallery-preview.yml must not run wrangler preview (use mock-preview deploy).",
+    );
+  });
+
+  it("fails when preview.yml omits build:frontend:mock-preview", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root, {
+      previewWorkflow: `
+jobs:
+  build:
+    steps:
+      - run: npm run build
+`,
+    });
+    const errors = runGalleryGuards(root);
+    expect(errors).toContain(
+      ".github/workflows/preview.yml must build mock-preview assets (includes gallery).",
+    );
+  });
+
+  it("fails when preview.yml omits GALLERY_PROBE_MARKER", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root, {
+      previewWorkflow: `
+jobs:
+  build:
+    steps:
+      - run: npm run build:frontend:mock-preview
+`,
+    });
+    const errors = runGalleryGuards(root);
+    expect(errors).toContain(
+      ".github/workflows/preview.yml must probe the deployed /gallery route.",
+    );
+  });
+
+  it("fails when preview.yml references wrangler.gallery.jsonc", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root, {
+      previewWorkflow: `${MIN_PREVIEW_WORKFLOW}
+      - run: npx wrangler deploy --config wrangler.gallery.jsonc
+`,
+    });
+    const errors = runGalleryGuards(root);
+    expect(errors).toContain(
+      ".github/workflows/preview.yml must not reference wrangler.gallery.jsonc for deploy.",
+    );
+  });
+
+  it("fails when a .github workflow runs wrangler preview", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root);
+    writeFileSync(
+      join(root, ".github/workflows/evil-preview.yml"),
+      "jobs:\n  x:\n    steps:\n      - run: npx wrangler preview\n",
+    );
+    const errors = runGalleryGuards(root);
+    expect(
+      errors.some((e) =>
+        e.includes(".github/workflows/evil-preview.yml must not run wrangler preview"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails when a script runs wrangler preview", () => {
+    const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
+    tempRoots.push(root);
+    writeGalleryFixtureRoot(root, {
+      evilScript: 'console.log("npx wrangler preview");\n',
+    });
+    const errors = runGalleryGuards(root);
+    expect(errors).toContain(
+      "scripts/evil.mjs must not run wrangler preview (gallery uses mock-preview upload).",
+    );
+  });
+
   it("fails when a script runs wrangler deploy with wrangler.gallery.jsonc", () => {
     const root = mkdtempSync(join(tmpdir(), "quorum-gallery-guards-"));
     tempRoots.push(root);
