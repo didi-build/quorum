@@ -11,6 +11,11 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+// Text based guard for route files only. Known limits: the walk scans *.ts under
+// routesDir only (.mts route files are not scanned). A route that imports a domain
+// module which re exports purge under a new name is not caught, because the route
+// file may contain neither purgeKnowledgeSource nor knowledge-sources/delete.js.
+
 const DELETE_MODULE_PATH_RE = /knowledge-sources\/delete\.js/;
 const PURGE_SYMBOL_RE = /purgeKnowledgeSource/;
 const ALLOWED_DELETE_IMPORT_LINE_RE =
