@@ -15,12 +15,15 @@ import { SCANNED_FILE_RE } from "../scripts/lib/check-gallery-guards-lib.mjs";
 // Text based guard for route files only. Known limit (G6, see CTO:-prefixed comment on
 // Linear DIDI-975): a route that imports a domain module which re exports purge under a
 // new name is not caught, because the route file may contain neither purgeKnowledgeSource
-// nor knowledge-sources/delete.js. Scanned extensions match the gallery guard (SCANNED_FILE_RE).
+// nor knowledge-sources/delete.js. Scanned extensions are the gallery guard list
+// (SCANNED_FILE_RE) plus .tsx, .jsx and .cts.
 
 const DELETE_MODULE_PATH_RE = /knowledge-sources\/delete\.js/;
 const PURGE_SYMBOL_RE = /purgeKnowledgeSource/;
 const ALLOWED_DELETE_IMPORT_LINE_RE =
   /^\s*import\s*\{\s*deleteKnowledgeSource\s*\}\s*from\s*['"][^'"]*knowledge-sources\/delete\.js['"];?\s*$/m;
+
+const ROUTE_GUARD_EXTRA_SCANNED_FILE_RE = /\.(tsx|jsx|cts)$/;
 
 const GALLERY_GUARD_SCANNED_EXTENSIONS = [
   "yml",
@@ -33,9 +36,16 @@ const GALLERY_GUARD_SCANNED_EXTENSIONS = [
   "sh",
 ] as const;
 
+const ROUTE_GUARD_EXTRA_SCANNED_EXTENSIONS = ["tsx", "jsx", "cts"] as const;
+
+const ROUTE_GUARD_SCANNED_EXTENSIONS = [
+  ...GALLERY_GUARD_SCANNED_EXTENSIONS,
+  ...ROUTE_GUARD_EXTRA_SCANNED_EXTENSIONS,
+] as const;
+
 /** @param {string} entry */
 export function isRouteGuardScannedFile(entry: string): boolean {
-  return SCANNED_FILE_RE.test(entry);
+  return SCANNED_FILE_RE.test(entry) || ROUTE_GUARD_EXTRA_SCANNED_FILE_RE.test(entry);
 }
 
 /**
@@ -129,15 +139,18 @@ describe("purgeKnowledgeSource import guard", () => {
     expect(collectRoutesDirPurgeImportViolations(routesDir)).toEqual([]);
   });
 
-  it("uses the same scanned extensions as the gallery guard", () => {
+  it("uses gallery guard extensions plus tsx, jsx and cts", () => {
     for (const ext of GALLERY_GUARD_SCANNED_EXTENSIONS) {
       expect(SCANNED_FILE_RE.test(`nested/evil.${ext}`)).toBe(true);
       expect(isRouteGuardScannedFile(`nested/evil.${ext}`)).toBe(true);
     }
-    expect(isRouteGuardScannedFile("nested/evil.tsx")).toBe(false);
+    for (const ext of ROUTE_GUARD_EXTRA_SCANNED_EXTENSIONS) {
+      expect(SCANNED_FILE_RE.test(`nested/evil.${ext}`)).toBe(false);
+      expect(isRouteGuardScannedFile(`nested/evil.${ext}`)).toBe(true);
+    }
   });
 
-  it.each(GALLERY_GUARD_SCANNED_EXTENSIONS)(
+  it.each(ROUTE_GUARD_SCANNED_EXTENSIONS)(
     "flags nested route file with extension .%s and reports its relative path",
     (ext) => {
       const root = mkdtempSync(join(tmpdir(), "quorum-purge-import-guard-"));
