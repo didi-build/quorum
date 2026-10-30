@@ -100,7 +100,7 @@ function segmentRunsWranglerPreview(segment) {
   return /\bwrangler\s+preview\b/.test(segment);
 }
 
-const SCANNED_FILE_RE = /\.(yml|yaml|mjs|js|cjs|ts|mts|sh)$/;
+export const SCANNED_FILE_RE = /\.(yml|yaml|mjs|js|cjs|ts|mts|sh)$/;
 
 function walkFiles(dir, files = []) {
   for (const entry of readdirSync(dir)) {

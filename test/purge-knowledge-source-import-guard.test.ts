@@ -10,16 +10,33 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { SCANNED_FILE_RE } from "../scripts/lib/check-gallery-guards-lib.mjs";
 
-// Text based guard for route files only. Known limits: the walk scans *.ts under
-// routesDir only (.mts route files are not scanned). A route that imports a domain
-// module which re exports purge under a new name is not caught, because the route
-// file may contain neither purgeKnowledgeSource nor knowledge-sources/delete.js.
+// Text based guard for route files only. Known limit (G6, see CTO:-prefixed comment on
+// Linear DIDI-975): a route that imports a domain module which re exports purge under a
+// new name is not caught, because the route file may contain neither purgeKnowledgeSource
+// nor knowledge-sources/delete.js. Scanned extensions match the gallery guard (SCANNED_FILE_RE).
 
 const DELETE_MODULE_PATH_RE = /knowledge-sources\/delete\.js/;
 const PURGE_SYMBOL_RE = /purgeKnowledgeSource/;
 const ALLOWED_DELETE_IMPORT_LINE_RE =
   /^\s*import\s*\{\s*deleteKnowledgeSource\s*\}\s*from\s*['"][^'"]*knowledge-sources\/delete\.js['"];?\s*$/m;
+
+const GALLERY_GUARD_SCANNED_EXTENSIONS = [
+  "yml",
+  "yaml",
+  "mjs",
+  "js",
+  "cjs",
+  "ts",
+  "mts",
+  "sh",
+] as const;
+
+/** @param {string} entry */
+export function isRouteGuardScannedFile(entry: string): boolean {
+  return SCANNED_FILE_RE.test(entry);
+}
 
 /**
  * @param {string} content
@@ -55,7 +72,7 @@ export function collectRoutesDirPurgeImportViolations(routesDir: string): string
         walk(full);
         continue;
       }
-      if (!entry.endsWith(".ts")) {
+      if (!isRouteGuardScannedFile(entry)) {
         continue;
       }
       const rel = relative(routesDir, full).replace(/\\/g, "/");
@@ -112,42 +129,30 @@ describe("purgeKnowledgeSource import guard", () => {
     expect(collectRoutesDirPurgeImportViolations(routesDir)).toEqual([]);
   });
 
-  it("fails when a nested route file imports purgeKnowledgeSource", () => {
-    const root = mkdtempSync(join(tmpdir(), "quorum-purge-import-guard-"));
-    tempRoots.push(root);
-    const nestedDir = join(root, "src", "routes", "admin");
-    mkdirSync(nestedDir, { recursive: true });
-    writeFileSync(
-      join(nestedDir, "purge.ts"),
-      `import { purgeKnowledgeSource } from "../../domain/knowledge-sources/delete.js";\n`,
-    );
-    expect(collectRoutesDirPurgeImportViolations(join(root, "src/routes"))).not.toEqual(
-      [],
-    );
+  it("uses the same scanned extensions as the gallery guard", () => {
+    for (const ext of GALLERY_GUARD_SCANNED_EXTENSIONS) {
+      expect(SCANNED_FILE_RE.test(`nested/evil.${ext}`)).toBe(true);
+      expect(isRouteGuardScannedFile(`nested/evil.${ext}`)).toBe(true);
+    }
+    expect(isRouteGuardScannedFile("nested/evil.tsx")).toBe(false);
   });
 
-  it("would miss nested violations without recursive walk", () => {
-    const root = mkdtempSync(join(tmpdir(), "quorum-purge-import-guard-"));
-    tempRoots.push(root);
-    const nestedDir = join(root, "src", "routes", "nested");
-    mkdirSync(nestedDir, { recursive: true });
-    writeFileSync(
-      join(nestedDir, "evil.ts"),
-      `import { purgeKnowledgeSource } from "../../domain/knowledge-sources/delete.js";\n`,
-    );
-    const routesDir = join(root, "src/routes");
-    const topLevelOnly: string[] = [];
-    for (const file of readdirSync(routesDir)) {
-      if (!file.endsWith(".ts")) {
-        continue;
-      }
-      topLevelOnly.push(
-        ...collectRoutePurgeImportViolations(
-          readFileSync(join(routesDir, file), "utf8"),
-        ),
+  it.each(GALLERY_GUARD_SCANNED_EXTENSIONS)(
+    "flags nested route file with extension .%s and reports its relative path",
+    (ext) => {
+      const root = mkdtempSync(join(tmpdir(), "quorum-purge-import-guard-"));
+      tempRoots.push(root);
+      const nestedDir = join(root, "src", "routes", "nested");
+      mkdirSync(nestedDir, { recursive: true });
+      const fileName = `evil.${ext}`;
+      writeFileSync(
+        join(nestedDir, fileName),
+        "export const bad = purgeKnowledgeSource;\n",
       );
-    }
-    expect(topLevelOnly).toEqual([]);
-    expect(collectRoutesDirPurgeImportViolations(routesDir).length).toBeGreaterThan(0);
-  });
+      const routesDir = join(root, "src/routes");
+      expect(collectRoutesDirPurgeImportViolations(routesDir)).toEqual([
+        `nested/${fileName}: must not reference purgeKnowledgeSource`,
+      ]);
+    },
+  );
 });
