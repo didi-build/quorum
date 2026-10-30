@@ -283,6 +283,31 @@ describe("deleteUserAccount (integration, vitest-pool-workers)", () => {
     await env.DB.prepare("DELETE FROM users").run();
   });
 
+  it("deletes connections before the user row", async () => {
+    await seedUserWithIndexedSource();
+    const deleteSqlOrder: string[] = [];
+    const originalPrepare = env.DB.prepare.bind(env.DB);
+    vi.spyOn(env.DB, "prepare").mockImplementation((sql: string) => {
+      if (
+        sql.includes("DELETE FROM connections") ||
+        sql.includes("DELETE FROM users")
+      ) {
+        deleteSqlOrder.push(sql.trim());
+      }
+      return originalPrepare(sql);
+    });
+    const vectorize = {
+      deleteByIds: vi.fn(async () => {}),
+    } as unknown as VectorizeIndex;
+
+    await deleteUserAccount(env.DB, vectorize, USER_ID);
+
+    expect(deleteSqlOrder).toEqual([
+      "DELETE FROM connections WHERE user_id = ?",
+      "DELETE FROM users WHERE id = ?",
+    ]);
+  });
+
   it("calls deleteByIds for chunk vectors then removes the user and owned D1 rows", async () => {
     await seedUserWithIndexedSource();
     const expectedVectorId = await chunkVectorId(SOURCE_ID, "doc.md", 0);
