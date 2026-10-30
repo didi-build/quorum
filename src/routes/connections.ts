@@ -1,7 +1,7 @@
 import type { QuorumConfig } from "../config/types.js";
+import { deleteConnection } from "../domain/connections/delete-connection.js";
 import {
   connectionRowToRead,
-  deleteConnectionById,
   getConnectionById,
   listConnectionsByUserId,
 } from "../domain/db/connections.js";
@@ -125,7 +125,7 @@ export async function handleConnectionsRoute(
       return Response.json(connectionRowToRead(connection));
     }
     if (method === "DELETE") {
-      await deleteConnectionById(env.DB, connectionId);
+      await deleteConnection(env.DB, env.VECTORIZE, connectionId);
       return new Response(null, { status: 204 });
     }
   }
