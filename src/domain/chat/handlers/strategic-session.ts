@@ -1,23 +1,27 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import type { QuorumConfig } from "../../../config/types.js";
+import { runCouncil } from "../../council/service.js";
+import type { RetrievalSearchDeps } from "../../retrieval/service.js";
+import type { ActorContext } from "../../schemas/actor.js";
 import type { RoutedChatResponse } from "../../schemas/chat.js";
-import { emitSupervisorStatus, type StatusQueue } from "../status.js";
+import type { StatusQueue } from "../status.js";
 
-const STRATEGIC_SESSION_PLACEHOLDER = "Council review is coming soon.";
-
-/** Placeholder until council fan-out ships (v1 `run_council`). */
-export async function handleStrategicSession(
-  sessionId: string,
-  _message: string,
-  statusQueue?: StatusQueue,
-): Promise<RoutedChatResponse> {
-  await emitSupervisorStatus(statusQueue, sessionId, "alerting_council");
-  return {
-    session_id: sessionId,
-    content: STRATEGIC_SESSION_PLACEHOLDER,
-    classified_intent: "strategic_session",
-    response_kind: "direct_answer",
-    citations: [],
-    council_decision: null,
-  };
+export interface StrategicSessionParams {
+  sessionId: string;
+  message: string;
+  actor: ActorContext;
+  db: D1Database;
+  vectorize: VectorizeIndex;
+  config: QuorumConfig;
+  effectiveProjectId: string | null;
+  statusQueue?: StatusQueue;
+  client?: Anthropic;
+  searchDeps?: RetrievalSearchDeps;
 }
 
-export { STRATEGIC_SESSION_PLACEHOLDER };
+/** v1 strategic session handler via council fan-out (`run_council`). */
+export async function handleStrategicSession(
+  params: StrategicSessionParams,
+): Promise<RoutedChatResponse> {
+  return runCouncil(params);
+}
