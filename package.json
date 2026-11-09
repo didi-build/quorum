@@ -49,12 +49,6 @@
       "prettier --write"
     ]
   },
-  "overrides": {
-    "globby": {
-      "ignore": "7.0.12"
-    },
-    "p-map": "7.1.0"
-  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.10.0",
     "@cloudflare/workers-types": "5.20261023.1",
