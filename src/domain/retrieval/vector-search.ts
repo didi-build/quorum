@@ -81,8 +81,9 @@ export async function searchChunksByVector(
 
   const groups = chunkSourceIdsForVectorizeFilter(sourceIds);
 
+  let responses: Awaited<ReturnType<VectorizeIndex["query"]>>[];
   try {
-    const responses = await Promise.all(
+    responses = await Promise.all(
       groups.map((group) => {
         const filter =
           group.length === 1
@@ -96,27 +97,27 @@ export async function searchChunksByVector(
         });
       }),
     );
-
-    const mergedMatches: VectorizeMatch[] = [];
-    for (const response of responses) {
-      mergedMatches.push(...(response.matches ?? []));
-    }
-
-    mergedMatches.sort(compareVectorMatches);
-    const topMatches = mergedMatches.slice(0, limit);
-
-    const rowids: number[] = [];
-    for (const match of topMatches) {
-      const rowid = chunkRowidFromMetadata(
-        match.metadata as Record<string, unknown> | undefined,
-      );
-      if (rowid !== null) {
-        rowids.push(rowid);
-      }
-    }
-
-    return loadChunksByIdsInOrder(db, rowids, new Set(sourceIds));
   } catch {
     throw new RetrievalUpstreamError(503);
   }
+
+  const mergedMatches: VectorizeMatch[] = [];
+  for (const response of responses) {
+    mergedMatches.push(...(response.matches ?? []));
+  }
+
+  mergedMatches.sort(compareVectorMatches);
+  const topMatches = mergedMatches.slice(0, limit);
+
+  const rowids: number[] = [];
+  for (const match of topMatches) {
+    const rowid = chunkRowidFromMetadata(
+      match.metadata as Record<string, unknown> | undefined,
+    );
+    if (rowid !== null) {
+      rowids.push(rowid);
+    }
+  }
+
+  return loadChunksByIdsInOrder(db, rowids, new Set(sourceIds));
 }
