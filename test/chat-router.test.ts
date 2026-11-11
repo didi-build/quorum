@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import * as retrievalHandler from "../src/domain/chat/handlers/retrieval.js";
-import { STRATEGIC_SESSION_PLACEHOLDER } from "../src/domain/chat/handlers/strategic-session.js";
+import * as orchestratorModule from "../src/domain/council/orchestrator.js";
+import * as councilService from "../src/domain/council/service.js";
 import { routeMessage } from "../src/domain/chat/router.js";
 import { loadConfig } from "../src/config/load-config.js";
 import { actorContext } from "../src/domain/schemas/actor.js";
 import type { ChatIntent } from "../src/domain/schemas/chat.js";
+import * as retrievalHandler from "../src/domain/chat/handlers/retrieval.js";
 import { testConfigEnv } from "./fixtures/config-env.js";
 
 describe("routeMessage (v1 parity)", () => {
@@ -34,7 +35,20 @@ describe("routeMessage (v1 parity)", () => {
     retrievalSpy.mockRestore();
   });
 
-  it("routes strategic_session to the council placeholder", async () => {
+  it("routes strategic_session to council_result via runCouncil", async () => {
+    const councilSpy = vi.spyOn(councilService, "runCouncil").mockResolvedValue({
+      session_id: sessionId,
+      content: "Synthesized plan.",
+      classified_intent: "strategic_session",
+      response_kind: "council_result",
+      citations: [],
+      council_decision: {
+        persona_opinions: [],
+        overall_verdict: "comment",
+        synthesis: "Synthesized plan.",
+      },
+    });
+
     const response = await routeMessage({
       sessionId,
       message: "Review this proposal",
@@ -46,9 +60,11 @@ describe("routeMessage (v1 parity)", () => {
       intent: "strategic_session",
     });
 
+    expect(councilSpy).toHaveBeenCalledOnce();
     expect(response.classified_intent).toBe("strategic_session");
-    expect(response.response_kind).toBe("direct_answer");
-    expect(response.content).toBe(STRATEGIC_SESSION_PLACEHOLDER);
+    expect(response.response_kind).toBe("council_result");
+    expect(response.content).toBe("Synthesized plan.");
+    councilSpy.mockRestore();
   });
 
   it("emits alerting_council on strategic_session", async () => {
@@ -58,6 +74,12 @@ describe("routeMessage (v1 parity)", () => {
         updates.push(update);
       },
     };
+
+    vi.spyOn(orchestratorModule, "runCouncilOrchestrator").mockResolvedValue({
+      persona_opinions: [],
+      overall_verdict: "comment",
+      synthesis: "Synthesized plan.",
+    });
 
     await routeMessage({
       sessionId,
@@ -71,10 +93,10 @@ describe("routeMessage (v1 parity)", () => {
       statusQueue,
     });
 
-    expect(updates).toHaveLength(1);
-    expect(updates[0]?.scope).toBe("supervisor");
-    expect(updates[0]?.status).toBe("alerting_council");
-    expect(updates[0]?.session_id).toBe(sessionId);
+    expect(
+      updates.some((u) => u.scope === "supervisor" && u.status === "alerting_council"),
+    ).toBe(true);
+    vi.restoreAllMocks();
   });
 
   it("returns Linear stubs as not implemented", async () => {

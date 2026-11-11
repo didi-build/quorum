@@ -19,3 +19,20 @@ export async function emitSupervisorStatus(
     status,
   });
 }
+
+export async function emitPersonaStatus(
+  statusQueue: StatusQueue | undefined,
+  sessionId: string,
+  persona: string,
+  status: string,
+): Promise<void> {
+  if (statusQueue === undefined) {
+    return;
+  }
+  await statusQueue.enqueue({
+    session_id: sessionId,
+    scope: "persona",
+    persona,
+    status,
+  });
+}
